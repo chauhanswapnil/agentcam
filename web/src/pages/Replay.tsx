@@ -28,6 +28,8 @@ import { Button } from '../ui/Button'
 import { DiffView } from '../ui/DiffView'
 import { Kbd } from '../ui/Kbd'
 import { Markdown } from '../ui/Markdown'
+import { ReportCardButton } from '../ui/ReportCard'
+import { sessionCard } from '../lib/reportCard'
 import { ListRow } from '../ui/ListRow'
 import { AgentLabel, EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
@@ -218,6 +220,9 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
           </div>
         </div>
         <div className={s.facts}>
+          <span style={{ alignSelf: 'center' }}>
+            <ReportCardButton build={(redact) => sessionCard(data, redact)} filename={`agentcam-session-${id.split('/').pop()}.png`} />
+          </span>
           <span>
             <b>{formatHours(x.active_ms)}</b>agent time
           </span>

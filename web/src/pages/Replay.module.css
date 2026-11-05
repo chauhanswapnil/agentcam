@@ -56,9 +56,13 @@
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
+.head > div {
+  min-width: 0;
+}
 .facts {
   display: flex;
-  gap: var(--s-6);
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-6);
   color: var(--text-3);
   font-size: var(--fs-sm);
 }

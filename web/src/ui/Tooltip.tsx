@@ -32,13 +32,13 @@ export function Tooltip({ content, children, side = 'top', delay = 350 }: Props)
       aria-describedby={open ? id : undefined}
     >
       {children}
-      <span
-        role="tooltip"
-        id={id}
-        className={`${s.tip} ${side === 'bottom' ? s.bottom : ''} ${open ? s.open : ''}`}
-      >
-        {content}
-      </span>
+      {/* Only in the page while shown: a hidden tooltip near the edge would
+          still widen the page and cause sideways scrolling. */}
+      {open && (
+        <span role="tooltip" id={id} className={`${s.tip} ${side === 'bottom' ? s.bottom : ''}`}>
+          {content}
+        </span>
+      )}
     </span>
   )
 }

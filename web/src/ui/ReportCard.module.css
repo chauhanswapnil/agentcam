@@ -1,0 +1,64 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+  place-items: center;
+  padding: var(--s-4);
+  background: var(--bg-overlay);
+  animation: fade var(--dur-3) var(--ease-out);
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  width: min(860px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: var(--s-5);
+  border-radius: var(--r-4);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-overlay);
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.head h2 {
+  font-size: var(--fs-xl);
+}
+.canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1200 / 630;
+  border-radius: var(--r-3);
+  background: var(--bg-0);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.spacer {
+  flex: 1;
+}
+.note {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}

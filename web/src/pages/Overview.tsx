@@ -30,6 +30,8 @@ import { SEVERITY_RANK } from '../lib/severity'
 import { SeverityBadge } from '../ui/Severity'
 import { Button } from '../ui/Button'
 import { Heatmap } from '../ui/Heatmap'
+import { ReportCardButton } from '../ui/ReportCard'
+import { weekCard } from '../lib/reportCard'
 import { ListRow } from '../ui/ListRow'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
@@ -239,6 +241,9 @@ export function Overview() {
   const activity = useApi<Day[]>(`/api/activity${query({ agent: f.agent, project: f.project })}`, gen)
   const sessions = useApi<SessionPage>(`/api/sessions${query({ ...filterQuery, range: f.day ? undefined : f.range, limit })}`, gen)
 
+  // The weekly card always covers the last 7 days, whatever the range.
+  const week = useApi<OverviewData>(`/api/overview${query({ range: '7d', agent: f.agent })}`, gen)
+  const weekAudit = useApi<import('../lib/api').Audit>(`/api/audit${query({ range: '7d', agent: f.agent, severity: 'medium', limit: 1 })}`, gen)
   const indexing = status?.indexing
   const firstRun = indexing && !status?.last_report
   const o = overview.data
@@ -259,6 +264,15 @@ export function Overview() {
         <div className={s.controls}>
           <Segmented label="Agent" value={f.agent} onChange={(agent) => setF({ agent })} options={AGENT_OPTIONS} />
           <Segmented label="Time range" value={f.range} onChange={(range) => setF({ range, day: '' })} options={RANGES} />
+          <ReportCardButton
+            label="This week"
+            filename="agentcam-week.png"
+            build={(redact) =>
+              week.data && activity.data
+                ? weekCard(week.data, activity.data, weekAudit.data, f.agent as AgentId | '', redact)
+                : null
+            }
+          />
           <Tooltip content={indexing ? 'Indexing…' : 'Read new and changed logs'}>
             <Button icon variant="ghost" aria-label="Re-index" onClick={reindex} disabled={indexing}>
               <RefreshCw aria-hidden className={indexing ? s.spin : undefined} />

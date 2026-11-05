@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Parsers for Claude Code and Codex logs (including subagents and older Codex formats) into one event model.
 - SQLite index with full-text search; only changed logs are re-read, and sessions are kept after their logs are deleted.
 - `agentcam index` and `agentcam search` commands.
+- Report cards: a shareable 1200×630 PNG for a session or the last 7 days, drawn in the browser. Titles, projects and file names are hidden by default; copy or download.
 - Risk audit: 28 built-in YAML rules (secrets, sensitive files, dangerous commands, installs, outbound domains, writes outside the project) checked at index time; secrets are masked; your own rules go in `rules.yaml` next to the index.
 - `agentcam scan` prints findings in the terminal.
 - Audit page, risk flags on the replay timeline, a risks list and per-step findings in the replay, and risk badges on sessions. `R` jumps to the next risk.
