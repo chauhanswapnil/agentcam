@@ -6,6 +6,7 @@ pub mod codex;
 pub mod index;
 pub mod model;
 pub mod query;
+pub mod shell;
 pub mod util;
 
 use std::path::{Path, PathBuf};

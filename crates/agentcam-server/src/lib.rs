@@ -113,6 +113,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/activity", get(api::activity))
         .route("/sessions", get(api::sessions))
         .route("/sessions/{*id}", get(api::session))
+        .route("/step", get(api::step))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -225,6 +226,28 @@ mod tests {
         );
         assert_eq!(
             get("/api/sessions/missing").await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert!(d["files"].as_array().unwrap().len() >= 3);
+        assert_eq!(
+            d["events"][0]["text"],
+            "The login form rejects valid passwords. Please fix it."
+        );
+
+        // seq 5 is `npm test`, which failed; seq 4 is the edit.
+        let step = json("/api/step?session=11111111-1111-4111-8111-111111111111&seq=5").await;
+        assert_eq!(step["title"], "npm test");
+        assert_eq!(step["is_error"], true);
+        let edit = json("/api/step?session=11111111-1111-4111-8111-111111111111&seq=4").await;
+        let diffs: String = edit["touches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["diff"].as_str())
+            .collect();
+        assert!(diffs.contains("+export function check(p)"), "{edit}");
+        assert_eq!(
+            get("/api/step?session=x&seq=0").await.status(),
             StatusCode::NOT_FOUND
         );
     }

@@ -1,0 +1,52 @@
+.diff {
+  overflow: auto;
+  max-height: 520px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2);
+  background: var(--bg-0);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.table {
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.line td {
+  padding: 0 var(--s-2);
+  white-space: pre;
+  vertical-align: top;
+}
+.num {
+  width: 1%;
+  color: var(--text-3);
+  text-align: right;
+  user-select: none;
+  opacity: 0.7;
+}
+.sign {
+  width: 1%;
+  padding-right: 0 !important;
+  user-select: none;
+}
+.add {
+  background: var(--diff-add-bg);
+}
+.add .sign {
+  color: var(--diff-add-mark);
+}
+.del {
+  background: var(--diff-del-bg);
+}
+.del .sign {
+  color: var(--diff-del-mark);
+}
+.hunk td {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  color: var(--diff-hunk);
+  background: var(--bg-1);
+}
+.meta td {
+  color: var(--text-3);
+}

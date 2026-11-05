@@ -65,9 +65,13 @@ export type EventRow = {
   title: string
   is_error: boolean
   duration_ms: number | null
+  /** Start of the text for prompts, responses, thinking and notices. */
+  text: string | null
 }
 
-export type SessionDetail = { session: SessionRow; events: EventRow[]; subagents: SessionRow[] }
+export type FileRow = { seq: number; path: string; action: 'read' | 'edit' | 'create' | 'delete' }
+
+export type SessionDetail = { session: SessionRow; events: EventRow[]; files: FileRow[]; subagents: SessionRow[] }
 
 export type IndexStatus = {
   indexing: boolean

@@ -315,14 +315,29 @@ pub struct EventRow {
     pub title: String,
     pub is_error: bool,
     pub duration_ms: Option<i64>,
+    /// Start of the text for prompts, responses, thinking and notices
+    /// (the transcript). Tool output comes from [`step`].
+    pub text: Option<String>,
+}
+
+/// A file a step touched.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileRow {
+    pub seq: i64,
+    pub path: String,
+    pub action: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionDetail {
     pub session: SessionRow,
     pub events: Vec<EventRow>,
+    pub files: Vec<FileRow>,
     pub subagents: Vec<SessionRow>,
 }
+
+/// Longest transcript text sent with a session; the full text is in [`step`].
+const TRANSCRIPT_TEXT: i64 = 4000;
 
 pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     let Some(session) = conn
@@ -335,10 +350,11 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     else {
         return Ok(None);
     };
-    let mut stmt = conn.prepare(
-        "SELECT seq, ts, kind, tool_name, category, title, is_error, duration_ms
-         FROM events WHERE session_id = ? ORDER BY seq",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT seq, ts, kind, tool_name, category, title, is_error, duration_ms,
+                CASE WHEN kind != 'tool_call' THEN substr(body, 1, {TRANSCRIPT_TEXT}) END
+         FROM events WHERE session_id = ? ORDER BY seq"
+    ))?;
     let events = stmt
         .query_map([id], |r| {
             Ok(EventRow {
@@ -350,6 +366,18 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
                 title: r.get(5)?,
                 is_error: r.get(6)?,
                 duration_ms: r.get(7)?,
+                text: r.get(8)?,
+            })
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    let mut stmt = conn
+        .prepare("SELECT seq, path, action FROM file_touches WHERE session_id = ? ORDER BY seq")?;
+    let files = stmt
+        .query_map([id], |r| {
+            Ok(FileRow {
+                seq: r.get(0)?,
+                path: r.get(1)?,
+                action: r.get(2)?,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
@@ -362,6 +390,78 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     Ok(Some(SessionDetail {
         session,
         events,
+        files,
         subagents,
     }))
+}
+
+/// A file change in full, with its diff when the log had one.
+#[derive(Debug, Clone, Serialize)]
+pub struct Touch {
+    pub path: String,
+    pub action: String,
+    pub diff: Option<String>,
+}
+
+/// Everything about one step.
+#[derive(Debug, Clone, Serialize)]
+pub struct Step {
+    pub seq: i64,
+    pub ts: Option<String>,
+    pub kind: String,
+    pub tool_name: Option<String>,
+    pub category: Option<String>,
+    pub title: String,
+    pub body: String,
+    /// Tool input as JSON text.
+    pub input: Option<String>,
+    pub is_error: bool,
+    pub duration_ms: Option<i64>,
+    /// Text was cut to fit the index; the log has the rest.
+    pub truncated: bool,
+    pub touches: Vec<Touch>,
+}
+
+pub fn step(conn: &Connection, session_id: &str, seq: i64) -> Result<Option<Step>> {
+    let Some(mut st) = conn
+        .query_row(
+            "SELECT seq, ts, kind, tool_name, category, title, body, input, is_error, duration_ms
+             FROM events WHERE session_id = ? AND seq = ?",
+            rusqlite::params![session_id, seq],
+            |r| {
+                let body: String = r.get(6)?;
+                let input: Option<String> = r.get(7)?;
+                let cut = |s: &str| s.ends_with('…') && s.len() >= crate::model::MAX_TEXT;
+                Ok(Step {
+                    seq: r.get(0)?,
+                    ts: r.get(1)?,
+                    kind: r.get(2)?,
+                    tool_name: r.get(3)?,
+                    category: r.get(4)?,
+                    title: r.get(5)?,
+                    truncated: cut(&body) || input.as_deref().is_some_and(cut),
+                    body,
+                    input,
+                    is_error: r.get(8)?,
+                    duration_ms: r.get(9)?,
+                    touches: Vec::new(),
+                })
+            },
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let mut stmt = conn
+        .prepare("SELECT path, action, diff FROM file_touches WHERE session_id = ? AND seq = ?")?;
+    st.touches = stmt
+        .query_map(rusqlite::params![session_id, seq], |r| {
+            Ok(Touch {
+                path: r.get(0)?,
+                action: r.get(1)?,
+                diff: r.get(2)?,
+            })
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    Ok(Some(st))
 }

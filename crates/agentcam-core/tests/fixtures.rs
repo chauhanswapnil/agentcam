@@ -148,6 +148,35 @@ fn claude_file_touches_have_diffs() {
 }
 
 #[test]
+fn shell_commands_record_file_changes() {
+    let dir = std::env::temp_dir().join(format!("agentcam-shell-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("s.jsonl");
+    let rec = serde_json::json!({
+        "type": "assistant", "timestamp": "2026-11-01T10:00:00.000Z", "cwd": "/Users/dev/projects/demo",
+        "sessionId": "s", "message": {"id": "m", "model": "x", "content": [
+            {"type": "tool_use", "id": "t", "name": "Bash",
+             "input": {"command": "cd web && rm -rf dist && sed -i '' 's/a/b/' src/x.ts"}}
+        ]}
+    });
+    std::fs::write(&path, format!("{rec}\n")).unwrap();
+    let p = claude::parse(&path).unwrap();
+    let got: Vec<_> = p
+        .touches
+        .iter()
+        .map(|t| (t.path.as_str(), t.action))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("/Users/dev/projects/demo/web/dist", FileAction::Delete),
+            ("/Users/dev/projects/demo/web/src/x.ts", FileAction::Edit),
+        ]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn claude_slash_commands_and_notices() {
     let p = claude_main();
     let cost = p.events.iter().find(|e| e.title == "/cost").unwrap();

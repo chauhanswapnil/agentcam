@@ -1,0 +1,82 @@
+.md {
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.md > * + * {
+  margin-top: var(--s-2);
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin-top: var(--s-4);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+}
+.md h1:first-child,
+.md h2:first-child,
+.md h3:first-child {
+  margin-top: 0;
+}
+.md p {
+  white-space: pre-wrap;
+}
+.md ul,
+.md ol {
+  margin-bottom: 0;
+  padding-left: 1.3em;
+}
+.md li + li {
+  margin-top: 2px;
+}
+.md code {
+  padding: 1px 4px;
+  border-radius: var(--r-1);
+  background: var(--bg-3);
+  color: var(--text-1);
+  font-size: 0.86em;
+}
+.md pre {
+  overflow: auto;
+  max-height: 360px;
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2);
+  background: var(--bg-0);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.md pre code {
+  padding: 0;
+  background: none;
+  color: inherit;
+}
+.md strong {
+  font-weight: var(--fw-semibold);
+}
+.link {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-decoration-color: var(--line-3);
+  text-underline-offset: 2px;
+}
+.md blockquote {
+  margin: 0;
+  padding-left: var(--s-3);
+  border-left: 2px solid var(--line-3);
+  color: var(--text-2);
+}
+.md table {
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.md td,
+.md th {
+  padding: 2px var(--s-2);
+  border: 1px solid var(--line-2);
+  text-align: left;
+}

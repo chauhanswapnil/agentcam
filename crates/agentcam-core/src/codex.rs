@@ -154,6 +154,12 @@ impl State {
                 e.duration_ms = rust_duration(item.get("duration"));
                 e.input = Some(item.get("command").cloned().unwrap_or(Value::Null));
                 let idx = self.items.len();
+                let cwd = str_of(item, "cwd")
+                    .map(|c| c.strip_prefix("file://").unwrap_or(c).to_string())
+                    .or_else(|| self.out.session.project_path.clone());
+                for (path, action) in crate::shell::command_touches(&cmd, cwd.as_deref()) {
+                    self.item_touches.push((idx, touch(&path, action, None)));
+                }
                 for pc in item
                     .get("parsed_cmd")
                     .and_then(Value::as_array)
@@ -242,8 +248,14 @@ impl State {
         let idx = self.legacy.len();
         let (cat, title) = match name {
             "shell" | "exec_command" | "local_shell" | "container.exec" => {
-                let cmd = args.get("command").or_else(|| args.get("cmd"));
-                (ToolCategory::Command, command_text(cmd))
+                let cmd = command_text(args.get("command").or_else(|| args.get("cmd")));
+                let cwd = str_of(&args, "workdir")
+                    .map(String::from)
+                    .or_else(|| self.out.session.project_path.clone());
+                for (path, action) in crate::shell::command_touches(&cmd, cwd.as_deref()) {
+                    self.legacy_touches.push((idx, touch(&path, action, None)));
+                }
+                (ToolCategory::Command, cmd)
             }
             "apply_patch" => {
                 let patch = if raw_input.is_empty() {

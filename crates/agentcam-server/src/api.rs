@@ -238,6 +238,22 @@ pub async fn sessions(
         .map(Json)
 }
 
+#[derive(Deserialize)]
+pub struct StepParams {
+    session: String,
+    seq: i64,
+}
+
+pub async fn step(State(st): Shared, Query(p): Query<StepParams>) -> Result<Response, ApiError> {
+    let found = st
+        .read(move |idx| query::step(idx.conn(), &p.session, p.seq))
+        .await?;
+    Ok(match found {
+        Some(s) => Json(s).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    })
+}
+
 pub async fn session(
     State(st): Shared,
     UrlPath(id): UrlPath<String>,

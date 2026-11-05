@@ -260,13 +260,13 @@ impl State {
                     e.body = truncate(text, MAX_TEXT);
                     self.push(e);
                 }
-                Some("tool_use") => self.tool_use(b, offset, ts.clone()),
+                Some("tool_use") => self.tool_use(b, offset, ts.clone(), str_of(rec, "cwd")),
                 _ => {}
             }
         }
     }
 
-    fn tool_use(&mut self, b: &Value, offset: u64, ts: Option<String>) {
+    fn tool_use(&mut self, b: &Value, offset: u64, ts: Option<String>, cwd: Option<&str>) {
         let name = str_of(b, "name").unwrap_or("unknown");
         let input = b.get("input").cloned().unwrap_or(Value::Null);
         let arg = |k: &str| str_of(&input, k).map(String::from);
@@ -301,6 +301,19 @@ impl State {
         let idx = self.push(e);
         if let Some(id) = self.out.events[idx].call_id.clone() {
             self.pending.insert(id, idx);
+        }
+        if category == ToolCategory::Command
+            && let Some(cmd) = &title
+        {
+            let cwd = cwd.or(self.out.session.project_path.as_deref());
+            for (path, action) in crate::shell::command_touches(cmd, cwd) {
+                self.out.touches.push(FileTouch {
+                    seq: idx as u32,
+                    path,
+                    action,
+                    diff: None,
+                });
+            }
         }
         if let (Some(action), Some(path)) = (touch, title) {
             self.out.touches.push(FileTouch {

@@ -87,7 +87,8 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/overview` | Stats, the previous period's stats, and projects with weekly sparklines |
 | `GET /api/activity` | Agent time per local day for the last 371 days |
 | `GET /api/sessions` | Top-level sessions, most recently active first, paged |
-| `GET /api/sessions/{id}` | One session with its steps (titles only) and subagents |
+| `GET /api/sessions/{id}` | One session: steps (titles, plus the start of transcript text), files touched, subagents |
+| `GET /api/step?session=&seq=` | One step in full: output, input, file changes with diffs |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
 
@@ -123,6 +124,7 @@ Open `/styleguide` in the running app to see every token and component. Before a
 - `agentcam-core/src/model.rs`: the shared model. A `Session` has `Event`s (prompt, response, thinking, tool_call, system) and `FileTouch`es. A tool call and its result are one event.
 - `claude.rs` and `codex.rs` turn one log file into one `ParsedSession`. They read line by line, skip bad lines, and ignore record types they don't know.
 - `index.rs` stores sessions in SQLite with an FTS5 table over event titles and bodies. It re-parses a file only when its size or modified time changes. Sessions stay after their log file is deleted (agents prune old logs; agentcam keeps the history).
+- `shell.rs` reads file changes out of shell commands (`>`, `>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `touch`, `cd` chains, skipping heredoc bodies). It is a careful reader, not a shell: when unsure (globs, variables, `~`), it records nothing. Files written by scripts it runs (say `python script.py`) are not seen.
 - Long text is cut to 32 KB in the index. `source_offset` points back at the original record.
 - Change the schema → bump `SCHEMA_VERSION` in `index.rs`; old indexes are dropped and rebuilt.
 

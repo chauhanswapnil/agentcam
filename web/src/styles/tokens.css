@@ -57,6 +57,13 @@
   --heat-4: #6da7ec;
   --heat-5: #9ec5f4;
 
+  /* Diffs */
+  --diff-add-bg: rgb(12 163 12 / 13%);
+  --diff-add-mark: #4cc44c;
+  --diff-del-bg: rgb(208 59 59 / 15%);
+  --diff-del-mark: #e66767;
+  --diff-hunk: #6da7ec;
+
   /* Focus */
   --focus: #ededef;
 
