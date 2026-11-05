@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { formatDuration, formatTime } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
-import type { EventRow } from '../lib/api'
+import type { EventRow, Severity } from '../lib/api'
+import { SEVERITY_COLOR } from '../lib/severity'
 import { KindIcon } from './Misc'
 import s from './Track.module.css'
 
@@ -11,6 +12,8 @@ type Props = {
   onSeek: (i: number) => void
   /** 1 fits the whole session; higher values stretch it and scroll. */
   zoom: number
+  /** Worst risk finding per step seq, drawn as a flag above the mark. */
+  flags?: Map<number, Severity>
 }
 
 const weight = (e: EventRow) => 1 + Math.log10(1 + (e.duration_ms ?? 0) / 250)
@@ -19,7 +22,7 @@ const weight = (e: EventRow) => 1 + Math.log10(1 + (e.duration_ms ?? 0) / 250)
  * The replay timeline: one mark per step, wider for steps that took longer.
  * Steps before the playhead are brighter than steps after it.
  */
-export function Track({ events, current, onSeek, zoom }: Props) {
+export function Track({ events, current, onSeek, zoom, flags }: Props) {
   const outer = useRef<HTMLDivElement>(null)
   const viewport = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<{ i: number; x: number } | null>(null)
@@ -59,6 +62,7 @@ export function Track({ events, current, onSeek, zoom }: Props) {
               onSeek={onSeek}
               onHover={show}
               onLeave={hide}
+              flag={flags?.get(e.seq)}
             />
           ))}
         </div>
@@ -87,6 +91,7 @@ const Mark = memo(function Mark({
   onSeek,
   onHover,
   onLeave,
+  flag,
 }: {
   e: EventRow
   i: number
@@ -94,6 +99,7 @@ const Mark = memo(function Mark({
   onSeek: (i: number) => void
   onHover: (i: number, el: HTMLElement) => void
   onLeave: () => void
+  flag?: Severity
 }) {
   return (
     <button
@@ -110,6 +116,7 @@ const Mark = memo(function Mark({
       onClick={() => onSeek(i)}
     >
       {state === 'on' && <span className={s.playhead} aria-hidden />}
+      {flag && <span className={s.flag} style={{ background: SEVERITY_COLOR[flag] }} aria-label={`${flag} risk`} />}
     </button>
   )
 })

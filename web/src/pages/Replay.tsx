@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   Rows3,
+  ShieldAlert,
   SkipForward,
   Sparkles,
   TriangleAlert,
@@ -19,7 +20,7 @@ import {
 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { query, useApi, useIndexStatus, type EventRow, type SessionDetail } from '../lib/api'
+import { query, useApi, useIndexStatus, type EventRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
 import { baseName, formatCompact, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { Badge } from '../ui/Badge'
@@ -31,6 +32,8 @@ import { ListRow } from '../ui/ListRow'
 import { AgentLabel, EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
+import { SEVERITY_COLOR, SEVERITY_RANK } from '../lib/severity'
+import { SeverityBadge } from '../ui/Severity'
 import { Tooltip } from '../ui/Tooltip'
 import { Track } from '../ui/Track'
 import s from './Replay.module.css'
@@ -77,7 +80,7 @@ export function Replay() {
 }
 
 function Player({ id, data }: { id: string; data: SessionDetail }) {
-  const { session: x, events, files, subagents } = data
+  const { session: x, events, files, findings, subagents } = data
   const [, navigate] = useLocation()
   // Read once: the URL follows the playhead, not the other way round.
   const [search] = useState(() => window.location.search)
@@ -91,6 +94,16 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
   // Steps that created, edited or deleted a file.
   const changed = useMemo(() => new Set(files.filter((f) => f.action !== 'read').map((f) => f.seq)), [files])
   const isChange = useCallback((e: EventRow) => changed.has(e.seq), [changed])
+  // Worst finding per step, for timeline flags and the step pane.
+  const flags = useMemo(() => {
+    const m = new Map<number, Severity>()
+    for (const f of findings) {
+      const cur = m.get(f.seq)
+      if (!cur || SEVERITY_RANK[f.severity] > SEVERITY_RANK[cur]) m.set(f.seq, f.severity)
+    }
+    return m
+  }, [findings])
+  const flagged = useCallback((e: EventRow) => (flags.get(e.seq) ? SEVERITY_RANK[flags.get(e.seq)!] >= 2 : false), [flags])
 
   const seek = useCallback(
     (i: number) => {
@@ -154,6 +167,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
       else if (k === 'ArrowRight' || k === 'j') seek(stepRef.current + 1)
       else if (k === 'ArrowLeft' || k === 'k') seek(stepRef.current - 1)
       else if (k === 'e') nextWhere((ev) => ev.is_error)
+      else if (k === 'r') nextWhere(flagged)
       else if (k === 'Home') seek(0)
       else if (k === 'End') seek(last)
       else if (k === '1' || k === '2' || k === '3') setSpeed(SPEEDS[Number(k) - 1].value)
@@ -165,7 +179,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [nextWhere, seek, last, isChange])
+  }, [nextWhere, seek, last, isChange, flagged])
 
   const title = oneLine(x.title ?? x.first_prompt ?? 'Untitled session')
   const cur = events[step]
@@ -227,7 +241,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
       ) : (
         <>
           <div className={s.player}>
-            <Track events={events} current={step} onSeek={jump} zoom={zoom} />
+            <Track events={events} current={step} onSeek={jump} zoom={zoom} flags={flags} />
             <div className={s.controls}>
               <Tooltip content={<>Previous <Kbd keys={['left']} /></>}>
                 <Button icon variant="ghost" aria-label="Previous step" onClick={() => seek(step - 1)} disabled={step === 0}>
@@ -297,6 +311,9 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                       <Kbd keys={['e']} /> next failure
                     </span>
                     <span>
+                      <Kbd keys={['r']} /> next risk
+                    </span>
+                    <span>
                       <Kbd keys={['1']} /> <Kbd keys={['2']} /> <Kbd keys={['3']} /> speed
                     </span>
                   </span>
@@ -317,9 +334,31 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
             <div className={`${s.column} ${s.stickyCol}`}>
               <Panel flush>
                 <div className={s.scroll} style={{ padding: 16 }}>
-                  <StepDetail sessionId={id} event={cur} index={step} total={events.length} root={x.project_root} />
+                  <StepDetail
+                    sessionId={id}
+                    event={cur}
+                    index={step}
+                    total={events.length}
+                    root={x.project_root}
+                    findings={findings.filter((f) => f.seq === cur?.seq)}
+                  />
                 </div>
               </Panel>
+              {findings.length > 0 && (
+                <Panel title={`Risks · ${findings.length}`} icon={<ShieldAlert />} flush>
+                  <div className={s.scroll} style={{ maxHeight: 260 }}>
+                    {findings.map((f, i) => (
+                      <button key={i} type="button" className={`${s.file} ${f.seq === cur?.seq ? s.fileOn : ''}`} onClick={() => jump(f.seq)}>
+                        <ShieldAlert aria-hidden style={{ width: 13, height: 13, flex: 'none', color: SEVERITY_COLOR[f.severity] }} />
+                        <span style={{ fontFamily: 'var(--font-sans)', flex: 'none' }}>{f.title}</span>
+                        <span className={s.filePath}>
+                          <bdi>{f.excerpt}</bdi>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </Panel>
+              )}
               {files.length > 0 && (
                 <Panel title="Files" icon={<FileStack />} flush>
                   <Files files={files} root={x.project_root} current={step} onSeek={jump} />
@@ -460,7 +499,21 @@ function pretty(json: string | null): string | null {
 }
 
 /** Everything about the step under the playhead. */
-function StepDetail({ sessionId, event, index, total, root }: { sessionId: string; event?: EventRow; index: number; total: number; root: string | null }) {
+function StepDetail({
+  sessionId,
+  event,
+  index,
+  total,
+  root,
+  findings,
+}: {
+  sessionId: string
+  event?: EventRow
+  index: number
+  total: number
+  root: string | null
+  findings: FindingRow[]
+}) {
   const { data: st, error } = useApi<Step>(event ? `/api/step${query({ session: sessionId, seq: event.seq })}` : null)
   if (!event) return null
   const fresh = st && st.seq === event.seq ? st : null
@@ -486,6 +539,20 @@ function StepDetail({ sessionId, event, index, total, root }: { sessionId: strin
         )}
         <span className="sr-only">{g.label}</span>
       </div>
+
+      {findings.length > 0 && (
+        <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+          {findings.map((f, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-sm)' }}>
+              <SeverityBadge severity={f.severity} />
+              <span style={{ color: 'var(--text-1)' }}>{f.title}</span>
+              <span className={s.mono} style={{ color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {f.excerpt}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {tool && <div className={s.detailTitle}>{event.title}</div>}
 

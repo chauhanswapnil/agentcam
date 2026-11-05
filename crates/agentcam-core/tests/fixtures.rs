@@ -470,3 +470,106 @@ fn search_finds_steps_with_filters() {
                 .all(|h| h.category.as_deref() == Some("command"))
     );
 }
+
+#[test]
+fn audit_tools_and_files_views() {
+    use agentcam_core::query::{self, Filter};
+    // A throwaway Claude log with risky steps, next to the fixtures.
+    let dir = std::env::temp_dir().join(format!("agentcam-audit-{}", std::process::id()));
+    let proj = dir.join("projects/-Users-dev-app");
+    std::fs::create_dir_all(&proj).unwrap();
+    let rec = |ts: &str, id: &str, cmd: &str| {
+        serde_json::json!({
+            "type": "assistant", "timestamp": ts, "cwd": "/Users/dev/app", "sessionId": "risky",
+            "message": {"id": id, "model": "x", "content": [
+                {"type": "tool_use", "id": id, "name": "Bash", "input": {"command": cmd}}
+            ]}
+        })
+    };
+    let lines = [
+        rec(
+            "2026-11-01T09:00:00.000Z",
+            "a",
+            "rm -rf dist && git push --force",
+        ),
+        rec(
+            "2026-11-01T09:00:01.000Z",
+            "b",
+            "export GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        ),
+        rec(
+            "2026-11-01T09:00:02.000Z",
+            "c",
+            "echo hi > /Users/dev/other/x.txt",
+        ),
+    ];
+    let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    std::fs::write(proj.join("risky.jsonl"), body).unwrap();
+
+    let mut idx = Index::open_in_memory().unwrap();
+    let mut srcs = sources();
+    srcs.push(LogSource {
+        agent: Agent::ClaudeCode,
+        path: dir.join("projects"),
+        exists: true,
+    });
+    idx.update(&srcs, false).unwrap();
+    let c = idx.conn();
+
+    let rules = query::audit_rules(c, &Filter::default()).unwrap();
+    let ids: Vec<_> = rules.iter().map(|r| r.rule_id.as_str()).collect();
+    for want in [
+        "secret-github-token",
+        "git-force-push",
+        "rm-rf",
+        "write-outside-project",
+    ] {
+        assert!(ids.contains(&want), "{want} missing from {ids:?}");
+    }
+    assert_eq!(rules[0].severity, "critical", "worst first");
+
+    let hits =
+        query::findings(c, &Filter::default(), Some("secret-github-token"), None, 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(
+        !hits[0].excerpt.contains("ijklmnop"),
+        "secret must be masked: {}",
+        hits[0].excerpt
+    );
+    let serious = query::findings(c, &Filter::default(), None, Some("high"), 50).unwrap();
+    assert!(
+        serious
+            .iter()
+            .all(|h| h.severity == "high" || h.severity == "critical")
+    );
+
+    let risky = query::session(c, "risky").unwrap().unwrap();
+    assert_eq!(risky.session.max_severity.as_deref(), Some("critical"));
+    assert!(risky.findings.len() >= 4);
+    assert!(
+        query::stats(c, &Filter::default())
+            .unwrap()
+            .serious_findings
+            >= 2
+    );
+
+    let tools = query::tools(c, &Filter::default()).unwrap();
+    let bash = tools.iter().find(|t| t.tool_name == "Bash").unwrap();
+    assert!(bash.calls >= 4 && bash.errors >= 1);
+    assert!(
+        !query::tool_calls(c, &Filter::default(), "Bash", 10)
+            .unwrap()
+            .is_empty()
+    );
+
+    let files = query::files(c, &Filter::default(), 100).unwrap();
+    let auth = files
+        .iter()
+        .find(|f| f.path.ends_with("src/auth.ts"))
+        .unwrap();
+    assert_eq!((auth.reads, auth.edits), (1, 1));
+    let hist = query::file_history(c, "/Users/dev/projects/demo/src/auth.ts", 10).unwrap();
+    assert_eq!(hist.len(), 2);
+    assert!(hist.iter().all(|h| h.action.is_some()));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

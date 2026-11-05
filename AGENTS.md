@@ -89,6 +89,9 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/sessions` | Top-level sessions, most recently active first, paged |
 | `GET /api/sessions/{id}` | One session: steps (titles, plus the start of transcript text), files touched, subagents |
 | `GET /api/step?session=&seq=` | One step in full: output, input, file changes with diffs |
+| `GET /api/audit` | Rules that fired and the latest findings; takes `rule`, `severity` (lowest to show) |
+| `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool |
+| `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
@@ -99,6 +102,15 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - `agentcam serve` indexes in the background on start, using a separate SQLite connection so reads stay fast.
 - It also watches the log folders (`notify`) and re-indexes 750 ms after agents stop writing. The UI polls `/api/status` and refetches when `generation` changes.
 - Search input is turned into a safe FTS5 query (`query::fts_query`): every word quoted, the last one as a prefix. Never pass user text to `MATCH` directly.
+
+### Risk audit
+
+- Rules live in `crates/agentcam-core/rules/default.yaml` (built in) and `rules.yaml` next to the index (the user's own; same id replaces a built-in rule). The file header documents every field.
+- Rules run at index time in `audit.rs`. A `RegexSet` per field prefilters, so adding rules stays cheap.
+- Matches marked `secret: true` are masked before they are stored. Never store or log a raw secret.
+- Changed rules re-check every session (fingerprint in the `meta` table). If you change how rules are checked in code, bump `ENGINE_VERSION` in `audit.rs`.
+- Every rule needs a test in `audit.rs` that shows a match and a near miss.
+- `agentcam scan` prints findings in the terminal.
 
 ### Performance rules
 

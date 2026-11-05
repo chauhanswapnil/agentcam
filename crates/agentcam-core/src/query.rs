@@ -53,6 +53,9 @@ pub struct Stats {
     pub files_changed: i64,
     pub files_created: i64,
     pub projects: i64,
+    pub findings: i64,
+    /// Findings rated high or critical.
+    pub serious_findings: i64,
 }
 
 pub fn stats(conn: &Connection, f: &Filter) -> Result<Stats> {
@@ -89,6 +92,16 @@ pub fn stats(conn: &Connection, f: &Filter) -> Result<Stats> {
          JOIN sessions s ON s.id = e.session_id
          WHERE ft.action != 'read' AND {cond}"
     );
+    let fsql = format!(
+        "SELECT count(*), coalesce(sum(fd.severity >= 3), 0)
+         FROM findings fd
+         JOIN events e ON e.session_id = fd.session_id AND e.seq = fd.seq
+         JOIN sessions s ON s.id = e.session_id
+         WHERE {cond}"
+    );
+    (st.findings, st.serious_findings) = conn.query_row(&fsql, params_from_iter(&args), |r| {
+        Ok((r.get(0)?, r.get(1)?))
+    })?;
     (st.files_changed, st.files_created) =
         conn.query_row(&files, params_from_iter(&args), |r| {
             Ok((r.get(0)?, r.get(1)?))
@@ -239,13 +252,17 @@ pub struct SessionRow {
     pub cache_read_tokens: i64,
     pub cost_usd: Option<f64>,
     pub subagents: i64,
+    pub finding_count: i64,
+    /// Worst finding: `low`, `medium`, `high`, `critical`, or null.
+    pub max_severity: Option<String>,
 }
 
 const SESSION_COLS: &str = "s.id, s.agent, s.title, s.first_prompt, s.project_path, s.project_root,
     s.git_branch, s.model, s.parent_id, s.started_at, s.ended_at, s.active_ms, s.event_count,
     s.tool_call_count, s.error_count, s.file_count, s.input_tokens, s.output_tokens,
     s.cache_read_tokens, s.cost_usd,
-    (SELECT count(*) FROM sessions c WHERE c.parent_id = s.id)";
+    (SELECT count(*) FROM sessions c WHERE c.parent_id = s.id),
+    s.finding_count, s.max_severity";
 
 fn session_row(r: &Row) -> rusqlite::Result<SessionRow> {
     Ok(SessionRow {
@@ -270,6 +287,8 @@ fn session_row(r: &Row) -> rusqlite::Result<SessionRow> {
         cache_read_tokens: r.get(18)?,
         cost_usd: r.get(19)?,
         subagents: r.get(20)?,
+        finding_count: r.get(21)?,
+        max_severity: severity_name(r.get(22)?),
     })
 }
 
@@ -333,7 +352,39 @@ pub struct SessionDetail {
     pub session: SessionRow,
     pub events: Vec<EventRow>,
     pub files: Vec<FileRow>,
+    pub findings: Vec<FindingRow>,
     pub subagents: Vec<SessionRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FindingRow {
+    pub seq: i64,
+    pub rule_id: String,
+    pub title: String,
+    pub severity: String,
+    pub excerpt: String,
+}
+
+pub fn severity_name(n: i64) -> Option<String> {
+    Some(
+        match n {
+            4 => "critical",
+            3 => "high",
+            2 => "medium",
+            1 => "low",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
+fn severity_num(name: &str) -> i64 {
+    match name {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        _ => 1,
+    }
 }
 
 /// Longest transcript text sent with a session; the full text is in [`step`].
@@ -381,6 +432,21 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
+    let mut stmt = conn.prepare(
+        "SELECT seq, rule_id, title, severity, excerpt FROM findings WHERE session_id = ?
+         ORDER BY seq, severity DESC",
+    )?;
+    let findings = stmt
+        .query_map([id], |r| {
+            Ok(FindingRow {
+                seq: r.get(0)?,
+                rule_id: r.get(1)?,
+                title: r.get(2)?,
+                severity: severity_name(r.get(3)?).unwrap_or_default(),
+                excerpt: r.get(4)?,
+            })
+        })?
+        .collect::<std::result::Result<_, _>>()?;
     let mut stmt = conn.prepare(&format!(
         "SELECT {SESSION_COLS} FROM sessions s WHERE s.parent_id = ? ORDER BY s.started_at"
     ))?;
@@ -391,6 +457,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
         session,
         events,
         files,
+        findings,
         subagents,
     }))
 }
@@ -573,4 +640,240 @@ mod tests {
         );
         assert_eq!(fts_query("   "), None);
     }
+}
+
+/// How often each rule fired.
+#[derive(Debug, Clone, Serialize)]
+pub struct RuleSummary {
+    pub rule_id: String,
+    pub title: String,
+    pub severity: String,
+    pub count: i64,
+    pub sessions: i64,
+    pub last_ts: Option<String>,
+}
+
+pub fn audit_rules(conn: &Connection, f: &Filter) -> Result<Vec<RuleSummary>> {
+    let (cond, args) = conditions(f);
+    let sql = format!(
+        "SELECT fd.rule_id, max(fd.title), max(fd.severity), count(*),
+                count(DISTINCT coalesce(s.parent_id, s.id)), max(e.ts)
+         FROM findings fd
+         JOIN events e ON e.session_id = fd.session_id AND e.seq = fd.seq
+         JOIN sessions s ON s.id = e.session_id
+         WHERE {cond}
+         GROUP BY fd.rule_id ORDER BY max(fd.severity) DESC, count(*) DESC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| {
+        Ok(RuleSummary {
+            rule_id: r.get(0)?,
+            title: r.get(1)?,
+            severity: severity_name(r.get(2)?).unwrap_or_default(),
+            count: r.get(3)?,
+            sessions: r.get(4)?,
+            last_ts: r.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// A finding with its session, for lists across sessions.
+#[derive(Debug, Clone, Serialize)]
+pub struct FindingHit {
+    pub session_id: String,
+    pub seq: i64,
+    pub ts: Option<String>,
+    pub rule_id: String,
+    pub title: String,
+    pub severity: String,
+    pub excerpt: String,
+    pub step_title: String,
+    pub agent: String,
+    pub session_title: Option<String>,
+    pub project_root: Option<String>,
+}
+
+pub fn findings(
+    conn: &Connection,
+    f: &Filter,
+    rule: Option<&str>,
+    min_severity: Option<&str>,
+    limit: u32,
+) -> Result<Vec<FindingHit>> {
+    let (cond, mut args) = conditions(f);
+    let mut extra = String::new();
+    if let Some(r) = rule.filter(|r| !r.is_empty()) {
+        extra.push_str(" AND fd.rule_id = ?");
+        args.push(r.to_string());
+    }
+    if let Some(m) = min_severity.filter(|m| !m.is_empty()) {
+        extra.push_str(&format!(" AND fd.severity >= {}", severity_num(m)));
+    }
+    let sql = format!(
+        "SELECT fd.session_id, fd.seq, e.ts, fd.rule_id, fd.title, fd.severity, fd.excerpt, e.title,
+                s.agent, coalesce(r.title, r.first_prompt), s.project_root
+         FROM findings fd
+         JOIN events e ON e.session_id = fd.session_id AND e.seq = fd.seq
+         JOIN sessions s ON s.id = e.session_id
+         LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
+         WHERE {cond}{extra}
+         ORDER BY e.ts DESC LIMIT {limit}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| {
+        Ok(FindingHit {
+            session_id: r.get(0)?,
+            seq: r.get(1)?,
+            ts: r.get(2)?,
+            rule_id: r.get(3)?,
+            title: r.get(4)?,
+            severity: severity_name(r.get(5)?).unwrap_or_default(),
+            excerpt: r.get(6)?,
+            step_title: r.get(7)?,
+            agent: r.get(8)?,
+            session_title: r.get(9)?,
+            project_root: r.get(10)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// Use of one tool across sessions.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolStat {
+    pub tool_name: String,
+    pub category: Option<String>,
+    pub calls: i64,
+    pub errors: i64,
+    pub total_ms: i64,
+    pub sessions: i64,
+    pub last_ts: Option<String>,
+}
+
+pub fn tools(conn: &Connection, f: &Filter) -> Result<Vec<ToolStat>> {
+    let (cond, args) = conditions(f);
+    let sql = format!(
+        "SELECT e.tool_name, max(e.category), count(*), sum(e.is_error), coalesce(sum(e.duration_ms), 0),
+                count(DISTINCT coalesce(s.parent_id, s.id)), max(e.ts)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         WHERE e.kind = 'tool_call' AND e.tool_name IS NOT NULL AND {cond}
+         GROUP BY e.tool_name ORDER BY count(*) DESC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| {
+        Ok(ToolStat {
+            tool_name: r.get(0)?,
+            category: r.get(1)?,
+            calls: r.get(2)?,
+            errors: r.get(3)?,
+            total_ms: r.get(4)?,
+            sessions: r.get(5)?,
+            last_ts: r.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// One step, with its session, for lists across sessions.
+#[derive(Debug, Clone, Serialize)]
+pub struct StepRef {
+    pub session_id: String,
+    pub seq: i64,
+    pub ts: Option<String>,
+    pub title: String,
+    pub is_error: bool,
+    pub duration_ms: Option<i64>,
+    /// File action for file history; null for tool calls.
+    pub action: Option<String>,
+    pub agent: String,
+    pub session_title: Option<String>,
+}
+
+const STEP_REF: &str = "e.session_id, e.seq, e.ts, e.title, e.is_error, e.duration_ms";
+
+fn step_ref(r: &Row, action: bool) -> rusqlite::Result<StepRef> {
+    Ok(StepRef {
+        session_id: r.get(0)?,
+        seq: r.get(1)?,
+        ts: r.get(2)?,
+        title: r.get(3)?,
+        is_error: r.get(4)?,
+        duration_ms: r.get(5)?,
+        action: if action { r.get(6)? } else { None },
+        agent: r.get(7)?,
+        session_title: r.get(8)?,
+    })
+}
+
+/// Most recent calls of one tool.
+pub fn tool_calls(conn: &Connection, f: &Filter, tool: &str, limit: u32) -> Result<Vec<StepRef>> {
+    let (cond, mut args) = conditions(f);
+    args.insert(0, tool.to_string());
+    let sql = format!(
+        "SELECT {STEP_REF}, NULL, s.agent, coalesce(r.title, r.first_prompt)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
+         WHERE e.tool_name = ? AND {cond}
+         ORDER BY e.ts DESC LIMIT {limit}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| step_ref(r, false))?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// What happened to one file across sessions.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileStat {
+    pub path: String,
+    pub reads: i64,
+    pub edits: i64,
+    pub creates: i64,
+    pub deletes: i64,
+    pub sessions: i64,
+    pub last_ts: Option<String>,
+}
+
+/// Files touched under `f`, most changed first.
+pub fn files(conn: &Connection, f: &Filter, limit: u32) -> Result<Vec<FileStat>> {
+    let (cond, args) = conditions(f);
+    let sql = format!(
+        "SELECT ft.path, sum(ft.action = 'read'), sum(ft.action = 'edit'), sum(ft.action = 'create'),
+                sum(ft.action = 'delete'), count(DISTINCT coalesce(s.parent_id, s.id)), max(e.ts)
+         FROM file_touches ft
+         JOIN events e ON e.session_id = ft.session_id AND e.seq = ft.seq
+         JOIN sessions s ON s.id = e.session_id
+         WHERE {cond}
+         GROUP BY ft.path
+         ORDER BY (sum(ft.action != 'read')) DESC, count(*) DESC LIMIT {limit}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| {
+        Ok(FileStat {
+            path: r.get(0)?,
+            reads: r.get(1)?,
+            edits: r.get(2)?,
+            creates: r.get(3)?,
+            deletes: r.get(4)?,
+            sessions: r.get(5)?,
+            last_ts: r.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// Every step that touched `path`, newest first.
+pub fn file_history(conn: &Connection, path: &str, limit: u32) -> Result<Vec<StepRef>> {
+    let sql = format!(
+        "SELECT {STEP_REF}, ft.action, s.agent, coalesce(r.title, r.first_prompt)
+         FROM file_touches ft
+         JOIN events e ON e.session_id = ft.session_id AND e.seq = ft.seq
+         JOIN sessions s ON s.id = e.session_id
+         LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
+         WHERE ft.path = ?
+         ORDER BY e.ts DESC LIMIT {limit}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([path], |r| step_ref(r, true))?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
 }

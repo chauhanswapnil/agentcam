@@ -14,6 +14,8 @@ export type Stats = {
   files_changed: number
   files_created: number
   projects: number
+  findings: number
+  serious_findings: number
 }
 
 export type Project = {
@@ -52,6 +54,8 @@ export type SessionRow = {
   cache_read_tokens: number
   cost_usd: number | null
   subagents: number
+  finding_count: number
+  max_severity: Severity | null
 }
 
 export type SessionPage = { total: number; items: SessionRow[] }
@@ -71,7 +75,62 @@ export type EventRow = {
 
 export type FileRow = { seq: number; path: string; action: 'read' | 'edit' | 'create' | 'delete' }
 
-export type SessionDetail = { session: SessionRow; events: EventRow[]; files: FileRow[]; subagents: SessionRow[] }
+export type Severity = 'low' | 'medium' | 'high' | 'critical'
+
+export type FindingRow = { seq: number; rule_id: string; title: string; severity: Severity; excerpt: string }
+
+export type SessionDetail = {
+  session: SessionRow
+  events: EventRow[]
+  files: FileRow[]
+  findings: FindingRow[]
+  subagents: SessionRow[]
+}
+
+export type RuleSummary = { rule_id: string; title: string; severity: Severity; count: number; sessions: number; last_ts: string | null }
+
+export type FindingHit = FindingRow & {
+  session_id: string
+  ts: string | null
+  step_title: string
+  agent: AgentId
+  session_title: string | null
+  project_root: string | null
+}
+
+export type Audit = { rules: RuleSummary[]; findings: FindingHit[] }
+
+export type ToolStat = {
+  tool_name: string
+  category: ToolCategory | null
+  calls: number
+  errors: number
+  total_ms: number
+  sessions: number
+  last_ts: string | null
+}
+
+export type StepRef = {
+  session_id: string
+  seq: number
+  ts: string | null
+  title: string
+  is_error: boolean
+  duration_ms: number | null
+  action: 'read' | 'edit' | 'create' | 'delete' | null
+  agent: AgentId
+  session_title: string | null
+}
+
+export type FileStat = {
+  path: string
+  reads: number
+  edits: number
+  creates: number
+  deletes: number
+  sessions: number
+  last_ts: string | null
+}
 
 export type IndexStatus = {
   indexing: boolean

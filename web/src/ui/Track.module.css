@@ -89,3 +89,16 @@
 .tipMeta {
   color: var(--text-3);
 }
+
+/* Risk flag: a small tab above the mark, colored by the worst finding. */
+.flag {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--bg-1);
+  pointer-events: none;
+}

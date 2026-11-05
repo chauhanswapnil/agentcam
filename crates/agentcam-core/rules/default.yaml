@@ -1,0 +1,180 @@
+# agentcam built-in rules.
+#
+# Each rule matches a regex against one field of a step:
+#   title  - the command, file path, URL or first line (default)
+#   body   - prompt / reply text or tool output
+#   input  - tool input as JSON
+#   path   - each file the step touched (use `actions` to pick read/edit/create/delete)
+#   any    - title, body and input
+# `kinds` limits which steps a rule looks at (prompt, response, thinking,
+# tool_call, system); default tool_call. `categories` limits tool calls
+# (command, read, edit, write, search, web, mcp, subagent, other).
+# `secret: true` masks the match before it is stored.
+# If the regex has a capture group, the first group is the excerpt.
+#
+# Add your own in rules.yaml next to the index (see `agentcam scan --help`).
+
+# ── Secrets in transcripts ────────────────────────────────────────────
+- id: secret-aws-key
+  title: AWS access key
+  severity: critical
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '\b((?:AKIA|ASIA)[0-9A-Z]{16})\b'
+- id: secret-github-token
+  title: GitHub token
+  severity: critical
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,})\b'
+- id: secret-anthropic-key
+  title: Anthropic API key
+  severity: critical
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '\b(sk-ant-[A-Za-z0-9_-]{24,})'
+- id: secret-openai-key
+  title: OpenAI API key
+  severity: critical
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '\b(sk-(?:proj-)?[A-Za-z0-9]{32,})\b'
+- id: secret-slack-token
+  title: Slack token
+  severity: critical
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '\b(xox[baprs]-[A-Za-z0-9-]{10,})'
+- id: secret-stripe-live-key
+  title: Stripe live key
+  severity: critical
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '\b([rs]k_live_[A-Za-z0-9]{20,})'
+- id: secret-google-api-key
+  title: Google API key
+  severity: high
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '\b(AIza[0-9A-Za-z_-]{35})'
+- id: secret-private-key
+  title: Private key
+  severity: critical
+  field: any
+  kinds: [prompt, response, thinking, tool_call, system]
+  secret: true
+  pattern: '(-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----)'
+
+# ── Sensitive files ───────────────────────────────────────────────────
+- id: read-env-file
+  title: Read a .env file
+  severity: medium
+  field: path
+  pattern: '(?:^|/)(\.env(?:\.(?:local|development|production|staging|test|prod|dev))?)$'
+- id: read-env-command
+  title: Printed a .env file
+  severity: medium
+  categories: [command]
+  pattern: '\b(?:cat|less|more|head|tail|source|bat)\s+(\S*\.env(?:\.(?:local|production|prod))?)(?:\s|$|;|&|\|)'
+- id: read-ssh
+  title: Touched ~/.ssh
+  severity: high
+  field: path
+  pattern: '(/\.ssh/\S+)'
+- id: read-ssh-command
+  title: Command used ~/.ssh
+  severity: high
+  categories: [command]
+  pattern: '(~/\.ssh/\S+|\$HOME/\.ssh/\S+)'
+- id: read-cloud-credentials
+  title: Touched cloud credentials
+  severity: high
+  field: path
+  pattern: '(/\.aws/credentials|/\.config/gcloud/\S+|/\.azure/\S+|/\.kube/config)$'
+- id: read-keychain
+  title: Touched a keychain
+  severity: high
+  field: path
+  pattern: '(\.keychain(?:-db)?|/Keychains/\S*)$'
+- id: keychain-command
+  title: Read the macOS keychain
+  severity: high
+  categories: [command]
+  pattern: '\b(security\s+(?:find-generic-password|find-internet-password|dump-keychain))\b'
+- id: read-browser-profile
+  title: Touched a browser profile
+  severity: high
+  field: path
+  pattern: '(/(?:Google/Chrome|BraveSoftware|Firefox/Profiles|Microsoft Edge)/\S*)'
+
+# ── Dangerous commands ────────────────────────────────────────────────
+- id: rm-rf-root
+  title: rm -rf on a home or root folder
+  severity: critical
+  categories: [command]
+  pattern: '\b(rm\s+-[a-zA-Z]*[rR][a-zA-Z]*\s+(?:/|~|\$HOME|/Users/[^/\s]+|/home/[^/\s]+)/?)(?:\s|$|;|&)'
+- id: rm-rf
+  title: Recursive force delete
+  severity: medium
+  categories: [command]
+  pattern: '\b(rm\s+(?:-[a-zA-Z]*(?:rf|fr|Rf|fR)[a-zA-Z]*|-r\s+-f|-f\s+-r)\s+\S+)'
+- id: sudo
+  title: Ran with sudo
+  severity: medium
+  categories: [command]
+  pattern: '(?:^|[;&|(]\s*)(sudo\s+\S+)'
+- id: chmod-777
+  title: World-writable permissions
+  severity: medium
+  categories: [command]
+  pattern: '\b(chmod\s+(?:-R\s+)?0?777\b)'
+- id: curl-pipe-shell
+  title: Piped a download into a shell
+  severity: high
+  categories: [command]
+  pattern: '\b((?:curl|wget)\b[^|;]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh)\b'
+- id: git-force-push
+  title: Force push
+  severity: high
+  categories: [command]
+  pattern: '\b(git\s+push\b[^;&|]*\s(?:--force|-f)(?:\s|$))'
+- id: git-reset-hard
+  title: git reset --hard
+  severity: medium
+  categories: [command]
+  pattern: '\b(git\s+reset\s+--hard\b[^;&|]*)'
+- id: git-clean
+  title: git clean -f
+  severity: medium
+  categories: [command]
+  pattern: '\b(git\s+clean\s+-[a-zA-Z]*f[a-zA-Z]*)'
+- id: disable-verify
+  title: Skipped git hooks
+  severity: low
+  categories: [command]
+  pattern: '\b(git\s+(?:commit|push)\b[^;&|]*--no-verify)'
+
+# ── Installs and network ──────────────────────────────────────────────
+- id: package-install
+  title: Installed a package
+  severity: low
+  categories: [command]
+  pattern: '\b((?:npm|pnpm|yarn|bun)\s+(?:i|install|add)\s+\S+|pip3?\s+install\s+\S+|uv\s+(?:add|pip\s+install)\s+\S+|brew\s+install\s+\S+|cargo\s+install\s+\S+|gem\s+install\s+\S+|go\s+install\s+\S+)'
+- id: outbound-domain
+  title: Contacted a domain
+  severity: low
+  categories: [command, web]
+  pattern: 'https?://([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})'
+
+# ── Writes outside the project ────────────────────────────────────────
+- id: write-outside-project
+  title: Changed a file outside the project
+  severity: medium
+  outside_project: true

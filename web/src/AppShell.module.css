@@ -5,6 +5,7 @@
 }
 .top {
   position: sticky;
+  min-width: 0;
   top: 0;
   z-index: var(--z-sticky);
   display: flex;
@@ -19,8 +20,12 @@
 .nav {
   display: flex;
   gap: var(--s-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 .navLink {
+  white-space: nowrap;
   padding: 4px var(--s-2);
   border-radius: var(--r-2);
   color: var(--text-3);
@@ -69,6 +74,10 @@
 @media (max-width: 640px) {
   .searchButton {
     width: auto;
+    flex: none;
+  }
+  .top {
+    gap: var(--s-3);
   }
   .searchButton span {
     display: none;

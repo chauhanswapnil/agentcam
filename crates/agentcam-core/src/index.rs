@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -55,7 +55,9 @@ CREATE TABLE sessions (
     tool_call_count     INTEGER NOT NULL DEFAULT 0,
     error_count         INTEGER NOT NULL DEFAULT 0,
     file_count          INTEGER NOT NULL DEFAULT 0,
-    active_ms           INTEGER NOT NULL DEFAULT 0
+    active_ms           INTEGER NOT NULL DEFAULT 0,
+    finding_count       INTEGER NOT NULL DEFAULT 0,
+    max_severity        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX sessions_root ON sessions(project_root);
 CREATE INDEX sessions_parent ON sessions(parent_id);
@@ -92,6 +94,19 @@ CREATE TABLE file_touches (
 );
 CREATE INDEX file_touches_session ON file_touches(session_id, seq);
 CREATE INDEX file_touches_path ON file_touches(path);
+
+CREATE TABLE findings (
+    session_id  TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    rule_id     TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    severity    INTEGER NOT NULL,
+    excerpt     TEXT NOT NULL
+);
+CREATE INDEX findings_session ON findings(session_id, seq);
+CREATE INDEX findings_rule ON findings(rule_id);
+
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 CREATE VIRTUAL TABLE events_fts USING fts5(
     title, body,
@@ -133,6 +148,12 @@ pub struct SearchHit {
 
 pub struct Index {
     conn: Connection,
+    rules: crate::audit::Rules,
+}
+
+/// The user's own rules: `rules.yaml` next to the index.
+pub fn user_rules_path(db: &Path) -> PathBuf {
+    db.with_file_name("rules.yaml")
 }
 
 /// `~/Library/Application Support/agentcam/index.db` on macOS, the XDG data
@@ -162,12 +183,16 @@ impl Index {
             conn.execute_batch(
                 "DROP TABLE IF EXISTS events_fts; DROP TABLE IF EXISTS file_touches;
                  DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS sessions;
-                 DROP TABLE IF EXISTS sources;",
+                 DROP TABLE IF EXISTS sources; DROP TABLE IF EXISTS findings;
+                 DROP TABLE IF EXISTS meta;",
             )?;
             conn.execute_batch(SCHEMA)?;
             conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         }
-        Ok(Index { conn })
+        Ok(Index {
+            conn,
+            rules: crate::audit::Rules::builtin(),
+        })
     }
 
     pub fn conn(&self) -> &Connection {
@@ -176,8 +201,25 @@ impl Index {
 
     /// Index every new or changed log file under `sources`. With `full`,
     /// re-parse everything.
+    /// Use these rules from the next `update` on. Changed rules re-check
+    /// every session.
+    pub fn set_rules(&mut self, rules: crate::audit::Rules) {
+        self.rules = rules;
+    }
+
+    pub fn rules(&self) -> &crate::audit::Rules {
+        &self.rules
+    }
+
     pub fn update(&mut self, sources: &[LogSource], full: bool) -> Result<UpdateReport> {
         let start = Instant::now();
+        let stored: Option<String> = self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = 'rules'", [], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        let full = full || stored.as_deref() != Some(self.rules.fingerprint.as_str());
         let files = discover(sources);
         let mut report = UpdateReport {
             files_seen: files.len(),
@@ -213,10 +255,15 @@ impl Index {
             }
         }
 
+        let rules = &self.rules;
         let parsed: Vec<_> = changed
             .into_par_iter()
             .map(|(agent, path, key, size, mtime)| {
                 let res = parse_file(agent, &path);
+                let res = res.map(|p| {
+                    let f = rules.check(&p);
+                    (p, f)
+                });
                 (agent, key, size, mtime, res)
             })
             .collect();
@@ -238,11 +285,11 @@ impl Index {
         for (agent, key, size, mtime, res) in parsed {
             remove_source(&tx, &key)?;
             match res {
-                Ok(p) => {
+                Ok((p, findings)) => {
                     report.files_parsed += 1;
                     report.bad_lines += u64::from(p.bad_lines);
                     report.events_written += p.events.len();
-                    write_session(&tx, &p)?;
+                    write_session(&tx, &p, &findings)?;
                     tx.execute(
                         "INSERT INTO sources (path, agent, size, mtime_ns, session_id, bad_lines)
                          VALUES (?, ?, ?, ?, ?, ?)",
@@ -258,6 +305,10 @@ impl Index {
                 }
             }
         }
+        tx.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('rules', ?)",
+            [&self.rules.fingerprint],
+        )?;
         tx.commit()?;
 
         report.elapsed_ms = start.elapsed().as_millis();
@@ -307,12 +358,20 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
         &format!("DELETE FROM file_touches WHERE session_id IN ({ids})"),
         [key],
     )?;
+    tx.execute(
+        &format!("DELETE FROM findings WHERE session_id IN ({ids})"),
+        [key],
+    )?;
     tx.execute("DELETE FROM sessions WHERE source_path = ?1", [key])?;
     tx.execute("DELETE FROM sources WHERE path = ?1", [key])?;
     Ok(())
 }
 
-fn write_session(tx: &rusqlite::Transaction, p: &ParsedSession) -> Result<()> {
+fn write_session(
+    tx: &rusqlite::Transaction,
+    p: &ParsedSession,
+    findings: &[crate::audit::Finding],
+) -> Result<()> {
     let s = &p.session;
     // Another file may have claimed this id before (a moved or copied log).
     remove_session_rows(tx, &s.id)?;
@@ -352,8 +411,8 @@ fn write_session(tx: &rusqlite::Transaction, p: &ParsedSession) -> Result<()> {
         "INSERT INTO sessions (id, agent, source_path, parent_id, project_path, title, first_prompt,
             git_branch, model, agent_version, started_at, ended_at, input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, cost_usd, event_count, tool_call_count,
-            error_count, file_count, project_root, active_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+            error_count, file_count, project_root, active_ms, finding_count, max_severity)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
         params![
             s.id,
             s.agent.map(Agent::as_str).unwrap_or("unknown"),
@@ -378,6 +437,8 @@ fn write_session(tx: &rusqlite::Transaction, p: &ParsedSession) -> Result<()> {
             paths.len() as i64,
             root,
             active_ms,
+            findings.len() as i64,
+            findings.iter().map(|f| f.severity as i64).max().unwrap_or(0),
         ],
     )?;
 
@@ -417,6 +478,20 @@ fn write_session(tx: &rusqlite::Transaction, p: &ParsedSession) -> Result<()> {
     for t in &p.touches {
         ft.execute(params![s.id, t.seq, t.path, t.action.as_str(), t.diff])?;
     }
+
+    let mut fi = tx.prepare_cached(
+        "INSERT INTO findings (session_id, seq, rule_id, title, severity, excerpt) VALUES (?, ?, ?, ?, ?, ?)",
+    )?;
+    for f in findings {
+        fi.execute(params![
+            s.id,
+            f.seq,
+            f.rule_id,
+            f.title,
+            f.severity as i64,
+            f.excerpt
+        ])?;
+    }
     Ok(())
 }
 
@@ -428,6 +503,7 @@ fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
     )?;
     tx.execute("DELETE FROM events WHERE session_id = ?1", [id])?;
     tx.execute("DELETE FROM file_touches WHERE session_id = ?1", [id])?;
+    tx.execute("DELETE FROM findings WHERE session_id = ?1", [id])?;
     tx.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
     Ok(())
 }

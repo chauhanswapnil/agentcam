@@ -13,6 +13,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = [
     { href: '/', label: 'Overview' },
     { href: '/search', label: 'Search' },
+    { href: '/audit', label: 'Audit' },
+    { href: '/tools', label: 'Tools' },
+    { href: '/files', label: 'Files' },
   ]
   return (
     <div className={s.shell}>

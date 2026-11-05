@@ -35,8 +35,13 @@ pub struct IndexStatus {
 
 impl AppState {
     /// Open the index at `db` for reading and writing.
-    pub fn open(db: &Path, sources: Vec<LogSource>) -> agentcam_core::index::Result<Arc<Self>> {
-        let writer = Index::open(db)?;
+    pub fn open(
+        db: &Path,
+        sources: Vec<LogSource>,
+        rules: agentcam_core::audit::Rules,
+    ) -> agentcam_core::index::Result<Arc<Self>> {
+        let mut writer = Index::open(db)?;
+        writer.set_rules(rules);
         let reader = Index::open(db)?;
         Ok(Arc::new(AppState {
             writer: Arc::new(Mutex::new(writer)),
@@ -145,6 +150,14 @@ pub struct Params {
     day: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
+    /// Audit: one rule id.
+    rule: Option<String>,
+    /// Audit: lowest severity to include.
+    severity: Option<String>,
+    /// Tool calls: one tool name.
+    tool: Option<String>,
+    /// File history: one path.
+    path: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -323,4 +336,68 @@ mod tests {
         assert_eq!(range_days(Some("0d")), None);
         assert_eq!(range_days(None), None);
     }
+}
+
+#[derive(Serialize)]
+pub struct Audit {
+    rules: Vec<query::RuleSummary>,
+    findings: Vec<query::FindingHit>,
+}
+
+pub async fn audit(State(st): Shared, Query(p): Query<Params>) -> Result<Json<Audit>, ApiError> {
+    let f = p.filter(now_ms());
+    let limit = p.limit.unwrap_or(200).min(500);
+    st.read(move |idx| {
+        let c = idx.conn();
+        Ok(Audit {
+            rules: query::audit_rules(c, &f)?,
+            findings: query::findings(c, &f, p.rule.as_deref(), p.severity.as_deref(), limit)?,
+        })
+    })
+    .await
+    .map(Json)
+}
+
+pub async fn tools(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<query::ToolStat>>, ApiError> {
+    let f = p.filter(now_ms());
+    st.read(move |idx| query::tools(idx.conn(), &f))
+        .await
+        .map(Json)
+}
+
+pub async fn tool_calls(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<query::StepRef>>, ApiError> {
+    let f = p.filter(now_ms());
+    let tool = p.tool.clone().unwrap_or_default();
+    let limit = p.limit.unwrap_or(100).min(500);
+    st.read(move |idx| query::tool_calls(idx.conn(), &f, &tool, limit))
+        .await
+        .map(Json)
+}
+
+pub async fn files(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<query::FileStat>>, ApiError> {
+    let f = p.filter(now_ms());
+    let limit = p.limit.unwrap_or(500).min(2000);
+    st.read(move |idx| query::files(idx.conn(), &f, limit))
+        .await
+        .map(Json)
+}
+
+pub async fn file_history(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<query::StepRef>>, ApiError> {
+    let path = p.path.clone().unwrap_or_default();
+    let limit = p.limit.unwrap_or(200).min(1000);
+    st.read(move |idx| query::file_history(idx.conn(), &path, limit))
+        .await
+        .map(Json)
 }

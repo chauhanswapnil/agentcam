@@ -1,0 +1,123 @@
+import { TriangleAlert, Wrench } from 'lucide-react'
+import { useLocation, useSearch } from 'wouter'
+import { AGENTS } from '../lib/agents'
+import { query, useApi, useIndexStatus, type StepRef, type ToolStat } from '../lib/api'
+import { formatAgo, formatDuration, formatHours, formatNumber, oneLine } from '../lib/format'
+import { EmptyState, KindIcon, Skeleton } from '../ui/Misc'
+import { Panel } from '../ui/Panel'
+import { Segmented } from '../ui/Segmented'
+import s from './Views.module.css'
+
+const RANGES = [
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+  { value: 'all', label: 'All time' },
+]
+const AGENT_OPTIONS = [
+  { value: '', label: 'All agents' },
+  { value: 'claude-code', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex' },
+]
+
+/** Every tool the agents used, and the latest calls of the one you pick. */
+export function Tools() {
+  const p = new URLSearchParams(useSearch())
+  const [, navigate] = useLocation()
+  const f = { range: p.get('range') ?? '30d', agent: p.get('agent') ?? '', tool: p.get('tool') ?? '' }
+  const set = (patch: Partial<typeof f>) => navigate(`/tools${query({ ...f, ...patch })}`, { replace: true })
+  const gen = useIndexStatus().status?.generation ?? 0
+  const { data } = useApi<ToolStat[]>(`/api/tools${query({ range: f.range, agent: f.agent })}`, gen)
+  const calls = useApi<StepRef[]>(f.tool ? `/api/tool-calls${query({ tool: f.tool, range: f.range, agent: f.agent, limit: 100 })}` : null, gen)
+  const max = Math.max(1, ...(data ?? []).map((t) => t.calls))
+
+  return (
+    <div className={s.page}>
+      <header className={s.head}>
+        <div>
+          <h1>Tool calls</h1>
+          <p>Every tool your agents called, how often it failed and how long it took. Pick one to see its latest calls.</p>
+        </div>
+        <div className={s.controls}>
+          <Segmented label="Agent" value={f.agent} onChange={(agent) => set({ agent })} options={AGENT_OPTIONS} />
+          <Segmented label="Time range" value={f.range} onChange={(range) => set({ range })} options={RANGES} />
+        </div>
+      </header>
+      {!data ? (
+        <Skeleton height={300} />
+      ) : data.length === 0 ? (
+        <Panel>
+          <EmptyState icon={<Wrench />} title="No tool calls in this range" />
+        </Panel>
+      ) : (
+        <div className={s.split}>
+          <Panel flush>
+            <div className={s.tableWrap}>
+              <table className={s.table}>
+                <thead>
+                  <tr>
+                    <th>Tool</th>
+                    <th>Calls</th>
+                    <th className={s.num}>Failed</th>
+                    <th className={s.num}>Time</th>
+                    <th className={s.num}>Avg</th>
+                    <th className={s.num}>Sessions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((t) => (
+                    <tr
+                      key={t.tool_name}
+                      className={`${s.rowBtn} ${f.tool === t.tool_name ? s.rowOn : ''}`}
+                      onClick={() => set({ tool: f.tool === t.tool_name ? '' : t.tool_name })}
+                    >
+                      <td>
+                        <span className={s.name}>
+                          <KindIcon kind="tool_call" category={t.category} />
+                          <span className={s.mono} style={{ color: 'var(--text-1)' }}>
+                            {t.tool_name}
+                          </span>
+                        </span>
+                      </td>
+                      <td>
+                        <span className={s.bar} style={{ width: Math.max(2, (t.calls / max) * 80) }} />
+                        {formatNumber(t.calls)}
+                      </td>
+                      <td className={s.num} style={{ color: t.errors ? 'var(--text-1)' : undefined }}>
+                        {t.errors ? `${formatNumber(t.errors)} · ${Math.round((t.errors / t.calls) * 100)}%` : '–'}
+                      </td>
+                      <td className={s.num}>{t.total_ms ? formatHours(t.total_ms) : '–'}</td>
+                      <td className={s.num}>{t.total_ms ? formatDuration(t.total_ms / t.calls) : '–'}</td>
+                      <td className={s.num}>{formatNumber(t.sessions)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+          <div className={s.sticky}>
+            <Panel title={f.tool ? `Latest · ${f.tool}` : 'Latest calls'} flush>
+              {!f.tool ? (
+                <EmptyState title="Pick a tool">Its latest calls show here; click one to open the replay.</EmptyState>
+              ) : (
+                <div className={s.list}>
+                  {(calls.data ?? []).map((c) => (
+                    <button key={`${c.session_id}:${c.seq}`} type="button" className={s.ref} onClick={() => navigate(`/sessions/${c.session_id}?step=${c.seq}`)}>
+                      <span className={s.refTop}>
+                        {c.is_error && <TriangleAlert aria-hidden style={{ width: 13, height: 13, flex: 'none', color: 'var(--status-critical)' }} />}
+                        <span className={s.refTitle}>{c.title}</span>
+                      </span>
+                      <span className={s.refMeta}>
+                        {AGENTS[c.agent]?.label} · {c.ts ? formatAgo(c.ts) : ''}
+                        {c.duration_ms != null ? ` · ${formatDuration(c.duration_ms)}` : ''} · {oneLine(c.session_title ?? '')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

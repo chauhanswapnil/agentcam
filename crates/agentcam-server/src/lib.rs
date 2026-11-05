@@ -116,6 +116,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/sessions/{*id}", get(api::session))
         .route("/step", get(api::step))
         .route("/search", get(api::search))
+        .route("/audit", get(api::audit))
+        .route("/tools", get(api::tools))
+        .route("/tool-calls", get(api::tool_calls))
+        .route("/files", get(api::files))
+        .route("/file", get(api::file_history))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -214,6 +219,21 @@ mod tests {
 
     #[tokio::test]
     async fn overview_and_sessions() {
+        let a = json("/api/audit").await;
+        assert!(a["rules"].is_array() && a["findings"].is_array());
+        let t = json("/api/tools").await;
+        assert!(
+            t.as_array()
+                .unwrap()
+                .iter()
+                .any(|x| x["tool_name"] == "Bash")
+        );
+        let calls = json("/api/tool-calls?tool=Bash").await;
+        assert!(!calls.as_array().unwrap().is_empty());
+        let files = json("/api/files").await;
+        assert!(!files.as_array().unwrap().is_empty());
+        let h = json("/api/file?path=/Users/dev/projects/demo/src/auth.ts").await;
+        assert_eq!(h.as_array().unwrap().len(), 2);
         let o = json("/api/overview").await;
         assert_eq!(o["stats"]["sessions"], 3);
         assert!(o["previous"].is_null());

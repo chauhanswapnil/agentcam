@@ -26,6 +26,8 @@ import {
   oneLine,
 } from '../lib/format'
 import { Badge } from '../ui/Badge'
+import { SEVERITY_RANK } from '../lib/severity'
+import { SeverityBadge } from '../ui/Severity'
 import { Button } from '../ui/Button'
 import { Heatmap } from '../ui/Heatmap'
 import { ListRow } from '../ui/ListRow'
@@ -188,6 +190,13 @@ function SessionList({ rows, onOpen }: { rows: SessionRow[]; onOpen: (id: string
               }
               trailing={
                 <span className={s.rowRight}>
+                  {r.max_severity && SEVERITY_RANK[r.max_severity] >= 2 && (
+                    <Tooltip content={`${r.finding_count} risk ${r.finding_count === 1 ? 'finding' : 'findings'}, worst: ${r.max_severity}`}>
+                      <span className={s.hideSmall}>
+                        <SeverityBadge severity={r.max_severity} />
+                      </span>
+                    </Tooltip>
+                  )}
                   {r.error_count > 0 && (
                     <Tooltip content={`${r.error_count} failed ${r.error_count === 1 ? 'step' : 'steps'}`}>
                       <Badge icon={<TriangleAlert />} color="var(--status-critical)">

@@ -1,6 +1,7 @@
 //! Core of agentcam: finding agent logs, parsing them into one event
 //! model, and indexing them in SQLite.
 
+pub mod audit;
 pub mod claude;
 pub mod codex;
 pub mod index;
