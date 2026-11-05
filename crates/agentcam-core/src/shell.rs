@@ -5,14 +5,14 @@
 //! anything. It skips heredoc bodies, paths with globs or variables, and
 //! anything it can't read with confidence.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
 use crate::model::FileAction;
 
 /// Files `cmd` changes, resolved against `cwd` when relative.
 pub fn command_touches(cmd: &str, cwd: Option<&str>) -> Vec<(String, FileAction)> {
     let mut out = Vec::new();
-    let mut dir = cwd.map(PathBuf::from);
+    let mut dir = cwd.map(String::from);
     for segment in segments(&strip_heredocs(cmd)) {
         let words = words(&segment);
         if words.is_empty() {
@@ -201,7 +201,7 @@ fn redirections(words: &[String]) -> (Vec<String>, Vec<String>) {
     (args, writes)
 }
 
-fn command_args(words: &[String], cwd: Option<&Path>, out: &mut Vec<(String, FileAction)>) {
+fn command_args(words: &[String], cwd: Option<&str>, out: &mut Vec<(String, FileAction)>) {
     // Skip `VAR=value` prefixes, `sudo`, `env`.
     let mut i = 0;
     while i < words.len()
@@ -267,7 +267,7 @@ fn command_args(words: &[String], cwd: Option<&Path>, out: &mut Vec<(String, Fil
 }
 
 /// `sed -i[suffix] [-e script]... [script] files...`
-fn sed_files(args: &[String], cwd: Option<&Path>, out: &mut Vec<(String, FileAction)>) {
+fn sed_files(args: &[String], cwd: Option<&str>, out: &mut Vec<(String, FileAction)>) {
     let mut in_place = false;
     let mut have_script = false;
     let mut files = Vec::new();
@@ -306,7 +306,7 @@ fn sed_files(args: &[String], cwd: Option<&Path>, out: &mut Vec<(String, FileAct
     }
 }
 
-fn push(out: &mut Vec<(String, FileAction)>, cwd: Option<&Path>, path: &str, action: FileAction) {
+fn push(out: &mut Vec<(String, FileAction)>, cwd: Option<&str>, path: &str, action: FileAction) {
     let unsure = path.is_empty()
         || path.starts_with("/dev/")
         || path.contains(['$', '*', '?', '`', '{', '(', '<'])
@@ -314,27 +314,33 @@ fn push(out: &mut Vec<(String, FileAction)>, cwd: Option<&Path>, path: &str, act
     if unsure {
         return;
     }
-    out.push((resolve(cwd, path).to_string_lossy().into_owned(), action));
+    out.push((resolve(cwd, path), action));
 }
 
 /// Join `path` onto `cwd` and fold `.` and `..` without touching the disk.
-fn resolve(cwd: Option<&Path>, path: &str) -> PathBuf {
-    let p = Path::new(path);
+/// Shell paths use `/` on every OS, so this works on strings rather than
+/// `std::path`, which would switch to `\` on Windows.
+fn resolve(cwd: Option<&str>, path: &str) -> String {
     let joined = match cwd {
-        Some(c) if p.is_relative() => c.join(p),
-        _ => p.to_path_buf(),
+        Some(c) if !path.starts_with('/') => format!("{}/{path}", c.trim_end_matches('/')),
+        _ => path.to_string(),
     };
-    let mut out = PathBuf::new();
-    for c in joined.components() {
-        match c {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
+    let mut parts: Vec<&str> = Vec::new();
+    for part in joined.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
             }
-            other => out.push(other),
+            p => parts.push(p),
         }
     }
-    out
+    let body = parts.join("/");
+    if joined.starts_with('/') {
+        format!("/{body}")
+    } else {
+        body
+    }
 }
 
 #[cfg(test)]
@@ -406,6 +412,13 @@ mod tests {
     fn cd_changes_directory() {
         assert_eq!(t("cd web && rm -rf dist"), [("/w/web/dist".into(), Delete)]);
         assert_eq!(t("cd /tmp/x && touch ../y"), [("/tmp/y".into(), Create)]);
+    }
+
+    #[test]
+    fn resolves_with_forward_slashes() {
+        assert_eq!(resolve(Some("/a/b/"), "../c/./d"), "/a/c/d");
+        assert_eq!(resolve(Some("/a"), "/x/y"), "/x/y");
+        assert_eq!(resolve(None, "rel/x"), "rel/x");
     }
 
     #[test]
