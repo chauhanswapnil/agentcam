@@ -45,7 +45,12 @@ npm run dev        # Vite on :5173, proxies /api to :4747
 # Run the app
 cargo run                         # serve + open browser on :4747
 cargo run -- serve --no-open      # API only, for `npm run dev`
+cargo run -- index                # index new/changed logs, print a summary
+cargo run -- index --full         # re-parse every log
+cargo run -- search "some words"  # full-text search from the terminal
 ```
+
+The index lives in the user data folder (`~/Library/Application Support/agentcam/index.db` on macOS). Use `--db <file>` or `AGENTCAM_DB` to point at a scratch index while developing.
 
 UI dev loop: run `cargo run -- serve --no-open` in one terminal and `npm run dev` in `web/` in another, then open the Vite URL.
 
@@ -75,9 +80,17 @@ Agent logs hold real secrets, file contents and private prompts.
 - Keep dependencies few. Ask before adding a large one.
 - TypeScript: strict mode, function components, no `any` without a comment saying why.
 
+## How parsing works
+
+- `agentcam-core/src/model.rs`: the shared model. A `Session` has `Event`s (prompt, response, thinking, tool_call, system) and `FileTouch`es. A tool call and its result are one event.
+- `claude.rs` and `codex.rs` turn one log file into one `ParsedSession`. They read line by line, skip bad lines, and ignore record types they don't know.
+- `index.rs` stores sessions in SQLite with an FTS5 table over event titles and bodies. It re-parses a file only when its size or modified time changes. Sessions stay after their log file is deleted (agents prune old logs; agentcam keeps the history).
+- Long text is cut to 32 KB in the index. `source_offset` points back at the original record.
+- Change the schema → bump `SCHEMA_VERSION` in `index.rs`; old indexes are dropped and rebuilt.
+
 ## Log formats
 
-- Claude Code: `~/.claude/projects/<escaped-project-path>/<session-id>.jsonl`. One JSON record per line. Message records (`user`, `assistant`) carry content blocks (`text`, `thinking`, `tool_use`, `tool_result`); many other record types are metadata.
-- Codex: `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. Records have a top-level `type` (`session_meta`, `turn_context`, `response_item`, `event_msg`, ...) and a `payload` with its own `type`.
+- Claude Code: `~/.claude/projects/<escaped-project-path>/<session-id>.jsonl`. One JSON record per line. Message records (`user`, `assistant`) carry content blocks (`text`, `thinking`, `tool_use`, `tool_result`). One API message can span several `assistant` records with the same `message.id`, so count usage once per id. `user` records with a `toolUseResult` carry structured results (diffs as `structuredPatch`). Titles come from `custom-title` / `ai-title`; cost from `cost-state`. Subagents live in `<session-id>/subagents/**/agent-*.jsonl` with a `.meta.json` beside them; `journal.jsonl` files there are not transcripts.
+- Codex: `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. Records have a top-level `type` (`session_meta`, `turn_context`, `response_item`, `event_msg`, ...) and a `payload` with its own `type`. Newer logs have `event_msg/item_completed` records with typed items (`UserMessage`, `AgentMessage`, `CommandExecution`, `FileChange`, `McpToolCall`, ...); the parser prefers these and falls back to `response_item` records for older logs. Sessions with a `parent_thread_id` are background threads (e.g. guardian reviews).
 
 Both formats change between agent versions without notice. Parse what you know, keep the rest.

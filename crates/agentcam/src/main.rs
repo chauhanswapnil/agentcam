@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use agentcam_core::Index;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
@@ -8,6 +11,10 @@ const DEFAULT_PORT: u16 = 4747;
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
+    /// Index database file. Defaults to the user data folder.
+    #[arg(long, global = true, env = "AGENTCAM_DB")]
+    db: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -23,6 +30,19 @@ enum Command {
         #[arg(long)]
         no_open: bool,
     },
+    /// Read new and changed agent logs into the index, then print a summary.
+    Index {
+        /// Re-read every log, not just the changed ones.
+        #[arg(long)]
+        full: bool,
+    },
+    /// Full-text search across all indexed sessions.
+    Search {
+        /// Words to look for (SQLite FTS5 syntax).
+        query: Vec<String>,
+        #[arg(long, short, default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 #[tokio::main]
@@ -33,14 +53,79 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let command = Cli::parse().command.unwrap_or(Command::Serve {
+    let cli = Cli::parse();
+    let db = cli
+        .db
+        .or_else(agentcam_core::default_db_path)
+        .context("can't find a data folder for the index; pass --db")?;
+    let command = cli.command.unwrap_or(Command::Serve {
         port: DEFAULT_PORT,
         no_open: false,
     });
 
     match command {
         Command::Serve { port, no_open } => serve(port, no_open).await,
+        Command::Index { full } => index(&db, full),
+        Command::Search { query, limit } => search(&db, &query.join(" "), limit),
     }
+}
+
+fn index(db: &std::path::Path, full: bool) -> anyhow::Result<()> {
+    let mut idx = Index::open(db).with_context(|| format!("opening {}", db.display()))?;
+    let r = idx.update(&agentcam_core::default_log_sources(), full)?;
+    println!(
+        "Indexed {} of {} log files in {:.1}s ({} events, {} failed, {} bad lines)",
+        r.files_parsed,
+        r.files_seen,
+        r.elapsed_ms as f64 / 1000.0,
+        r.events_written,
+        r.files_failed,
+        r.bad_lines
+    );
+    println!("Index: {}\n", db.display());
+
+    let c = idx.conn();
+    let table = |title: &str, sql: &str| -> anyhow::Result<()> {
+        println!("{title}");
+        let mut stmt = c.prepare(sql)?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (name, sessions, events) = row?;
+            println!("  {name:<52} {sessions:>6} sessions {events:>8} events");
+        }
+        println!();
+        Ok(())
+    };
+    table(
+        "By agent",
+        "SELECT agent, count(*), sum(event_count) FROM sessions GROUP BY agent ORDER BY 2 DESC",
+    )?;
+    table(
+        "By month",
+        "SELECT coalesce(substr(started_at, 1, 7), '?'), count(*), sum(event_count)
+         FROM sessions GROUP BY 1 ORDER BY 1 DESC LIMIT 12",
+    )?;
+    table(
+        "Top projects",
+        "SELECT coalesce(project_path, '?'), count(*), sum(event_count)
+         FROM sessions GROUP BY 1 ORDER BY 3 DESC LIMIT 10",
+    )?;
+    Ok(())
+}
+
+fn search(db: &std::path::Path, query: &str, limit: usize) -> anyhow::Result<()> {
+    let idx = Index::open(db)?;
+    for h in idx.search(query, limit)? {
+        println!("{}  #{:<5} {:<9} {}", h.session_id, h.seq, h.kind, h.title);
+        println!("    {}", h.snippet.replace('\n', " "));
+    }
+    Ok(())
 }
 
 async fn serve(port: u16, no_open: bool) -> anyhow::Result<()> {

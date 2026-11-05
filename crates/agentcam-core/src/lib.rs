@@ -1,12 +1,21 @@
-//! Core of agentcam: where agent logs live, and (soon) the parsers,
-//! event model and index built from them.
+//! Core of agentcam: finding agent logs, parsing them into one event
+//! model, and indexing them in SQLite.
+
+pub mod claude;
+pub mod codex;
+pub mod index;
+pub mod model;
+mod util;
 
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+pub use index::{Index, default_db_path};
+pub use model::ParsedSession;
+
 /// A coding agent whose logs agentcam can read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Agent {
     ClaudeCode,
@@ -21,6 +30,13 @@ impl Agent {
         match self {
             Agent::ClaudeCode => home.join(".claude").join("projects"),
             Agent::Codex => home.join(".codex").join("sessions"),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Agent::ClaudeCode => "claude-code",
+            Agent::Codex => "codex",
         }
     }
 }
@@ -54,6 +70,54 @@ pub fn default_log_sources() -> Vec<LogSource> {
     dirs::home_dir()
         .map(|h| log_sources(&h))
         .unwrap_or_default()
+}
+
+/// Every session log file under `sources`, sorted by path.
+pub fn discover(sources: &[LogSource]) -> Vec<(Agent, PathBuf)> {
+    let mut out = Vec::new();
+    for s in sources.iter().filter(|s| s.exists) {
+        walk(&s.path, &mut |p| {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let wanted = match s.agent {
+                // Under `subagents/`, only `agent-*.jsonl` are transcripts;
+                // workflow `journal.jsonl` files are bookkeeping.
+                Agent::ClaudeCode => {
+                    name.ends_with(".jsonl")
+                        && (name.starts_with("agent-")
+                            || !p.components().any(|c| c.as_os_str() == "subagents"))
+                }
+                Agent::Codex => name.starts_with("rollout-") && name.ends_with(".jsonl"),
+            };
+            if wanted {
+                out.push((s.agent, p.to_path_buf()));
+            }
+        });
+    }
+    out.sort();
+    out
+}
+
+fn walk(dir: &Path, f: &mut impl FnMut(&Path)) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(ft) = entry.file_type() else { continue };
+        let path = entry.path();
+        if ft.is_dir() {
+            walk(&path, f);
+        } else if ft.is_file() {
+            f(&path);
+        }
+    }
+}
+
+/// Parse one log file with the right parser for `agent`.
+pub fn parse_file(agent: Agent, path: &Path) -> std::io::Result<ParsedSession> {
+    match agent {
+        Agent::ClaudeCode => claude::parse(path),
+        Agent::Codex => codex::parse(path),
+    }
 }
 
 #[cfg(test)]
