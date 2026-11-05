@@ -48,6 +48,9 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Claude Code PreToolUse hook: reads the tool call from stdin and
+    /// exits 2 (block) if a guard rule matches. Set up from the Audit page.
+    Guard,
     /// Full-text search across all indexed sessions.
     Search {
         /// Words to look for (SQLite FTS5 syntax).
@@ -59,13 +62,19 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    // The guard hook must print nothing but its verdict, and be fast.
+    if matches!(cli.command, Some(Command::Guard)) {
+        let db = cli.db.or_else(agentcam_core::default_db_path);
+        std::process::exit(guard(db.as_deref()));
+    }
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
-    let cli = Cli::parse();
     let db = cli
         .db
         .or_else(agentcam_core::default_db_path)
@@ -79,7 +88,43 @@ async fn main() -> anyhow::Result<()> {
         Command::Serve { port, no_open } => serve(&db, port, no_open).await,
         Command::Index { full } => index(&db, full),
         Command::Scan { min, range, all } => scan(&db, &min, &range, all),
+        Command::Guard => unreachable!("handled before startup"),
         Command::Search { query, limit } => search(&db, &query.join(" "), limit),
+    }
+}
+
+/// Run as a Claude Code `PreToolUse` hook. Returns the exit code: 2 blocks
+/// the call (the reason goes to stderr, which Claude Code shows the agent),
+/// 0 lets it run. Any problem here lets the call run: a broken guard must
+/// never stop the agent.
+fn guard(db: Option<&std::path::Path>) -> i32 {
+    use std::io::Read;
+    let Some(db) = db else { return 0 };
+    let Ok(rules) = agentcam_core::guard::load(&agentcam_core::guard::guard_path(db)) else {
+        return 0;
+    };
+    if rules.is_empty() {
+        return 0;
+    }
+    let mut input = String::new();
+    if std::io::stdin()
+        .take(4 << 20)
+        .read_to_string(&mut input)
+        .is_err()
+    {
+        return 0;
+    }
+    let Ok(call) = serde_json::from_str::<serde_json::Value>(&input) else {
+        return 0;
+    };
+    let tool = call.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+    let args = call.get("tool_input").cloned().unwrap_or_default();
+    match agentcam_core::guard::check(&rules, tool, &args) {
+        Some(rule) => {
+            eprintln!("Blocked by agentcam ({}): {}", rule.id, rule.reason);
+            2
+        }
+        None => 0,
     }
 }
 

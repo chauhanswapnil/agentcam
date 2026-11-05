@@ -11,6 +11,7 @@ dependencies = [
  "anyhow",
  "clap",
  "open",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -36,8 +37,10 @@ version = "0.1.0"
 dependencies = [
  "agentcam-core",
  "axum",
+ "dirs",
  "mime_guess",
  "notify",
+ "regex",
  "rust-embed",
  "serde",
  "serde_json",

@@ -877,3 +877,35 @@ pub fn file_history(conn: &Connection, path: &str, limit: u32) -> Result<Vec<Ste
     let rows = stmt.query_map([path], |r| step_ref(r, true))?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
+
+/// Past steps a guard rule would have blocked: how many, and the latest few.
+pub fn guard_matches(
+    conn: &Connection,
+    tool: &str,
+    pattern: &str,
+    examples: usize,
+) -> Result<(i64, Vec<StepRef>)> {
+    let Ok(re) = regex::Regex::new(pattern) else {
+        return Ok((0, Vec::new()));
+    };
+    let sql = format!(
+        "SELECT {STEP_REF}, NULL, s.agent, coalesce(r.title, r.first_prompt)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
+         WHERE e.kind = 'tool_call' AND (?1 = '*' OR e.tool_name = ?1)
+         ORDER BY e.ts DESC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query([tool])?;
+    let (mut n, mut out) = (0, Vec::new());
+    while let Some(r) = rows.next()? {
+        let title: String = r.get(3)?;
+        if re.is_match(&title) {
+            n += 1;
+            if out.len() < examples {
+                out.push(step_ref(r, false)?);
+            }
+        }
+    }
+    Ok((n, out))
+}

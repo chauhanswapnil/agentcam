@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Ban,
   Bot,
   CalendarClock,
   ChevronLeft,
@@ -29,6 +30,7 @@ import { DiffView } from '../ui/DiffView'
 import { Kbd } from '../ui/Kbd'
 import { Markdown } from '../ui/Markdown'
 import { ReportCardButton } from '../ui/ReportCard'
+import { BlockDialog } from '../ui/BlockDialog'
 import { sessionCard } from '../lib/reportCard'
 import { ListRow } from '../ui/ListRow'
 import { AgentLabel, EmptyState, KindIcon, Skeleton } from '../ui/Misc'
@@ -345,6 +347,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                     index={step}
                     total={events.length}
                     root={x.project_root}
+                    agent={x.agent}
                     findings={findings.filter((f) => f.seq === cur?.seq)}
                   />
                 </div>
@@ -510,6 +513,7 @@ function StepDetail({
   index,
   total,
   root,
+  agent,
   findings,
 }: {
   sessionId: string
@@ -517,8 +521,10 @@ function StepDetail({
   index: number
   total: number
   root: string | null
+  agent: string
   findings: FindingRow[]
 }) {
+  const [blocking, setBlocking] = useState(false)
   const { data: st, error } = useApi<Step>(event ? `/api/step${query({ session: sessionId, seq: event.seq })}` : null)
   if (!event) return null
   const fresh = st && st.seq === event.seq ? st : null
@@ -560,6 +566,25 @@ function StepDetail({
       )}
 
       {tool && <div className={s.detailTitle}>{event.title}</div>}
+      {tool && agent === 'claude-code' && event.tool_name && (
+        <div style={{ marginTop: -6, marginBottom: 12 }}>
+          <Button size="sm" variant={findings.length ? 'default' : 'ghost'} onClick={() => setBlocking(true)}>
+            <Ban aria-hidden /> Block next time
+          </Button>
+        </div>
+      )}
+      {blocking && event.tool_name && (
+        <BlockDialog
+          sessionId={sessionId}
+          seq={event.seq}
+          tool={event.tool_name}
+          // Start from the risky part of the step (say, the force push in a
+          // longer command). Masked secrets can't be matched, so skip those.
+          title={findings.find((f) => !f.excerpt.includes('…'))?.excerpt ?? event.title}
+          why={findings[0]?.title}
+          onClose={() => setBlocking(false)}
+        />
+      )}
 
       {error && <p className={s.note}>Could not load this step: {error}</p>}
       {!fresh && !error && (

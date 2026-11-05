@@ -7,6 +7,7 @@ import { EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import { SEVERITY_COLOR } from '../lib/severity'
+import { GuardPanel } from '../ui/GuardPanel'
 import { SeverityBadge } from '../ui/Severity'
 import s from './Views.module.css'
 
@@ -48,6 +49,8 @@ export function Audit() {
           <Segmented label="Time range" value={f.range} onChange={(range) => set({ range })} options={RANGES} />
         </div>
       </header>
+
+      <GuardPanel />
 
       {!data ? (
         <Skeleton height={240} />

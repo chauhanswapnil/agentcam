@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 /// Shared server state. Reads and writes use separate SQLite connections,
 /// so the UI stays responsive while a re-index runs.
 pub struct AppState {
+    /// Where `guard.yaml` lives; `None` turns the guard API off.
+    guard_path: Option<std::path::PathBuf>,
+    db_path: Option<std::path::PathBuf>,
     writer: Arc<Mutex<Index>>,
     reader: Arc<Mutex<Index>>,
     sources: Vec<LogSource>,
@@ -44,6 +47,8 @@ impl AppState {
         writer.set_rules(rules);
         let reader = Index::open(db)?;
         Ok(Arc::new(AppState {
+            guard_path: Some(agentcam_core::guard::guard_path(db)),
+            db_path: Some(db.to_path_buf()),
             writer: Arc::new(Mutex::new(writer)),
             reader: Arc::new(Mutex::new(reader)),
             sources,
@@ -52,9 +57,15 @@ impl AppState {
     }
 
     /// One shared connection for both, for tests and in-memory indexes.
-    pub fn from_index(index: Index, sources: Vec<LogSource>) -> Arc<Self> {
+    pub fn from_index(
+        index: Index,
+        sources: Vec<LogSource>,
+        guard_path: Option<std::path::PathBuf>,
+    ) -> Arc<Self> {
         let index = Arc::new(Mutex::new(index));
         Arc::new(AppState {
+            guard_path,
+            db_path: None,
             writer: index.clone(),
             reader: index,
             sources,
@@ -400,4 +411,184 @@ pub async fn file_history(
     st.read(move |idx| query::file_history(idx.conn(), &path, limit))
         .await
         .map(Json)
+}
+
+// ── Guard ("block next time") ─────────────────────────────────────────
+
+use agentcam_core::guard::{self, GuardRule};
+
+#[derive(Serialize)]
+pub struct HookSetup {
+    /// `~/.claude/settings.json`
+    settings_path: Option<String>,
+    /// The settings already call `agentcam guard`.
+    installed: bool,
+    /// JSON to merge into the settings file.
+    snippet: String,
+}
+
+#[derive(Serialize)]
+pub struct GuardInfo {
+    rules: Vec<GuardRule>,
+    path: Option<String>,
+    hook: HookSetup,
+}
+
+fn hook_setup(db: Option<&Path>) -> HookSetup {
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "agentcam".into());
+    let q = |s: &str| format!("\"{}\"", s.replace('"', "\\\""));
+    let mut command = q(&exe);
+    if let Some(db) = db {
+        command.push_str(&format!(" --db {}", q(&db.display().to_string())));
+    }
+    command.push_str(" guard");
+    let snippet = serde_json::to_string_pretty(&serde_json::json!({
+        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": command } ] } ] }
+    }))
+    .unwrap_or_default();
+    let settings = dirs::home_dir().map(|h| h.join(".claude").join("settings.json"));
+    let installed = settings
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .is_some_and(|t| t.contains("agentcam") && t.contains(" guard"));
+    HookSetup {
+        settings_path: settings.map(|p| p.display().to_string()),
+        installed,
+        snippet,
+    }
+}
+
+fn guard_off() -> Response {
+    (StatusCode::SERVICE_UNAVAILABLE, "guard is off").into_response()
+}
+
+fn bad(e: impl std::fmt::Display) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": e.to_string() })),
+    )
+        .into_response()
+}
+
+pub async fn guard_info(State(st): Shared) -> Response {
+    let Some(path) = st.guard_path.as_deref() else {
+        return guard_off();
+    };
+    match guard::load(path) {
+        Ok(rules) => Json(GuardInfo {
+            rules,
+            path: Some(path.display().to_string()),
+            hook: hook_setup(st.db_path.as_deref()),
+        })
+        .into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NewGuardRule {
+    tool: String,
+    pattern: String,
+    reason: String,
+    from_session: Option<String>,
+    from_seq: Option<i64>,
+}
+
+pub async fn guard_add(State(st): Shared, Json(n): Json<NewGuardRule>) -> Response {
+    let Some(path) = st.guard_path.as_deref() else {
+        return guard_off();
+    };
+    let now = now_ms();
+    let rule = GuardRule {
+        id: format!("block-{}", now),
+        tool: if n.tool.trim().is_empty() {
+            "*".into()
+        } else {
+            n.tool.trim().into()
+        },
+        pattern: n.pattern,
+        reason: if n.reason.trim().is_empty() {
+            "Blocked by an agentcam guard rule.".into()
+        } else {
+            n.reason.trim().into()
+        },
+        created: Some(format_ts_ms(now)),
+        from_session: n.from_session,
+        from_seq: n.from_seq,
+    };
+    if let Err(e) = guard::validate(&rule) {
+        return bad(e);
+    }
+    let result = guard::load(path).and_then(|mut rules| {
+        rules.push(rule);
+        guard::save(path, &rules).map(|()| rules)
+    });
+    match result {
+        Ok(rules) => (StatusCode::CREATED, Json(rules)).into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+pub async fn guard_delete(State(st): Shared, UrlPath(id): UrlPath<String>) -> Response {
+    let Some(path) = st.guard_path.as_deref() else {
+        return guard_off();
+    };
+    let result = guard::load(path).and_then(|mut rules| {
+        rules.retain(|r| r.id != id);
+        guard::save(path, &rules).map(|()| rules)
+    });
+    match result {
+        Ok(rules) => Json(rules).into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct GuardTest {
+    tool: String,
+    pattern: String,
+}
+
+#[derive(Serialize)]
+pub struct GuardTestResult {
+    valid: bool,
+    error: Option<String>,
+    matches: i64,
+    examples: Vec<query::StepRef>,
+}
+
+/// How many past steps a rule would have blocked.
+pub async fn guard_test(
+    State(st): Shared,
+    Query(t): Query<GuardTest>,
+) -> Result<Json<GuardTestResult>, ApiError> {
+    if let Err(e) = regex::Regex::new(&t.pattern) {
+        return Ok(Json(GuardTestResult {
+            valid: false,
+            error: Some(e.to_string()),
+            matches: 0,
+            examples: vec![],
+        }));
+    }
+    let (matches, examples) = st
+        .read(move |idx| query::guard_matches(idx.conn(), &t.tool, &t.pattern, 5))
+        .await?;
+    Ok(Json(GuardTestResult {
+        valid: true,
+        error: None,
+        matches,
+        examples,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct SuggestParams {
+    tool: String,
+    title: String,
+}
+
+pub async fn guard_suggest(Query(p): Query<SuggestParams>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "pattern": guard::suggest(&p.tool, &p.title) }))
 }

@@ -104,6 +104,35 @@ async fn local_host_only(req: Request, next: Next) -> Response {
     }
 }
 
+/// Requests that change something must come from agentcam's own page.
+/// Another site can't read our responses, but it could still send a form
+/// POST to localhost; browsers mark those with `Origin` and
+/// `Sec-Fetch-Site`, so refuse anything cross-site.
+async fn same_site_writes(req: Request, next: Next) -> Response {
+    let m = req.method();
+    if m == axum::http::Method::GET || m == axum::http::Method::HEAD {
+        return next.run(req).await;
+    }
+    let h = req.headers();
+    let site_ok = h
+        .get("sec-fetch-site")
+        .and_then(|v| v.to_str().ok())
+        .is_none_or(|v| v == "same-origin" || v == "none");
+    let origin_ok = h
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .is_none_or(|o| {
+            let host = o.split("://").nth(1).unwrap_or("");
+            let name = host.rsplit_once(':').map_or(host, |(n, _)| n);
+            matches!(name, "127.0.0.1" | "localhost" | "[::1]")
+        });
+    if site_ok && origin_ok {
+        next.run(req).await
+    } else {
+        (StatusCode::FORBIDDEN, "cross-site request refused").into_response()
+    }
+}
+
 /// The full app: API routes plus the embedded UI.
 pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()
@@ -121,12 +150,17 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/tool-calls", get(api::tool_calls))
         .route("/files", get(api::files))
         .route("/file", get(api::file_history))
+        .route("/guard", get(api::guard_info).post(api::guard_add))
+        .route("/guard/test", get(api::guard_test))
+        .route("/guard/suggest", get(api::guard_suggest))
+        .route("/guard/{id}", axum::routing::delete(api::guard_delete))
         .fallback(api_not_found)
         .with_state(state);
 
     Router::new()
         .nest("/api", api)
         .fallback(static_handler)
+        .layer(middleware::from_fn(same_site_writes))
         .layer(middleware::from_fn(local_host_only))
 }
 
@@ -171,7 +205,90 @@ mod tests {
         ];
         let mut idx = Index::open_in_memory().unwrap();
         idx.update(&sources, false).unwrap();
-        AppState::from_index(idx, sources)
+        let guard = std::env::temp_dir()
+            .join(format!(
+                "agentcam-srv-{}-{}",
+                std::process::id(),
+                rand_suffix()
+            ))
+            .join("guard.yaml");
+        AppState::from_index(idx, sources, Some(guard))
+    }
+
+    fn rand_suffix() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    }
+
+    async fn send(app: &Router, req: Request<Body>) -> Response {
+        app.clone().oneshot(req).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn guard_rules_add_test_delete_and_block_cross_site() {
+        let app = router(state());
+        let post = |body: &str, extra: Option<(&'static str, &'static str)>| {
+            let mut b = Request::post("/api/guard")
+                .header(header::HOST, "127.0.0.1:4747")
+                .header(header::CONTENT_TYPE, "application/json");
+            if let Some((k, v)) = extra {
+                b = b.header(k, v);
+            }
+            b.body(Body::from(body.to_string())).unwrap()
+        };
+        let rule = r#"{"tool":"Bash","pattern":"npm\\s+test","reason":"no tests"}"#;
+        // Cross-site writes are refused.
+        let evil = send(&app, post(rule, Some(("origin", "https://evil.example")))).await;
+        assert_eq!(evil.status(), StatusCode::FORBIDDEN);
+        let evil = send(&app, post(rule, Some(("sec-fetch-site", "cross-site")))).await;
+        assert_eq!(evil.status(), StatusCode::FORBIDDEN);
+        // Bad patterns are refused.
+        let bad = send(
+            &app,
+            post(r#"{"tool":"Bash","pattern":"(","reason":""}"#, None),
+        )
+        .await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+        // Same-site add works.
+        let ok = send(&app, post(rule, Some(("origin", "http://127.0.0.1:4747")))).await;
+        assert_eq!(ok.status(), StatusCode::CREATED);
+        let body = to_bytes(ok.into_body(), usize::MAX).await.unwrap();
+        let rules: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = rules[0]["id"].as_str().unwrap().to_string();
+
+        let get = |p: String| {
+            Request::get(p)
+                .header(header::HOST, "127.0.0.1:4747")
+                .body(Body::empty())
+                .unwrap()
+        };
+        let t = send(
+            &app,
+            get("/api/guard/test?tool=Bash&pattern=npm%5Cs%2Btest".into()),
+        )
+        .await;
+        let t: serde_json::Value =
+            serde_json::from_slice(&to_bytes(t.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(t["matches"], 1, "the fixture's `npm test`: {t}");
+
+        let del = Request::delete(format!("/api/guard/{id}"))
+            .header(header::HOST, "127.0.0.1:4747")
+            .body(Body::empty())
+            .unwrap();
+        let del = send(&app, del).await;
+        assert_eq!(del.status(), StatusCode::OK);
+        let info = send(&app, get("/api/guard".into())).await;
+        let info: serde_json::Value =
+            serde_json::from_slice(&to_bytes(info.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(info["rules"].as_array().unwrap().len(), 0);
+        assert!(
+            info["hook"]["snippet"]
+                .as_str()
+                .unwrap()
+                .contains("PreToolUse")
+        );
     }
 
     async fn get_host(path: &str, host: &str) -> Response {

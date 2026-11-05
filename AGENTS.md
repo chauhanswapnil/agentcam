@@ -92,6 +92,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/audit` | Rules that fired and the latest findings; takes `rule`, `severity` (lowest to show) |
 | `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool |
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
+| `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
@@ -111,6 +112,14 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Changed rules re-check every session (fingerprint in the `meta` table). If you change how rules are checked in code, bump `ENGINE_VERSION` in `audit.rs`.
 - Every rule needs a test in `audit.rs` that shows a match and a near miss.
 - `agentcam scan` prints findings in the terminal.
+
+### Block next time (guard)
+
+- `guard.rs` holds guard rules (`guard.yaml` next to the index): tool name, regex, message. The UI adds them from a replay step.
+- A Claude Code `PreToolUse` hook runs `agentcam guard`, which reads the call from stdin and exits 2 (block, reason on stderr) or 0. It must stay fast (no index, no logging) and **fail open**: any error lets the call run.
+- agentcam never edits the agent's settings. The Audit page shows the hook JSON for the user to add.
+- Codex isn't supported yet.
+- Write routes (`POST`, `DELETE`) are refused unless `Origin` and `Sec-Fetch-Site` say the request came from agentcam's own page (`same_site_writes` in the server). Keep it.
 
 ### Performance rules
 

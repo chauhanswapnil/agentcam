@@ -4,6 +4,7 @@
 pub mod audit;
 pub mod claude;
 pub mod codex;
+pub mod guard;
 pub mod index;
 pub mod model;
 pub mod query;

@@ -228,3 +228,35 @@ export function useDebounced<T>(value: T, ms: number): T {
   }, [value, ms])
   return v
 }
+
+export type GuardRule = {
+  id: string
+  tool: string
+  pattern: string
+  reason: string
+  created: string | null
+  from_session: string | null
+  from_seq: number | null
+}
+
+export type GuardInfo = {
+  rules: GuardRule[]
+  path: string | null
+  hook: { settings_path: string | null; installed: boolean; snippet: string }
+}
+
+export type GuardTest = { valid: boolean; error: string | null; matches: number; examples: StepRef[] }
+
+/** Send JSON to the API. Throws with the server's message on failure. */
+export async function sendJson<T>(method: 'POST' | 'DELETE', url: string, body?: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method,
+    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!r.ok) {
+    const msg = await r.json().then((j: { error?: string }) => j.error).catch(() => null)
+    throw new Error(msg ?? `HTTP ${r.status}`)
+  }
+  return r.json() as Promise<T>
+}

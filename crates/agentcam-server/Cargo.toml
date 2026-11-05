@@ -13,6 +13,8 @@ include = ["src/**", "build.rs", "ui-dist/**", "Cargo.toml"]
 
 [dependencies]
 agentcam-core.workspace = true
+dirs.workspace = true
+regex.workspace = true
 axum.workspace = true
 mime_guess.workspace = true
 notify.workspace = true
