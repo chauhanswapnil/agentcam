@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows [Kee
 - Parsers for Claude Code and Codex logs (including subagents and older Codex formats) into one event model.
 - SQLite index with full-text search; only changed logs are re-read, and sessions are kept after their logs are deleted.
 - `agentcam index` and `agentcam search` commands.
+- Search: matches in the ⌘K palette as you type, and a search page with type, agent and time filters. Each match opens the replay at that step.
+- Live updates: the server watches agent log folders and re-indexes changed files on its own; open pages refresh.
+- Faster replay on long sessions (about 17× faster stepping on a 1,500-step session).
 - Session replay: a zoomable timeline with play, pause and 1×/4×/16× speeds; a transcript that follows the playhead; a step pane with command output and side-by-side line-numbered diffs; a files list that jumps to each change; keyboard controls and `?step=` deep links.
 - Agent replies render as Markdown (built from React elements; links are shown, never followed).
 - File changes made through shell commands (`>`, `sed -i`, `rm`, `mv`, `cp`, `tee`, `touch`) now count, for Claude Code and Codex.

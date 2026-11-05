@@ -57,6 +57,16 @@ impl AppState {
         })
     }
 
+    pub fn sources(&self) -> &[LogSource] {
+        &self.sources
+    }
+
+    /// Re-index whenever an agent writes to its logs. Returns false if the
+    /// folders couldn't be watched (the UI's re-index button still works).
+    pub fn watch(self: &Arc<Self>) -> bool {
+        crate::watch::start(self.clone())
+    }
+
     pub fn status(&self) -> IndexStatus {
         self.status.lock().unwrap().clone()
     }
@@ -236,6 +246,43 @@ pub async fn sessions(
     st.read(move |idx| query::sessions(idx.conn(), &f, limit, offset))
         .await
         .map(Json)
+}
+
+#[derive(Deserialize)]
+pub struct SearchParams {
+    q: String,
+    range: Option<String>,
+    agent: Option<String>,
+    project: Option<String>,
+    kind: Option<String>,
+    category: Option<String>,
+    limit: Option<u32>,
+}
+
+pub async fn search(
+    State(st): Shared,
+    Query(p): Query<SearchParams>,
+) -> Result<Json<Vec<query::Hit>>, ApiError> {
+    let f = Params {
+        range: p.range,
+        agent: p.agent,
+        project: p.project,
+        ..Default::default()
+    }
+    .filter(now_ms());
+    let limit = p.limit.unwrap_or(50).min(200);
+    st.read(move |idx| {
+        query::search(
+            idx.conn(),
+            &p.q,
+            &f,
+            p.kind.as_deref(),
+            p.category.as_deref(),
+            limit,
+        )
+    })
+    .await
+    .map(Json)
 }
 
 #[derive(Deserialize)]

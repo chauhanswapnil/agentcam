@@ -130,6 +130,10 @@
 
 /* Transcript */
 .item {
+  /* Off-screen rows skip layout and paint, which keeps sessions with
+   * thousands of steps fast. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
   display: flex;
   gap: var(--s-3);
   width: 100%;

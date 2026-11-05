@@ -444,3 +444,29 @@ mod queries {
         assert!(query::session(idx.conn(), "nope").unwrap().is_none());
     }
 }
+
+#[test]
+fn search_finds_steps_with_filters() {
+    use agentcam_core::query::{self, Filter};
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(&sources(), false).unwrap();
+    let c = idx.conn();
+    let hits = query::search(c, "rate limit", &Filter::default(), None, None, 20).unwrap();
+    assert!(!hits.is_empty());
+    assert!(hits.iter().all(|h| h.agent == "codex"));
+    assert!(hits.iter().any(|h| h.snippet.contains('\u{1}')));
+    // Prefix match on the last word, and odd characters don't break it.
+    assert!(
+        !query::search(c, "passw", &Filter::default(), None, None, 20)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(query::search(c, "\"-:*", &Filter::default(), None, None, 20).is_ok());
+    let cmds = query::search(c, "npm", &Filter::default(), None, Some("command"), 20).unwrap();
+    assert!(
+        !cmds.is_empty()
+            && cmds
+                .iter()
+                .all(|h| h.category.as_deref() == Some("command"))
+    );
+}

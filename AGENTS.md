@@ -89,6 +89,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/sessions` | Top-level sessions, most recently active first, paged |
 | `GET /api/sessions/{id}` | One session: steps (titles, plus the start of transcript text), files touched, subagents |
 | `GET /api/step?session=&seq=` | One step in full: output, input, file changes with diffs |
+| `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
 
@@ -96,6 +97,14 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - **Project root** folds agent worktrees (`repo/.claude/worktrees/x`) into the repo they belong to.
 - Subagent sessions count toward their parent and are hidden from top-level lists.
 - `agentcam serve` indexes in the background on start, using a separate SQLite connection so reads stay fast.
+- It also watches the log folders (`notify`) and re-indexes 750 ms after agents stop writing. The UI polls `/api/status` and refetches when `generation` changes.
+- Search input is turned into a safe FTS5 query (`query::fts_query`): every word quoted, the last one as a prefix. Never pass user text to `MATCH` directly.
+
+### Performance rules
+
+- Long lists (transcript rows, timeline marks) are memoized rows with stable callbacks, and rows use `content-visibility: auto`. Moving the playhead must only re-render rows whose state changed.
+- Don't push per-frame state through the router; the replay writes `?step=` with `history.replaceState` after the playhead rests.
+- Check big sessions (1,500+ steps): stepping should stay under ~10 ms.
 - Every request must use a loopback `Host` (`127.0.0.1`, `localhost`, `[::1]`). This blocks DNS rebinding; keep it.
 
 ## UI and design system

@@ -17,9 +17,9 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useParams, useSearch } from 'wouter'
-import { query, useApi, type EventRow, type SessionDetail } from '../lib/api'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation, useParams } from 'wouter'
+import { query, useApi, useIndexStatus, type EventRow, type SessionDetail } from '../lib/api'
 import { baseName, formatCompact, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { Badge } from '../ui/Badge'
@@ -45,7 +45,14 @@ const ZOOMS = [1, 2, 4, 8, 16]
 
 export function Replay() {
   const id = useParams()['*'] ?? ''
-  const { data, error } = useApi<SessionDetail>(`/api/sessions/${id}`)
+  const { status } = useIndexStatus()
+  const [openedAt] = useState(() => Date.now())
+  const [ended, setEnded] = useState<string | null>(null)
+  // A session that was active in the last 15 minutes may still be running:
+  // refetch it after each index run so new steps appear.
+  const live = !!ended && openedAt - Date.parse(ended) < 15 * 60_000
+  const { data, error } = useApi<SessionDetail>(`/api/sessions/${id}`, live ? (status?.generation ?? 0) : 0)
+  if (data && data.session.ended_at !== ended) setEnded(data.session.ended_at)
 
   if (error) {
     return (
@@ -72,7 +79,8 @@ export function Replay() {
 function Player({ id, data }: { id: string; data: SessionDetail }) {
   const { session: x, events, files, subagents } = data
   const [, navigate] = useLocation()
-  const search = useSearch()
+  // Read once: the URL follows the playhead, not the other way round.
+  const [search] = useState(() => window.location.search)
   const last = events.length - 1
   const fromUrl = Number(new URLSearchParams(search).get('step'))
   const [step, setStep] = useState(() => (Number.isFinite(fromUrl) ? Math.min(Math.max(fromUrl, 0), Math.max(last, 0)) : 0))
@@ -93,10 +101,16 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
     [last],
   )
 
-  // Deep link: keep ?step= in the URL.
+  // Deep link: keep ?step= in the URL. Written with the History API after
+  // the playhead rests, not through the router: a router update re-renders
+  // the whole page, which is too slow at 16× on long sessions.
   useEffect(() => {
-    navigate(`/sessions/${id}${query({ step: step || undefined })}`, { replace: true })
-  }, [step, id, navigate])
+    const t = window.setTimeout(() => {
+      const url = `/sessions/${id}${query({ step: step || undefined })}`
+      if (location.pathname + location.search !== url) history.replaceState(history.state, '', url)
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [step, id])
 
   // Playback: advance on a timer; stop at the end.
   useEffect(() => {
@@ -111,6 +125,14 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
     return () => window.clearInterval(t)
   }, [playing, speed, last, seek])
 
+  const jump = useCallback(
+    (i: number) => {
+      setPlaying(false)
+      seek(i)
+    },
+    [seek],
+  )
+
   const nextWhere = useCallback(
     (pred: (e: EventRow) => boolean, dir: 1 | -1 = 1) => {
       for (let i = stepRef.current + dir; i >= 0 && i <= last; i += dir) if (pred(events[i])) return seek(i)
@@ -121,8 +143,8 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
   // Keyboard: space, arrows, J/K, Shift for changes, E for errors.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement
-      if (t.closest('input, textarea, [contenteditable], [cmdk-root]') || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target instanceof Element ? e.target : null
+      if (t?.closest('input, textarea, [contenteditable], [cmdk-root]') || e.metaKey || e.ctrlKey || e.altKey) return
       const k = e.key
       if (k === ' ') setPlaying((p) => !p)
       else if ((k === 'ArrowRight' || k === 'j') && e.shiftKey) nextWhere(isChange)
@@ -205,7 +227,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
       ) : (
         <>
           <div className={s.player}>
-            <Track events={events} current={step} onSeek={(i) => (setPlaying(false), seek(i))} zoom={zoom} />
+            <Track events={events} current={step} onSeek={jump} zoom={zoom} />
             <div className={s.controls}>
               <Tooltip content={<>Previous <Kbd keys={['left']} /></>}>
                 <Button icon variant="ghost" aria-label="Previous step" onClick={() => seek(step - 1)} disabled={step === 0}>
@@ -290,7 +312,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
 
           <div className={s.body}>
             <Panel title="Transcript" icon={<Rows3 />} flush>
-              <Transcript events={events} current={step} onSeek={(i) => (setPlaying(false), seek(i))} />
+              <Transcript events={events} current={step} onSeek={jump} />
             </Panel>
             <div className={`${s.column} ${s.stickyCol}`}>
               <Panel flush>
@@ -300,7 +322,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
               </Panel>
               {files.length > 0 && (
                 <Panel title="Files" icon={<FileStack />} flush>
-                  <Files files={files} root={x.project_root} current={step} onSeek={(i) => (setPlaying(false), seek(i))} />
+                  <Files files={files} root={x.project_root} current={step} onSeek={jump} />
                 </Panel>
               )}
               {subagents.length > 0 && (
@@ -342,19 +364,36 @@ function Transcript({ events, current, onSeek }: { events: EventRow[]; current: 
   return (
     <div className={s.scroll} ref={box} style={{ position: 'relative' }}>
       {events.map((e, i) => (
-        <button
-          key={e.seq}
-          type="button"
-          data-i={i}
-          className={`${s.item} ${i === current ? s.itemOn : ''} ${i > current ? s.itemFuture : ''}`}
-          onClick={() => onSeek(i)}
-        >
-          <TranscriptItem e={e} />
-        </button>
+        <Row key={e.seq} e={e} i={i} state={i === current ? 'on' : i > current ? 'future' : 'past'} onSeek={onSeek} />
       ))}
     </div>
   )
 }
+
+/** One transcript row. Memoized: moving the playhead re-renders only the
+ * rows whose state changed, not the whole list. */
+const Row = memo(function Row({
+  e,
+  i,
+  state,
+  onSeek,
+}: {
+  e: EventRow
+  i: number
+  state: 'past' | 'on' | 'future'
+  onSeek: (i: number) => void
+}) {
+  return (
+    <button
+      type="button"
+      data-i={i}
+      className={`${s.item} ${state === 'on' ? s.itemOn : ''} ${state === 'future' ? s.itemFuture : ''}`}
+      onClick={() => onSeek(i)}
+    >
+      <TranscriptItem e={e} />
+    </button>
+  )
+})
 
 function TranscriptItem({ e }: { e: EventRow }) {
   if (e.kind === 'prompt') {

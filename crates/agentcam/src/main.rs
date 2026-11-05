@@ -133,6 +133,9 @@ async fn serve(db: &std::path::Path, port: u16, no_open: bool) -> anyhow::Result
         .with_context(|| format!("opening {}", db.display()))?;
     // Index in the background; the UI shows progress and refetches.
     state.spawn_index(false);
+    if !state.watch() {
+        tracing::warn!("live updates are off; use the re-index button to pick up new sessions");
+    }
 
     let listener = match agentcam_server::bind(port).await {
         Ok(l) => l,

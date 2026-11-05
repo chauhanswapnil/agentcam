@@ -1,0 +1,97 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: var(--s-8) var(--s-6) var(--s-16);
+}
+.box {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-3);
+  background: var(--bg-1);
+  color: var(--text-3);
+}
+.box:focus-within {
+  border-color: var(--line-3);
+}
+.box svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.input {
+  flex: 1;
+  height: 52px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-xl);
+}
+.input::placeholder {
+  color: var(--text-3);
+}
+.filters {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.count {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.hit {
+  display: flex;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-3) var(--s-4);
+  border: 0;
+  border-bottom: 1px solid var(--line-1);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.hit:last-child {
+  border-bottom: 0;
+}
+.hit:hover {
+  background: var(--bg-2);
+}
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.title {
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.snippet {
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.meta {
+  display: flex;
+  gap: var(--s-2);
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.meta span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

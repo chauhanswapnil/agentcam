@@ -2,6 +2,7 @@
 //! embedded web UI for everything else.
 
 pub mod api;
+mod watch;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -114,6 +115,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/sessions", get(api::sessions))
         .route("/sessions/{*id}", get(api::session))
         .route("/step", get(api::step))
+        .route("/search", get(api::search))
         .fallback(api_not_found)
         .with_state(state);
 

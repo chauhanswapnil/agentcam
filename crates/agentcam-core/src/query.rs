@@ -465,3 +465,112 @@ pub fn step(conn: &Connection, session_id: &str, seq: i64) -> Result<Option<Step
         .collect::<std::result::Result<_, _>>()?;
     Ok(Some(st))
 }
+
+/// One full-text match, with enough about its session to show it in a list.
+#[derive(Debug, Clone, Serialize)]
+pub struct Hit {
+    pub session_id: String,
+    pub seq: i64,
+    pub ts: Option<String>,
+    pub kind: String,
+    pub category: Option<String>,
+    pub tool_name: Option<String>,
+    pub is_error: bool,
+    pub title: String,
+    /// Matching text; matched words sit between `\u{1}` and `\u{2}`.
+    pub snippet: String,
+    pub agent: String,
+    pub session_title: Option<String>,
+    pub project_root: Option<String>,
+}
+
+/// Turn what a person typed into a safe FTS5 query: every word quoted (so
+/// `-`, `:` or quotes can't break the syntax), the last one as a prefix.
+pub fn fts_query(input: &str) -> Option<String> {
+    let words: Vec<String> = input
+        .split_whitespace()
+        .map(|w| w.replace('"', ""))
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{w}\""))
+        .collect();
+    let (last, rest) = words.split_last()?;
+    let mut q = rest.join(" ");
+    if !q.is_empty() {
+        q.push(' ');
+    }
+    q.push_str(last);
+    q.push('*');
+    Some(q)
+}
+
+/// Full-text search over step titles and text, best matches first.
+pub fn search(
+    conn: &Connection,
+    input: &str,
+    f: &Filter,
+    kind: Option<&str>,
+    category: Option<&str>,
+    limit: u32,
+) -> Result<Vec<Hit>> {
+    let Some(q) = fts_query(input) else {
+        return Ok(Vec::new());
+    };
+    let (cond, mut args) = conditions(f);
+    let mut extra = String::new();
+    for (col, v) in [("e.kind", kind), ("e.category", category)] {
+        if let Some(v) = v.filter(|v| !v.is_empty()) {
+            extra.push_str(&format!(" AND {col} = ?"));
+            args.push(v.to_string());
+        }
+    }
+    args.insert(0, q);
+    let sql = format!(
+        "SELECT e.session_id, e.seq, e.ts, e.kind, e.category, e.tool_name, e.is_error, e.title,
+                snippet(events_fts, -1, char(1), char(2), '…', 16),
+                s.agent, coalesce(r.title, r.first_prompt), s.project_root
+         FROM events_fts
+         JOIN events e ON e.id = events_fts.rowid
+         JOIN sessions s ON s.id = e.session_id
+         LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
+         WHERE events_fts MATCH ? AND {cond}{extra}
+         ORDER BY rank LIMIT {limit}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let hits = stmt
+        .query_map(params_from_iter(&args), |r| {
+            Ok(Hit {
+                session_id: r.get(0)?,
+                seq: r.get(1)?,
+                ts: r.get(2)?,
+                kind: r.get(3)?,
+                category: r.get(4)?,
+                tool_name: r.get(5)?,
+                is_error: r.get(6)?,
+                title: r.get(7)?,
+                snippet: r.get(8)?,
+                agent: r.get(9)?,
+                session_title: r.get(10)?,
+                project_root: r.get(11)?,
+            })
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    Ok(hits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fts_query;
+
+    #[test]
+    fn fts_query_is_always_safe() {
+        assert_eq!(
+            fts_query("liquid glass").as_deref(),
+            Some("\"liquid\" \"glass\"*")
+        );
+        assert_eq!(
+            fts_query("rm -rf \"x").as_deref(),
+            Some("\"rm\" \"-rf\" \"x\"*")
+        );
+        assert_eq!(fts_query("   "), None);
+    }
+}

@@ -80,6 +80,22 @@ export type IndexStatus = {
   generation: number
 }
 
+export type Hit = {
+  session_id: string
+  seq: number
+  ts: string | null
+  kind: EventKind
+  category: ToolCategory | null
+  tool_name: string | null
+  is_error: boolean
+  title: string
+  /** Matched words are wrapped in \u0001 ... \u0002. */
+  snippet: string
+  agent: AgentId
+  session_title: string | null
+  project_root: string | null
+}
+
 export type Filters = { range?: string; agent?: string; project?: string; day?: string }
 
 export function query(params: Record<string, string | number | undefined>) {
@@ -131,9 +147,10 @@ export function useIndexStatus() {
   useEffect(() => {
     load()
   }, [load])
+  // Poll fast while indexing, slowly otherwise: the server re-indexes on
+  // its own when agents write logs, and `generation` tells us to refetch.
   useEffect(() => {
-    if (!status?.indexing) return
-    const t = window.setInterval(load, 700)
+    const t = window.setInterval(load, status?.indexing ? 700 : 3000)
     return () => window.clearInterval(t)
   }, [status?.indexing, load])
   const reindex = useCallback(async () => {
@@ -141,4 +158,14 @@ export function useIndexStatus() {
     load()
   }, [load])
   return { status, reindex }
+}
+
+/** `value`, but only after it has stopped changing for `ms`. */
+export function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value)
+  useEffect(() => {
+    const t = window.setTimeout(() => setV(value), ms)
+    return () => window.clearTimeout(t)
+  }, [value, ms])
+  return v
 }

@@ -10,7 +10,10 @@ import s from './AppShell.module.css'
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useCommandPalette()
   const [location] = useLocation()
-  const nav = [{ href: '/', label: 'Overview' }]
+  const nav = [
+    { href: '/', label: 'Overview' },
+    { href: '/search', label: 'Search' },
+  ]
   return (
     <div className={s.shell}>
       <header className={s.top}>
