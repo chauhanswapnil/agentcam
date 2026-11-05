@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     match command {
-        Command::Serve { port, no_open } => serve(port, no_open).await,
+        Command::Serve { port, no_open } => serve(&db, port, no_open).await,
         Command::Index { full } => index(&db, full),
         Command::Search { query, limit } => search(&db, &query.join(" "), limit),
     }
@@ -128,7 +128,12 @@ fn search(db: &std::path::Path, query: &str, limit: usize) -> anyhow::Result<()>
     Ok(())
 }
 
-async fn serve(port: u16, no_open: bool) -> anyhow::Result<()> {
+async fn serve(db: &std::path::Path, port: u16, no_open: bool) -> anyhow::Result<()> {
+    let state = agentcam_server::AppState::open(db, agentcam_core::default_log_sources())
+        .with_context(|| format!("opening {}", db.display()))?;
+    // Index in the background; the UI shows progress and refetches.
+    state.spawn_index(false);
+
     let listener = match agentcam_server::bind(port).await {
         Ok(l) => l,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
@@ -145,6 +150,6 @@ async fn serve(port: u16, no_open: bool) -> anyhow::Result<()> {
         tracing::warn!("couldn't open the browser: {e}");
     }
 
-    agentcam_server::serve(listener).await?;
+    agentcam_server::serve(listener, state).await?;
     Ok(())
 }

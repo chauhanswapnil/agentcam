@@ -82,3 +82,15 @@
 .tipMeta {
   color: var(--text-3);
 }
+
+/* Long sessions: thinner marks, and scroll sideways if they still don't fit.
+ * The replay view replaces this with a zoomable track. */
+.dense .strip {
+  gap: 1px;
+  overflow-x: auto;
+  padding-bottom: var(--s-2);
+}
+.dense .mark {
+  min-width: 3px;
+  border-radius: 1px;
+}

@@ -76,6 +76,27 @@ Agent logs hold real secrets, file contents and private prompts.
 - Fixtures in `fixtures/` are hand-written and synthetic. Paths use `/Users/dev/...`; secrets are obviously fake (`sk-test-0000...`).
 - Don't log full event payloads at `info` level. Use `debug` or `trace`.
 
+## API
+
+The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in `agentcam-core/src/query.rs`; handlers in `agentcam-server/src/api.rs` stay thin.
+
+| Route | What it returns |
+|---|---|
+| `GET /api/status` | Index state; `generation` goes up after each run, so the UI refetches |
+| `POST /api/index` | Start indexing new and changed logs (202, or 409 if already running) |
+| `GET /api/overview` | Stats, the previous period's stats, and projects with weekly sparklines |
+| `GET /api/activity` | Agent time per local day for the last 371 days |
+| `GET /api/sessions` | Top-level sessions, most recently active first, paged |
+| `GET /api/sessions/{id}` | One session with its steps (titles only) and subagents |
+
+List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
+
+- **Agent time** is the sum of gaps between steps, each capped at 5 minutes, so idle stretches don't count. It's stored per step (`events.gap_ms`) at index time.
+- **Project root** folds agent worktrees (`repo/.claude/worktrees/x`) into the repo they belong to.
+- Subagent sessions count toward their parent and are hidden from top-level lists.
+- `agentcam serve` indexes in the background on start, using a separate SQLite connection so reads stay fast.
+- Every request must use a loopback `Host` (`127.0.0.1`, `localhost`, `[::1]`). This blocks DNS rebinding; keep it.
+
 ## UI and design system
 
 Open `/styleguide` in the running app to see every token and component. Before adding UI:

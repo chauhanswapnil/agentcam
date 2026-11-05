@@ -308,3 +308,110 @@ fn index_is_incremental_and_searchable() {
         .unwrap();
     assert_eq!((files, parent.as_deref()), (0, Some(CLAUDE_ID)));
 }
+
+mod queries {
+    use super::*;
+    use agentcam_core::query::{self, Filter};
+
+    fn index() -> Index {
+        let mut idx = Index::open_in_memory().unwrap();
+        idx.update(&sources(), false).unwrap();
+        idx
+    }
+
+    #[test]
+    fn stats_count_subagents_toward_their_parent() {
+        let idx = index();
+        let all = query::stats(idx.conn(), &Filter::default()).unwrap();
+        // Claude main + subagent count once; two Codex sessions.
+        assert_eq!(all.sessions, 3);
+        assert_eq!(all.projects, 3);
+        assert!(all.active_ms > 0);
+        assert_eq!(all.errors, 3, "{all:?}");
+
+        let codex = query::stats(
+            idx.conn(),
+            &Filter {
+                agent: Some("codex".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (codex.sessions, codex.files_changed, codex.files_created),
+            (2, 3, 1)
+        );
+    }
+
+    #[test]
+    fn active_time_caps_idle_gaps() {
+        let idx = index();
+        let ms: i64 = idx
+            .conn()
+            .query_row(
+                "SELECT active_ms FROM sessions WHERE id = ?",
+                [CLAUDE_ID],
+                |r| r.get(0),
+            )
+            .unwrap();
+        // Steps run 10:00:01 -> 10:01:00.100, no gap over the 5 minute cap.
+        assert_eq!(ms, 59_100);
+    }
+
+    #[test]
+    fn range_filters_by_step_time() {
+        let idx = index();
+        let f = Filter {
+            since: Some("2026-11-01T00:00:00.000Z".into()),
+            until: Some("2026-11-02T00:00:00.000Z".into()),
+            ..Default::default()
+        };
+        let page = query::sessions(idx.conn(), &f, 50, 0).unwrap();
+        assert_eq!(page.total, 2);
+        let ids: Vec<_> = page.items.iter().map(|s| s.id.as_str()).collect();
+        // Codex session (12:00) is more recent than Claude (10:00).
+        assert_eq!(ids, ["22222222-2222-4222-8222-222222222222", CLAUDE_ID]);
+        assert_eq!(page.items[1].subagents, 1);
+        assert!(page.items.iter().all(|s| s.parent_id.is_none()));
+    }
+
+    #[test]
+    fn activity_and_projects() {
+        let idx = index();
+        let days = query::activity(idx.conn(), &Filter::default()).unwrap();
+        assert_eq!(days.iter().map(|d| d.events).sum::<i64>(), {
+            idx.conn()
+                .query_row("SELECT count(*) FROM events", [], |r| r.get::<_, i64>(0))
+                .unwrap()
+        });
+
+        let projects = query::projects(
+            idx.conn(),
+            &Filter::default(),
+            4,
+            "2026-11-08T00:00:00.000Z",
+        )
+        .unwrap();
+        let demo = projects
+            .iter()
+            .find(|p| p.path == "/Users/dev/projects/demo")
+            .unwrap();
+        assert_eq!(demo.sessions, 1);
+        assert_eq!(demo.agents, ["claude-code"]);
+        assert_eq!(demo.weekly_ms.len(), 4);
+        assert_eq!(
+            demo.weekly_ms[3], demo.active_ms,
+            "all activity is in the last week"
+        );
+    }
+
+    #[test]
+    fn session_detail_lists_steps_and_subagents() {
+        let idx = index();
+        let d = query::session(idx.conn(), CLAUDE_ID).unwrap().unwrap();
+        assert_eq!(d.events.len(), 12);
+        assert_eq!(d.subagents.len(), 1);
+        assert_eq!(d.session.title.as_deref(), Some("Fix the login bug"));
+        assert!(query::session(idx.conn(), "nope").unwrap().is_none());
+    }
+}

@@ -16,7 +16,10 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
+
+/// Gaps between steps longer than this count as idle, not agent time.
+pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
 
 const SCHEMA: &str = r#"
 CREATE TABLE sources (
@@ -35,6 +38,7 @@ CREATE TABLE sessions (
     source_path         TEXT NOT NULL,
     parent_id           TEXT,
     project_path        TEXT,
+    project_root        TEXT,
     title               TEXT,
     first_prompt        TEXT,
     git_branch          TEXT,
@@ -50,8 +54,11 @@ CREATE TABLE sessions (
     event_count         INTEGER NOT NULL DEFAULT 0,
     tool_call_count     INTEGER NOT NULL DEFAULT 0,
     error_count         INTEGER NOT NULL DEFAULT 0,
-    file_count          INTEGER NOT NULL DEFAULT 0
+    file_count          INTEGER NOT NULL DEFAULT 0,
+    active_ms           INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX sessions_root ON sessions(project_root);
+CREATE INDEX sessions_parent ON sessions(parent_id);
 CREATE INDEX sessions_started ON sessions(started_at);
 CREATE INDEX sessions_project ON sessions(project_path);
 CREATE INDEX sessions_source ON sessions(source_path);
@@ -70,6 +77,7 @@ CREATE TABLE events (
     is_error      INTEGER NOT NULL DEFAULT 0,
     duration_ms   INTEGER,
     source_offset INTEGER NOT NULL,
+    gap_ms        INTEGER NOT NULL DEFAULT 0,
     UNIQUE(session_id, seq)
 );
 CREATE INDEX events_ts ON events(ts);
@@ -320,12 +328,32 @@ fn write_session(tx: &rusqlite::Transaction, p: &ParsedSession) -> Result<()> {
     paths.sort_unstable();
     paths.dedup();
 
+    // Time since the previous step, capped so idle stretches don't count.
+    let mut prev: Option<i64> = None;
+    let gaps: Vec<i64> = p
+        .events
+        .iter()
+        .map(|e| {
+            let t = e.timestamp.as_deref().and_then(crate::util::parse_ts_ms);
+            let gap = match (prev, t) {
+                (Some(a), Some(b)) => (b - a).clamp(0, IDLE_CAP_MS),
+                _ => 0,
+            };
+            if t.is_some() {
+                prev = t;
+            }
+            gap
+        })
+        .collect();
+    let active_ms: i64 = gaps.iter().sum();
+    let root = s.project_path.as_deref().map(crate::project_root);
+
     tx.execute(
         "INSERT INTO sessions (id, agent, source_path, parent_id, project_path, title, first_prompt,
             git_branch, model, agent_version, started_at, ended_at, input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, cost_usd, event_count, tool_call_count,
-            error_count, file_count)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            error_count, file_count, project_root, active_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
         params![
             s.id,
             s.agent.map(Agent::as_str).unwrap_or("unknown"),
@@ -348,17 +376,19 @@ fn write_session(tx: &rusqlite::Transaction, p: &ParsedSession) -> Result<()> {
             tool_calls as i64,
             errors as i64,
             paths.len() as i64,
+            root,
+            active_ms,
         ],
     )?;
 
     let mut ev = tx.prepare_cached(
         "INSERT INTO events (session_id, seq, ts, kind, tool_name, category, title, body, input,
-            is_error, duration_ms, source_offset)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            is_error, duration_ms, source_offset, gap_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     )?;
     let mut fts =
         tx.prepare_cached("INSERT INTO events_fts (rowid, title, body) VALUES (?, ?, ?)")?;
-    for e in &p.events {
+    for (e, gap) in p.events.iter().zip(&gaps) {
         let input = e
             .input
             .as_ref()
@@ -376,6 +406,7 @@ fn write_session(tx: &rusqlite::Transaction, p: &ParsedSession) -> Result<()> {
             e.is_error,
             e.duration_ms.map(|d| d as i64),
             e.source_offset as i64,
+            gap,
         ])?;
         fts.execute(params![tx.last_insert_rowid(), e.title, e.body])?;
     }

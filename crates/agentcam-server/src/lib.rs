@@ -1,15 +1,22 @@
 //! Local HTTP server for agentcam: a JSON API under `/api` and the
 //! embedded web UI for everything else.
 
+pub mod api;
+
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use agentcam_core::LogSource;
 use axum::{
     Json, Router,
+    extract::Request,
     http::{StatusCode, Uri, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
+
+pub use api::AppState;
 use rust_embed::Embed;
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -76,13 +83,43 @@ async fn static_handler(uri: Uri) -> Response {
     }
 }
 
+/// Only answer requests addressed to this machine by a loopback name.
+/// A web page on another site can point its own hostname at 127.0.0.1
+/// (DNS rebinding); its requests then carry that hostname and are refused.
+async fn local_host_only(req: Request, next: Next) -> Response {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    let name = match host.rsplit_once(':') {
+        Some((n, port)) if port.chars().all(|c| c.is_ascii_digit()) => n,
+        _ => host,
+    };
+    if matches!(name, "127.0.0.1" | "localhost" | "[::1]") {
+        next.run(req).await
+    } else {
+        (StatusCode::FORBIDDEN, "agentcam only answers on localhost").into_response()
+    }
+}
+
 /// The full app: API routes plus the embedded UI.
-pub fn router() -> Router {
+pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
-        .fallback(api_not_found);
+        .route("/status", get(api::status))
+        .route("/index", post(api::reindex))
+        .route("/overview", get(api::overview))
+        .route("/activity", get(api::activity))
+        .route("/sessions", get(api::sessions))
+        .route("/sessions/{*id}", get(api::session))
+        .fallback(api_not_found)
+        .with_state(state);
 
-    Router::new().nest("/api", api).fallback(static_handler)
+    Router::new()
+        .nest("/api", api)
+        .fallback(static_handler)
+        .layer(middleware::from_fn(local_host_only))
 }
 
 /// Bind to localhost on `port`. Port 0 picks a free one.
@@ -91,8 +128,8 @@ pub async fn bind(port: u16) -> std::io::Result<TcpListener> {
 }
 
 /// Serve the app on `listener` until Ctrl-C.
-pub async fn serve(listener: TcpListener) -> std::io::Result<()> {
-    axum::serve(listener, router())
+pub async fn serve(listener: TcpListener, state: Arc<AppState>) -> std::io::Result<()> {
+    axum::serve(listener, router(state))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })
@@ -106,19 +143,95 @@ mod tests {
     use axum::http::Request;
     use tower::ServiceExt;
 
-    async fn get(path: &str) -> Response {
-        router()
-            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+    fn fixtures() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
+    }
+
+    fn state() -> Arc<AppState> {
+        use agentcam_core::{Agent, Index};
+        let sources = vec![
+            LogSource {
+                agent: Agent::ClaudeCode,
+                path: fixtures().join("claude-code/projects"),
+                exists: true,
+            },
+            LogSource {
+                agent: Agent::Codex,
+                path: fixtures().join("codex/sessions"),
+                exists: true,
+            },
+        ];
+        let mut idx = Index::open_in_memory().unwrap();
+        idx.update(&sources, false).unwrap();
+        AppState::from_index(idx, sources)
+    }
+
+    async fn get_host(path: &str, host: &str) -> Response {
+        router(state())
+            .oneshot(
+                Request::get(path)
+                    .header(header::HOST, host)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap()
     }
 
+    async fn get(path: &str) -> Response {
+        get_host(path, "127.0.0.1:4747").await
+    }
+
+    async fn json(path: &str) -> serde_json::Value {
+        let res = get(path).await;
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn refuses_other_hosts() {
+        assert_eq!(
+            get_host("/api/health", "evil.example:4747").await.status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            get_host("/", "evil.example").await.status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            get_host("/api/health", "localhost:4747").await.status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            get_host("/api/health", "[::1]:4747").await.status(),
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn overview_and_sessions() {
+        let o = json("/api/overview").await;
+        assert_eq!(o["stats"]["sessions"], 3);
+        assert!(o["previous"].is_null());
+        let s = json("/api/sessions?agent=codex").await;
+        assert_eq!(s["total"], 2);
+        let d = json("/api/sessions/11111111-1111-4111-8111-111111111111").await;
+        assert_eq!(d["subagents"].as_array().unwrap().len(), 1);
+        let sub = json("/api/sessions/11111111-1111-4111-8111-111111111111/agent-a1").await;
+        assert_eq!(
+            sub["session"]["parent_id"],
+            "11111111-1111-4111-8111-111111111111"
+        );
+        assert_eq!(
+            get("/api/sessions/missing").await.status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
     #[tokio::test]
     async fn health_reports_name_and_version() {
-        let res = get("/api/health").await;
-        assert_eq!(res.status(), StatusCode::OK);
-        let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let json = json("/api/health").await;
         assert_eq!(json["name"], "agentcam");
         assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
     }

@@ -40,7 +40,7 @@ export function EventStrip({ events, current, onSelect, label }: Props) {
   }
 
   return (
-    <div className={`${s.wrap} ${current != null ? s.dimmed : ''}`} ref={ref}>
+    <div className={`${s.wrap} ${current != null ? s.dimmed : ''} ${events.length > 120 ? s.dense : ''}`} ref={ref}>
       <div className={s.strip} role="listbox" aria-label={label}>
         {events.map((e, i) => {
           const g = GROUPS[groupOf(e.kind, e.category, e.isError)]

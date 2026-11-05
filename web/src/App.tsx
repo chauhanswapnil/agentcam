@@ -1,16 +1,18 @@
 import { Route, Switch } from 'wouter'
 import { AppShell } from './AppShell'
-import { Home } from './pages/Home'
+import { Overview } from './pages/Overview'
+import { Session } from './pages/Session'
 import { Styleguide } from './pages/Styleguide'
 
 export default function App() {
   return (
     <AppShell>
       <Switch>
-        <Route path="/" component={Home} />
+        <Route path="/" component={Overview} />
+        <Route path="/sessions/*" component={Session} />
         <Route path="/styleguide" component={Styleguide} />
         <Route>
-          <Home />
+          <Overview />
         </Route>
       </Switch>
     </AppShell>

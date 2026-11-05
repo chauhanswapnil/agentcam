@@ -5,7 +5,8 @@ pub mod claude;
 pub mod codex;
 pub mod index;
 pub mod model;
-mod util;
+pub mod query;
+pub mod util;
 
 use std::path::{Path, PathBuf};
 
@@ -112,6 +113,21 @@ fn walk(dir: &Path, f: &mut impl FnMut(&Path)) {
     }
 }
 
+/// The main checkout for a path inside an agent worktree, so work in
+/// `repo/.claude/worktrees/x` counts toward `repo`.
+pub fn project_root(path: &str) -> String {
+    for marker in [
+        "/.claude/worktrees/",
+        "/.codex/worktrees/",
+        "\\.claude\\worktrees\\",
+    ] {
+        if let Some(i) = path.find(marker) {
+            return path[..i].to_string();
+        }
+    }
+    path.trim_end_matches(['/', '\\']).to_string()
+}
+
 /// Parse one log file with the right parser for `agent`.
 pub fn parse_file(agent: Agent, path: &Path) -> std::io::Result<ParsedSession> {
     match agent {
@@ -123,6 +139,16 @@ pub fn parse_file(agent: Agent, path: &Path) -> std::io::Result<ParsedSession> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_root_folds_worktrees() {
+        assert_eq!(
+            project_root("/Users/dev/app/.claude/worktrees/fix-a1"),
+            "/Users/dev/app"
+        );
+        assert_eq!(project_root("/Users/dev/app/"), "/Users/dev/app");
+        assert_eq!(project_root("/Users/dev/app"), "/Users/dev/app");
+    }
 
     #[test]
     fn finds_existing_and_missing_log_dirs() {

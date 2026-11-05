@@ -1,0 +1,80 @@
+.outer {
+  position: relative;
+}
+.wrap {
+  overflow-x: auto;
+  padding-bottom: var(--s-1);
+}
+.svg {
+  display: block;
+}
+.svg:focus {
+  outline: none;
+}
+.svg:focus-visible .focused {
+  stroke: var(--focus);
+  stroke-width: 1.5;
+}
+.cell {
+  cursor: pointer;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+.cell:hover {
+  stroke: var(--text-2);
+  stroke-width: 1;
+}
+.selected {
+  stroke: var(--text-1);
+  stroke-width: 1.5;
+}
+.dim .cell:not(.selected) {
+  opacity: 0.45;
+}
+.label {
+  fill: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-top: var(--s-3);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.legend span {
+  margin: 0 4px;
+}
+.tip {
+  position: absolute;
+  z-index: var(--z-tooltip);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px var(--s-2);
+  border-radius: var(--r-2);
+  background: var(--bg-3);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 8px));
+}
+.tip strong {
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
