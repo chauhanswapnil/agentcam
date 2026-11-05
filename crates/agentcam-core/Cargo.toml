@@ -1,0 +1,17 @@
+[package]
+name = "agentcam-core"
+description = "Parsers, event model and index for agentcam"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+dirs.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,26 @@
+[package]
+name = "agentcam"
+description = "A dashcam for your coding agents: replay and search every Claude Code and Codex session on your machine"
+readme = "../../README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+agentcam-core.workspace = true
+agentcam-server.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+open.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

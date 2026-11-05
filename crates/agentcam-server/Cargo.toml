@@ -1,0 +1,28 @@
+[package]
+name = "agentcam-server"
+description = "Local HTTP server and embedded web UI for agentcam"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# The built web UI is gitignored but must ship in the published crate.
+include = ["src/**", "build.rs", "ui-dist/**", "Cargo.toml"]
+
+[dependencies]
+agentcam-core.workspace = true
+axum.workspace = true
+mime_guess.workspace = true
+rust-embed.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

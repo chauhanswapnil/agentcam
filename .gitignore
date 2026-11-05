@@ -1,0 +1,26 @@
+# Rust
+/target
+
+# Web
+node_modules/
+/web/dist
+*.tsbuildinfo
+
+# Built UI, embedded into the binary at compile time
+/crates/agentcam-server/ui-dist
+
+# Local data. Never commit real agent logs or indexes.
+*.db
+*.db-*
+*.sqlite
+/.agentcam
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Local agent settings
+.claude/settings.local.json

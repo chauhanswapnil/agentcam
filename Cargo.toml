@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/chauhanswapnil/agentcam"
+homepage = "https://github.com/chauhanswapnil/agentcam"
+authors = ["Swapnil Chauhan"]
+keywords = ["ai", "agents", "claude", "codex", "observability"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+agentcam-core = { path = "crates/agentcam-core", version = "0.1.0" }
+agentcam-server = { path = "crates/agentcam-server", version = "0.1.0" }
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4.6", features = ["derive"] }
+dirs = "6"
+mime_guess = "2"
+open = "5"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
