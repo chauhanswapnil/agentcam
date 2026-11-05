@@ -1,0 +1,84 @@
+.wrap {
+  position: relative;
+  padding-top: 26px;
+}
+.strip {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+}
+.mark {
+  position: relative;
+  flex-basis: 0;
+  min-width: 4px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  opacity: 0.9;
+  transition:
+    opacity var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.mark:hover {
+  opacity: 1;
+}
+.mark:focus-visible {
+  outline-offset: 1px;
+}
+.dimmed .mark {
+  opacity: 0.35;
+}
+.dimmed .mark.current,
+.dimmed .mark:hover {
+  opacity: 1;
+}
+.playhead {
+  position: absolute;
+  top: -8px;
+  bottom: -6px;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text-1);
+  pointer-events: none;
+}
+.playhead::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--text-1);
+}
+.tip {
+  position: absolute;
+  top: -12px;
+  z-index: var(--z-tooltip);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: 360px;
+  padding: 5px var(--s-2);
+  border-radius: var(--r-2);
+  background: var(--bg-3);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+}
+.tipTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.tipMeta {
+  color: var(--text-3);
+}

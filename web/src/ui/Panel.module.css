@@ -1,0 +1,39 @@
+.panel {
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-3);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  min-height: 40px;
+  padding: 0 var(--s-2) 0 var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+}
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.title svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+.body {
+  padding: var(--s-4);
+}
+.flush {
+  padding: 0;
+}

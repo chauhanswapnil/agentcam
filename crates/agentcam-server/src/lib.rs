@@ -46,11 +46,28 @@ async fn static_handler(uri: Uri) -> Response {
     match Assets::get(path) {
         Some(file) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
-            ([(header::CONTENT_TYPE, mime.as_ref())], file.data).into_response()
+            // Vite puts a content hash in every file under assets/, so those
+            // never change. Everything else (index.html) must be re-checked.
+            let cache = if path.starts_with("assets/") {
+                "public, max-age=31536000, immutable"
+            } else {
+                "no-cache"
+            };
+            (
+                [
+                    (header::CONTENT_TYPE, mime.as_ref()),
+                    (header::CACHE_CONTROL, cache),
+                ],
+                file.data,
+            )
+                .into_response()
         }
         None => match Assets::get("index.html") {
             Some(index) => (
-                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                    (header::CACHE_CONTROL, "no-cache"),
+                ],
                 index.data,
             )
                 .into_response(),
@@ -109,6 +126,14 @@ mod tests {
     #[tokio::test]
     async fn unknown_api_route_is_404_not_index() {
         assert_eq!(get("/api/nope").await.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn index_is_never_cached() {
+        let res = get("/").await;
+        assert_eq!(res.headers()[header::CACHE_CONTROL], "no-cache");
+        let res = get("/some/client/route").await;
+        assert_eq!(res.headers()[header::CACHE_CONTROL], "no-cache");
     }
 
     #[tokio::test]

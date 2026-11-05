@@ -1,0 +1,123 @@
+/*
+ * agentcam design tokens. Dark only, by design.
+ *
+ * Color rules:
+ * - Text uses --text-* only, never a kind or agent color.
+ * - Event kinds use exactly three hues (validated as a set for color-blind
+ *   separation on --bg-1), plus neutral gray for agent text and the
+ *   reserved status red for errors. Never add a fourth hue; group instead.
+ * - Status colors mean state, always with an icon or label, never alone.
+ * - Agent colors only appear next to the agent's name or icon.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest */
+  --bg-0: #0a0a0c; /* app background */
+  --bg-1: #111114; /* panels, chart surface */
+  --bg-2: #18181c; /* hover, raised controls */
+  --bg-3: #212126; /* selected, pressed */
+  --bg-overlay: rgb(10 10 12 / 72%);
+
+  /* Lines */
+  --line-1: #1f1f24; /* hairlines between rows */
+  --line-2: #2a2a31; /* panel borders, inputs */
+  --line-3: #3a3a43; /* hover borders, focus-adjacent */
+
+  /* Text (all >= 4.5:1 on --bg-0..--bg-2) */
+  --text-1: #ededef; /* primary */
+  --text-2: #a1a1aa; /* secondary */
+  --text-3: #8b8b95; /* muted, hints, axis labels */
+  --text-inverse: #0a0a0c;
+
+  /* Event kinds: what a step is. Validated all-pairs, dark, on --bg-1. */
+  --kind-you: #3987e5; /* prompts you typed */
+  --kind-change: #d95926; /* commands, edits, writes: things that change state */
+  --kind-look: #199e70; /* reads, searches, web, MCP: things that look */
+  --kind-agent: #6e6e78; /* agent responses and thinking */
+
+  /* Status (reserved; pair with an icon) */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  /* Agents (always beside the agent's name) */
+  --agent-claude-code: #d97757;
+  --agent-codex: #c9c9d1;
+
+  /* Brand: the recording dot. Logo and live indicator only. */
+  --rec: #ff4d4f;
+
+  /* Heatmap ramp (one hue, dark to light = less to more) */
+  --heat-0: #16161a;
+  --heat-1: #184f95;
+  --heat-2: #256abf;
+  --heat-3: #3987e5;
+  --heat-4: #6da7ec;
+  --heat-5: #9ec5f4;
+
+  /* Focus */
+  --focus: #ededef;
+
+  /* Type */
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px; /* UI default */
+  --fs-lg: 14px;
+  --fs-xl: 16px;
+  --fs-2xl: 20px;
+  --fs-3xl: 28px;
+  --fs-4xl: 40px;
+  --lh-tight: 1.2;
+  --lh-normal: 1.5;
+  --fw-normal: 420;
+  --fw-medium: 520;
+  --fw-semibold: 620;
+  --tracking-tight: -0.011em;
+  --tracking-caps: 0.06em;
+
+  /* Space (4px grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* Shape */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 8px;
+  --r-4: 12px;
+  --r-full: 999px;
+
+  /* Depth: only overlays float */
+  --shadow-overlay: 0 0 0 1px var(--line-3), 0 16px 48px rgb(0 0 0 / 55%), 0 2px 8px rgb(0 0 0 / 40%);
+
+  /* Motion: short and calm. Only the replay playhead moves on its own. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-1: 100ms; /* hover, press */
+  --dur-2: 160ms; /* tooltips, small reveals */
+  --dur-3: 240ms; /* overlays, panels */
+
+  /* Layers */
+  --z-sticky: 10;
+  --z-tooltip: 50;
+  --z-overlay: 100;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+  }
+}

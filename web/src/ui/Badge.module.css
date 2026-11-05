@@ -1,0 +1,31 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-1);
+  border: 1px solid var(--line-2);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  white-space: nowrap;
+}
+.badge svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  flex: none;
+}
+.solid {
+  border-color: transparent;
+  background: var(--bg-3);
+  color: var(--text-1);
+}

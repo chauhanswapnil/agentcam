@@ -1,0 +1,73 @@
+.skeleton {
+  display: block;
+  border-radius: var(--r-1);
+  background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s var(--ease-in-out) infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-10) var(--s-6);
+  color: var(--text-3);
+  text-align: center;
+}
+.empty svg {
+  width: 20px;
+  height: 20px;
+  margin-bottom: var(--s-1);
+}
+.emptyTitle {
+  color: var(--text-1);
+  font-weight: var(--fw-medium);
+}
+
+.agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.agentMark {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text-inverse);
+}
+
+.kind {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-2);
+  flex: none;
+}
+.kind svg {
+  width: 13px;
+  height: 13px;
+}

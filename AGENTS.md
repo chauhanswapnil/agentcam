@@ -22,6 +22,10 @@ crates/
     ui-dist/         built web UI (generated, gitignored, embedded with rust-embed)
   agentcam/          the CLI binary (clap); published as `agentcam` on crates.io
 web/                 React + Vite + TypeScript UI; builds into crates/agentcam-server/ui-dist
+  src/styles/        design tokens and base CSS
+  src/ui/            shared components (one CSS module each)
+  src/pages/         routed pages, including /styleguide
+  src/lib/           event kinds, agents, formatting
 fixtures/            synthetic agent logs for tests (never real ones, see below)
 ```
 
@@ -71,6 +75,19 @@ Agent logs hold real secrets, file contents and private prompts.
 - **Never commit real session logs**, excerpts of them, or indexes built from them. Not in fixtures, tests, docs, issues or screenshots.
 - Fixtures in `fixtures/` are hand-written and synthetic. Paths use `/Users/dev/...`; secrets are obviously fake (`sk-test-0000...`).
 - Don't log full event payloads at `info` level. Use `debug` or `trace`.
+
+## UI and design system
+
+Open `/styleguide` in the running app to see every token and component. Before adding UI:
+
+- **Tokens only.** Colors, sizes, spacing, radius and motion come from `web/src/styles/tokens.css`. No raw hex values or pixel sizes outside it (layout widths aside).
+- **Text uses `--text-*`**, never a kind, agent or status color. Data colors go on marks, dots and icons beside the text.
+- **Event colors are fixed at five groups** (`web/src/lib/kinds.ts`): You (blue), Changes (orange), Looks (aqua), Agent (gray), Error (red). The three hues were checked for color-blind separation as a set. Don't add a fourth hue; put new kinds in an existing group and give them their own icon.
+- **Status colors** (good, warning, serious, critical) always come with an icon or a word.
+- **Fonts ship inside the binary** (`@fontsource-variable/*`). Never load fonts, scripts or anything else from the network.
+- **Motion is short and responds to the user.** Use `--dur-*` and `--ease-out`; reduced-motion users get none.
+- Components live in `web/src/ui/`, one CSS module each. Pages live in `web/src/pages/`. Keep each component small and add it to the styleguide.
+- Check every UI change at 1280px and at phone width (375px) with no sideways scroll.
 
 ## Code style
 

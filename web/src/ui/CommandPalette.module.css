@@ -1,0 +1,125 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--bg-overlay);
+  animation: fade var(--dur-3) var(--ease-out);
+}
+.dialog {
+  position: fixed;
+  top: 14vh;
+  left: 50%;
+  z-index: var(--z-overlay);
+  width: min(640px, calc(100vw - 32px));
+  overflow: hidden;
+  border-radius: var(--r-4);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-overlay);
+  transform: translateX(-50%);
+  animation: rise var(--dur-3) var(--ease-out);
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.99);
+  }
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--text-3);
+}
+.inputRow svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.input {
+  flex: 1;
+  height: 52px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-xl);
+}
+.input::placeholder {
+  color: var(--text-3);
+}
+
+.list {
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  padding: var(--s-2);
+  scroll-padding: var(--s-2);
+}
+.empty {
+  padding: var(--s-8) var(--s-4);
+  color: var(--text-3);
+  text-align: center;
+}
+
+.list [cmdk-group-heading] {
+  padding: var(--s-2) var(--s-2) var(--s-1);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: 36px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.item svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.item[data-selected='true'] {
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+.item[data-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+.itemLabel {
+  flex: 1;
+}
+.itemHint {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--line-1);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
