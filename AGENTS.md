@@ -56,6 +56,8 @@ cargo run -- search "some words"  # full-text search from the terminal
 
 The index lives in the user data folder (`~/Library/Application Support/agentcam/index.db` on macOS). Use `--db <file>` or `AGENTCAM_DB` to point at a scratch index while developing.
 
+Demo data (fake sessions, for screenshots or trying the UI without real logs): `python3 scripts/demo-data.py /tmp/agentcam-demo`, then run with `HOME=/tmp/agentcam-demo` and `--db /tmp/agentcam-demo/index.db`. README screenshots in `docs/screenshots/` must come from demo data, never real logs.
+
 UI dev loop: run `cargo run -- serve --no-open` in one terminal and `npm run dev` in `web/` in another, then open the Vite URL.
 
 `build.rs` in `agentcam-server` writes a placeholder `ui-dist/index.html` if the UI hasn't been built, so `cargo build` always works. Run `npm run build` before a release build or the binary ships the placeholder.

@@ -103,7 +103,10 @@ export function Search() {
               >
                 <KindIcon kind={h.kind} category={h.category} isError={h.is_error} />
                 <span className={s.main}>
-                  {h.kind === 'tool_call' && <span className={s.title}>{h.title}</span>}
+                  {/* The snippet may already be the title; don't print it twice. */}
+                  {h.kind === 'tool_call' && h.snippet.split('\u0001').join('').split('\u0002').join('') !== h.title && (
+                    <span className={s.title}>{h.title}</span>
+                  )}
                   <Snippet text={h.snippet || h.title} className={s.snippet} />
                   <span className={s.meta}>
                     <span>{AGENTS[h.agent]?.label}</span>
