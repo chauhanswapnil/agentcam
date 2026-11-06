@@ -6,7 +6,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Overview: agent time, a year of activity, sessions and projects](docs/screenshots/overview.png)
 
-> **Status:** in heavy development and used every day, not yet packaged. Install from source below. Screenshots use made-up demo data and don't show every page yet.
+> **Status:** in heavy development and used every day, not yet packaged. Install from source below. Screenshots use made-up demo data.
 
 ## What it does
 
@@ -20,6 +20,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Live.** Which agents are working right now and what they just did, with a dot in the top bar while one works.
 
+![Live: usage windows, a working session and a quiet one](docs/screenshots/live.png)
+
 **Search and thinking.** Full-text search across prompts, replies, commands, output and file paths, from the ⌘K palette or the search page. A Thinking page lists the longest or newest reasoning, with thinking time by model. Every hit opens the replay at that step.
 
 ![Search results with highlighted matches](docs/screenshots/search.png)
@@ -28,9 +30,15 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **What lasted.** Of the lines your agents wrote, how many are still in the code today, how many later agent edits rewrote, and how many changed since. By age, week, agent and model, project and file, and on every change in the replay. It works on your past sessions too, with nothing to install.
 
+![What lasted: share of agent lines still in the code, by age, model and week](docs/screenshots/lasted.png)
+
 **Compare.** Put two groups of turns side by side: two models, agent versions, efforts, modes or skills, or before and after a date. agentcam finds comparisons worth a look, such as before and after you changed a project's AGENTS.md. It describes the changes ("24% shorter", "4 points more lines kept") and doesn't score them.
 
+![Compare: two models side by side, with comparisons found in the sessions](docs/screenshots/compare.png)
+
 **Instructions.** agentcam reads each project's AGENTS.md and CLAUDE.md and keeps the rules a log can check: commands to run after the last edit, the package manager, files not to edit, commands not to run. See how often sessions followed each one, and jump to the ones that didn't.
+
+![Instructions: AGENTS.md rules and how often sessions followed them](docs/screenshots/instructions.png)
 
 **Stuck steps and commits.** Retry loops, error streaks and reverts, with the time they took. The commits each session made, and the pull requests it opened.
 
@@ -48,11 +56,13 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Block next time.** Turn a risky step into a guard rule. A Claude Code or Codex `PreToolUse` hook runs `agentcam guard` before each tool call and stops calls that match, with a message to the agent.
 
-![Audit: rules that fired, latest findings, and a guard rule](docs/screenshots/audit.png)
+![Audit: a guard rule, approvals with allow rules to copy, and the rules that fired](docs/screenshots/audit.png)
 
 ### Skills and tools
 
 **Skills.** Which skills exist, which the agents or you ran, which sit unused, and how much context each one and the skill listing take.
+
+![Skills: runs, steps under each skill, size when loaded](docs/screenshots/skills.png)
 
 **Tools and files.** Use, errors and time per tool; skills, plugins and MCP servers behind steps; the most changed files and each file's history.
 
