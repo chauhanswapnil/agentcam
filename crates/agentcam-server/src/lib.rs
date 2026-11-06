@@ -156,6 +156,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/guard/{id}", axum::routing::delete(api::guard_delete))
         .route("/rules", get(api::rules_info).post(api::rules_save))
         .route("/commits", get(api::commits))
+        .route("/outbox", get(api::outbox))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -368,6 +369,15 @@ mod tests {
 
     #[tokio::test]
     async fn overview_and_sessions() {
+        let ob = json("/api/outbox").await;
+        assert_eq!(ob["schema_version"], 1);
+        assert!(
+            ob["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|s| s.get("first_prompt").is_none())
+        );
         let a = json("/api/audit").await;
         assert!(a["rules"].is_array() && a["findings"].is_array());
         let t = json("/api/tools").await;

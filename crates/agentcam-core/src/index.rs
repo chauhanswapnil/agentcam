@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -63,7 +63,12 @@ CREATE TABLE sessions (
     peak_context        INTEGER NOT NULL DEFAULT 0,
     wasted_ms           INTEGER NOT NULL DEFAULT 0,
     pattern_count       INTEGER NOT NULL DEFAULT 0,
-    commit_count        INTEGER NOT NULL DEFAULT 0
+    commit_count        INTEGER NOT NULL DEFAULT 0,
+    machine_id          TEXT NOT NULL DEFAULT '',
+    os_user             TEXT,
+    project_remote      TEXT,
+    version             TEXT NOT NULL DEFAULT '',
+    indexed_at          TEXT
 );
 CREATE INDEX sessions_root ON sessions(project_root);
 CREATE INDEX sessions_parent ON sessions(parent_id);
@@ -184,6 +189,8 @@ pub struct Index {
     conn: Connection,
     rules: crate::audit::Rules,
     prices: crate::prices::Prices,
+    machine_id: String,
+    os_user: Option<String>,
 }
 
 /// The user's own rules: `rules.yaml` next to the index.
@@ -202,14 +209,20 @@ impl Index {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        Self::init(Connection::open(path)?)
+        let machine = crate::identity::machine_id(path.parent().unwrap_or(Path::new(".")));
+        Self::init(Connection::open(path)?, machine)
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        Self::init(Connection::open_in_memory()?)
+        Self::init(Connection::open_in_memory()?, crate::identity::random_id())
     }
 
-    fn init(conn: Connection) -> Result<Self> {
+    /// This machine's id, kept next to the index.
+    pub fn machine_id(&self) -> &str {
+        &self.machine_id
+    }
+
+    fn init(conn: Connection, machine_id: String) -> Result<Self> {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = OFF;",
         )?;
@@ -229,6 +242,8 @@ impl Index {
             conn,
             rules: crate::audit::Rules::builtin(),
             prices: crate::prices::Prices::builtin(),
+            machine_id,
+            os_user: crate::identity::os_user(),
         })
     }
 
@@ -329,6 +344,8 @@ impl Index {
         for key in stale {
             remove_source(&tx, &key)?;
         }
+        let indexed_at = crate::util::format_ts_ms(crate::util::now_ms());
+        let mut remotes: std::collections::HashMap<String, Option<String>> = Default::default();
         for (agent, key, size, mtime, res) in parsed {
             remove_source(&tx, &key)?;
             match res {
@@ -336,7 +353,30 @@ impl Index {
                     report.files_parsed += 1;
                     report.bad_lines += u64::from(p.bad_lines);
                     report.events_written += p.events.len();
-                    write_session(&tx, &p, &findings, &self.prices)?;
+                    // Changes whenever the source or the rules change, so a
+                    // sync only sends sessions that are new to the server.
+                    let version = {
+                        use std::hash::{Hash, Hasher};
+                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                        (size, mtime, &fingerprint).hash(&mut h);
+                        format!("{:016x}", h.finish())
+                    };
+                    let remote = p.session.project_path.as_deref().and_then(|path| {
+                        let root = crate::project_root(path);
+                        remotes
+                            .entry(root.clone())
+                            .or_insert_with(|| crate::identity::git_remote(Path::new(&root)))
+                            .clone()
+                    });
+                    let ctx = WriteCtx {
+                        prices: &self.prices,
+                        machine_id: &self.machine_id,
+                        os_user: self.os_user.as_deref(),
+                        version: &version,
+                        remote: remote.as_deref(),
+                        indexed_at: &indexed_at,
+                    };
+                    write_session(&tx, &p, &findings, &ctx)?;
                     tx.execute(
                         "INSERT INTO sources (path, agent, size, mtime_ns, session_id, bad_lines)
                          VALUES (?, ?, ?, ?, ?, ?)",
@@ -416,12 +456,23 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Facts about where and when a session was indexed.
+struct WriteCtx<'a> {
+    prices: &'a crate::prices::Prices,
+    machine_id: &'a str,
+    os_user: Option<&'a str>,
+    version: &'a str,
+    remote: Option<&'a str>,
+    indexed_at: &'a str,
+}
+
 fn write_session(
     tx: &rusqlite::Transaction,
     p: &ParsedSession,
     findings: &[crate::audit::Finding],
-    prices: &crate::prices::Prices,
+    ctx: &WriteCtx,
 ) -> Result<()> {
+    let prices = ctx.prices;
     let s = &p.session;
     // Another file may have claimed this id before (a moved or copied log).
     remove_session_rows(tx, &s.id)?;
@@ -488,9 +539,10 @@ fn write_session(
             git_branch, model, agent_version, started_at, ended_at, input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, cost_usd, event_count, tool_call_count,
             error_count, file_count, project_root, active_ms, finding_count, max_severity,
-            est_cost_usd, cost_unpriced, peak_context, wasted_ms, pattern_count, commit_count)
+            est_cost_usd, cost_unpriced, peak_context, wasted_ms, pattern_count, commit_count,
+            machine_id, os_user, project_remote, version, indexed_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25,
-                 ?26, ?27, ?28, ?29, ?30, ?31)",
+                 ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)",
         params![
             s.id,
             s.agent.map(Agent::as_str).unwrap_or("unknown"),
@@ -523,6 +575,11 @@ fn write_session(
             wasted,
             patterns.len() as i64,
             commits.len() as i64,
+            ctx.machine_id,
+            ctx.os_user,
+            ctx.remote,
+            ctx.version,
+            ctx.indexed_at,
         ],
     )?;
 

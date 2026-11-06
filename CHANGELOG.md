@@ -17,6 +17,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Commits: which commits each session made, a Commits page, and commits in the replay.
 - Trace view in the replay: steps on an agent-time axis with subagents nested inside their calls.
 - `agentcam export otlp`: sessions as OpenTelemetry traces, to a file or an OTLP endpoint.
+- Team prep: a machine id, the OS user, project ids from git remotes and session versions in the index; a metadata-only share contract (`share.rs`) and an Outbox page that shows what a team server would receive.
 - README with screenshots, commands, supported agents and privacy notes; `scripts/demo-data.py` makes fake sessions for demos.
 - Rule editor on the Audit page: see all rules, write your own in YAML, check and save; saving re-checks every session.
 - Block next time works for Codex too (same hook contract), with setup for both agents on the Audit page.

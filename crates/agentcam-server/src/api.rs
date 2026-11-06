@@ -701,3 +701,26 @@ pub async fn commits(
         .await
         .map(Json)
 }
+
+#[derive(Serialize)]
+pub struct Outbox {
+    schema_version: u32,
+    machine_id: String,
+    sessions: Vec<agentcam_core::share::SessionMeta>,
+}
+
+/// What a team server would receive in metadata-only mode. Nothing is sent
+/// anywhere; this is a preview.
+pub async fn outbox(State(st): Shared, Query(p): Query<Params>) -> Result<Json<Outbox>, ApiError> {
+    let f = p.filter(now_ms());
+    let limit = p.limit.unwrap_or(50).min(500);
+    st.read(move |idx| {
+        Ok(Outbox {
+            schema_version: agentcam_core::share::SCHEMA_VERSION,
+            machine_id: idx.machine_id().to_string(),
+            sessions: agentcam_core::share::outbox(idx.conn(), &f, limit)?,
+        })
+    })
+    .await
+    .map(Json)
+}

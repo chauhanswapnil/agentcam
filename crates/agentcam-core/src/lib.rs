@@ -6,12 +6,14 @@ pub mod claude;
 pub mod codex;
 pub mod commits;
 pub mod guard;
+pub mod identity;
 pub mod index;
 pub mod model;
 pub mod otel;
 pub mod patterns;
 pub mod prices;
 pub mod query;
+pub mod share;
 pub mod shell;
 pub mod util;
 
@@ -133,6 +135,15 @@ pub fn project_root(path: &str) -> String {
         }
     }
     path.trim_end_matches(['/', '\\']).to_string()
+}
+
+/// Last folder of a path, for showing a project by name.
+pub fn query_basename(p: &str) -> String {
+    p.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(p)
+        .to_string()
 }
 
 /// Parse one log file with the right parser for `agent`.

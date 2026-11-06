@@ -108,6 +108,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
 | `GET /api/commits` | Commits made by agent sessions, newest first |
+| `GET /api/outbox` | The metadata a team server would receive (`share.rs`); nothing is sent |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
@@ -135,6 +136,13 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - agentcam never edits the agent's settings. The Audit page shows the hook JSON for the user to add.
 - Codex uses the same hook contract (exit 2 + stderr blocks; `Bash` and `apply_patch` send `tool_input.command`). Codex makes users trust new hooks in `/hooks` before they run. Indexed Codex tool names map to hook names with `guard::hook_tool`.
 - Write routes (`POST`, `DELETE`) are refused unless `Origin` and `Sec-Fetch-Site` say the request came from agentcam's own page (`same_site_writes` in the server). Keep it.
+
+### Identity and the share contract (team prep)
+
+- `identity.rs`: a random `machine-id` file next to the index, the OS user, and a project id from the `origin` remote in `.git/config` (`host/owner/repo`, lowercased, credentials dropped; no git command runs). Each session row stores these plus a `version` that changes when the session is re-indexed with new data.
+- `share.rs` is the only thing a sync may send. `SessionMeta` holds counts, times, tokens, cost, findings, commits and file paths; never prompts, replies, thinking, command text, output, inputs or diffs. Paths are relative to the project, others cut to a file name; excerpts lose home folders (`share_text`). Bump `share::SCHEMA_VERSION` when fields change.
+- `outbox_sends_metadata_only` in `tests/fixtures.rs` fails if a content field or a home path slips in. Keep it passing when you add fields.
+- The Outbox page (`/outbox`) shows exactly what would be sent.
 
 ### Cost, context, waste and commits
 

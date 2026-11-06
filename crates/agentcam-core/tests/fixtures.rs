@@ -599,3 +599,72 @@ fn otel_export_nests_subagents() {
         "failed steps are errors"
     );
 }
+
+#[test]
+fn outbox_sends_metadata_only() {
+    use agentcam_core::query::Filter;
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(&sources(), false).unwrap();
+    let out = agentcam_core::share::outbox(idx.conn(), &Filter::default(), 50).unwrap();
+    assert_eq!(out.len(), 4, "every session, subagents included");
+    let json = serde_json::to_value(&out).unwrap();
+    let text = json.to_string();
+
+    // Allowed keys only, at every level.
+    fn keys(v: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, v) in m {
+                    let p = if path.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{path}.{k}")
+                    };
+                    out.push(p.clone());
+                    keys(v, &p, out);
+                }
+            }
+            serde_json::Value::Array(a) => a.iter().for_each(|v| keys(v, path, out)),
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
+    for s in json.as_array().unwrap() {
+        keys(s, "", &mut all);
+    }
+    for k in &all {
+        let leaf = k.rsplit('.').next().unwrap();
+        assert!(
+            ![
+                "body",
+                "title",
+                "first_prompt",
+                "text",
+                "input",
+                "diff",
+                "project_path",
+                "source_path"
+            ]
+            .contains(&leaf),
+            "content field leaked: {k}"
+        );
+    }
+    // No prompt text, command output or absolute paths.
+    assert!(
+        !text.contains("rejects valid passwords"),
+        "prompt text leaked"
+    );
+    assert!(
+        !text.contains("expected 200, got 401"),
+        "command output leaked"
+    );
+    assert!(
+        !text.contains("/Users/dev/projects/demo/src"),
+        "absolute path leaked"
+    );
+    assert!(
+        text.contains("\"src/auth.ts\""),
+        "paths are relative to the project"
+    );
+    assert!(!text.contains("/Users/"), "no home folders anywhere");
+}

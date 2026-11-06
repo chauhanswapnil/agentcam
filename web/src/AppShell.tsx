@@ -17,6 +17,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { href: '/tools', label: 'Tools' },
     { href: '/files', label: 'Files' },
     { href: '/commits', label: 'Commits' },
+    { href: '/outbox', label: 'Outbox' },
   ]
   return (
     <div className={s.shell}>
