@@ -12,6 +12,18 @@ Product rules that shape every change:
 - **Local only.** Bind to `127.0.0.1`. No network calls, no telemetry, no accounts.
 - **Zero setup.** Work from the logs that already exist; no hooks or SDK required.
 - **The UI is the product.** Visual polish is a feature, not a nice-to-have.
+- **Healthy skepticism.** Assume the agent is capable and acting in good faith. Show what happened clearly; flag only what deserves a second look, in neutral words; never hinder the agent by default.
+
+### Voice
+
+agentcam is a flight recorder, not a cop. It helps people understand and trust their agents' work; it doesn't grade or police the models. When writing UI text, docs, rule titles or finding messages:
+
+- **Describe, don't accuse.** "Test expectations changed after a failing run" not "agent tampered with tests". "Retried 3 times" not "failed 3 times".
+- **Errors are part of the work.** Say "steps that errored" or "retries", not "failures" or "wasted time".
+- **Point to a next step for the person,** not a verdict on the agent: "worth a second look", "you may want to review".
+- **Show improvements as plainly as problems.** A comparison that only surfaces regressions is a scorecard, not observability.
+- **Keep severity honest.** A leaked key is still critical; calm wording doesn't mean hiding real risk.
+- **Guard rules ask, they don't punish.** Default messages read "check with the user before doing this", and the guard never stops an agent unless the user set a rule.
 
 ## Layout
 
