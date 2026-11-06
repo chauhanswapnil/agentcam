@@ -566,7 +566,7 @@ function StepDetail({
       )}
 
       {tool && <div className={s.detailTitle}>{event.title}</div>}
-      {tool && agent === 'claude-code' && event.tool_name && (
+      {tool && event.tool_name && (agent === 'claude-code' || agent === 'codex') && (
         <div style={{ marginTop: -6, marginBottom: 12 }}>
           <Button size="sm" variant={findings.length ? 'default' : 'ghost'} onClick={() => setBlocking(true)}>
             <Ban aria-hidden /> Block next time

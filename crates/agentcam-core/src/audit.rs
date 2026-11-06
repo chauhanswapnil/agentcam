@@ -34,7 +34,7 @@ impl Severity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Field {
     #[default]
@@ -46,7 +46,7 @@ pub enum Field {
 }
 
 /// One rule as written in YAML.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleDef {
     pub id: String,
@@ -180,6 +180,25 @@ impl Rules {
             sets,
             fingerprint,
         })
+    }
+
+    /// The rules as written, built-in and user rules merged.
+    pub fn defs(&self) -> Vec<&RuleDef> {
+        self.rules.iter().map(|r| &r.def).collect()
+    }
+
+    /// Parse built-in rules plus `user` YAML, without touching disk.
+    pub fn with_user_text(user: &str) -> Result<Self, RuleError> {
+        Self::parse(&[BUILTIN, user])
+    }
+
+    /// Rule ids that ship with agentcam.
+    pub fn builtin_ids() -> Vec<String> {
+        Self::builtin()
+            .rules
+            .into_iter()
+            .map(|r| r.def.id)
+            .collect()
     }
 
     pub fn len(&self) -> usize {

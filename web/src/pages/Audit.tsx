@@ -8,6 +8,7 @@ import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import { SEVERITY_COLOR } from '../lib/severity'
 import { GuardPanel } from '../ui/GuardPanel'
+import { RuleEditor } from '../ui/RuleEditor'
 import { SeverityBadge } from '../ui/Severity'
 import s from './Views.module.css'
 
@@ -126,6 +127,7 @@ export function Audit() {
           </div>
         </div>
       )}
+      <RuleEditor />
     </div>
   )
 }

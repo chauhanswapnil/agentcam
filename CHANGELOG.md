@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - Parsers for Claude Code and Codex logs (including subagents and older Codex formats) into one event model.
 - SQLite index with full-text search; only changed logs are re-read, and sessions are kept after their logs are deleted.
 - `agentcam index` and `agentcam search` commands.
+- Rule editor on the Audit page: see all rules, write your own in YAML, check and save; saving re-checks every session.
+- Block next time works for Codex too (same hook contract), with setup for both agents on the Audit page.
 - Block next time: turn a replay step into a guard rule (tool + pattern + message), see how many past steps it would have blocked, and enforce it with a Claude Code `PreToolUse` hook that runs `agentcam guard`. Rules are listed on the Audit page with the hook setup.
 - The local API refuses cross-site writes.
 - Report cards: a shareable 1200×630 PNG for a session or the last 7 days, drawn in the browser. Titles, projects and file names are hidden by default; copy or download.

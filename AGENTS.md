@@ -106,7 +106,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 
 ### Risk audit
 
-- Rules live in `crates/agentcam-core/rules/default.yaml` (built in) and `rules.yaml` next to the index (the user's own; same id replaces a built-in rule). The file header documents every field.
+- Rules live in `crates/agentcam-core/rules/default.yaml` (built in) and `rules.yaml` next to the index, which users edit on the Audit page (`GET/POST /api/rules`; saving re-checks every session) (the user's own; same id replaces a built-in rule). The file header documents every field.
 - Rules run at index time in `audit.rs`. A `RegexSet` per field prefilters, so adding rules stays cheap.
 - Matches marked `secret: true` are masked before they are stored. Never store or log a raw secret.
 - Changed rules re-check every session (fingerprint in the `meta` table). If you change how rules are checked in code, bump `ENGINE_VERSION` in `audit.rs`.
@@ -116,9 +116,9 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 ### Block next time (guard)
 
 - `guard.rs` holds guard rules (`guard.yaml` next to the index): tool name, regex, message. The UI adds them from a replay step.
-- A Claude Code `PreToolUse` hook runs `agentcam guard`, which reads the call from stdin and exits 2 (block, reason on stderr) or 0. It must stay fast (no index, no logging) and **fail open**: any error lets the call run.
+- A Claude Code or Codex `PreToolUse` hook runs `agentcam guard`, which reads the call from stdin and exits 2 (block, reason on stderr) or 0. It must stay fast (no index, no logging) and **fail open**: any error lets the call run.
 - agentcam never edits the agent's settings. The Audit page shows the hook JSON for the user to add.
-- Codex isn't supported yet.
+- Codex uses the same hook contract (exit 2 + stderr blocks; `Bash` and `apply_patch` send `tool_input.command`). Codex makes users trust new hooks in `/hooks` before they run. Indexed Codex tool names map to hook names with `guard::hook_tool`.
 - Write routes (`POST`, `DELETE`) are refused unless `Origin` and `Sec-Fetch-Site` say the request came from agentcam's own page (`same_site_writes` in the server). Keep it.
 
 ### Performance rules

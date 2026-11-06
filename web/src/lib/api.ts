@@ -239,11 +239,24 @@ export type GuardRule = {
   from_seq: number | null
 }
 
-export type GuardInfo = {
-  rules: GuardRule[]
-  path: string | null
-  hook: { settings_path: string | null; installed: boolean; snippet: string }
+export type HookSetup = { agent: AgentId; settings_path: string | null; installed: boolean; snippet: string; note: string }
+
+export type GuardInfo = { rules: GuardRule[]; path: string | null; hooks: HookSetup[] }
+
+export type RuleDef = {
+  id: string
+  title: string
+  severity: Severity
+  field: string
+  pattern: string | null
+  kinds: string[]
+  categories: string[]
+  actions: string[]
+  secret: boolean
+  outside_project: boolean
 }
+
+export type RulesInfo = { rules: RuleDef[]; builtin_ids: string[]; user_yaml: string; user_path: string | null }
 
 export type GuardTest = { valid: boolean; error: string | null; matches: number; examples: StepRef[] }
 

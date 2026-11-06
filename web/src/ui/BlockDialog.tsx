@@ -26,8 +26,11 @@ export function BlockDialog({ sessionId, seq, tool: initialTool, title, why, onC
   const info = useApi<GuardInfo>('/api/guard', saved ? 1 : 0)
 
   useEffect(() => {
-    getJson<{ pattern: string }>(`/api/guard/suggest${query({ tool: initialTool, title })}`)
-      .then((r) => setPattern(r.pattern))
+    getJson<{ tool: string; pattern: string }>(`/api/guard/suggest${query({ tool: initialTool, title })}`)
+      .then((r) => {
+        setTool(r.tool)
+        setPattern(r.pattern)
+      })
       .catch(() => {})
   }, [initialTool, title])
 
@@ -63,11 +66,11 @@ export function BlockDialog({ sessionId, seq, tool: initialTool, title, why, onC
           <div className={s.done}>
             <p>
               <CircleCheck aria-hidden style={{ width: 16, verticalAlign: -3, color: 'var(--status-good)' }} /> Saved. The
-              next time Claude Code tries a matching call, it is stopped and told why.
+              next time your agent tries a matching call, it is stopped and told why.
             </p>
-            {info.data && !info.data.hook.installed && (
+            {info.data && info.data.hooks.every((h) => !h.installed) && (
               <p>
-                One more step: the hook isn't in your Claude Code settings yet.{' '}
+                One more step: the hook isn't in your agent settings yet.{' '}
                 <Link href="/audit#guard" onClick={onClose} style={{ textDecoration: 'underline' }}>
                   Set it up on the Audit page
                 </Link>
@@ -83,11 +86,12 @@ export function BlockDialog({ sessionId, seq, tool: initialTool, title, why, onC
         ) : (
           <>
             <p className={s.intro}>
-              A Claude Code hook runs <code>agentcam guard</code> before every tool call and stops the ones that match.
+              A Claude Code or Codex hook runs <code>agentcam guard</code> before every tool call and stops the ones that
+              match.
               Nothing changes for calls that don't match.
             </p>
             <label className={s.field}>
-              Tool (Claude Code name, or * for any)
+              Tool (hook name such as Bash, Edit, Write, apply_patch; or * for any)
               <input className={`${s.input} ${s.mono}`} value={tool} onChange={(e) => setTool(e.target.value)} />
             </label>
             <label className={s.field}>

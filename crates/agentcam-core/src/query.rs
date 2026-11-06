@@ -892,7 +892,8 @@ pub fn guard_matches(
         "SELECT {STEP_REF}, NULL, s.agent, coalesce(r.title, r.first_prompt)
          FROM events e JOIN sessions s ON s.id = e.session_id
          LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
-         WHERE e.kind = 'tool_call' AND (?1 = '*' OR e.tool_name = ?1)
+         WHERE e.kind = 'tool_call'
+           AND (?1 = '*' OR e.tool_name = ?1 OR (?1 = 'Bash' AND e.category = 'command'))
          ORDER BY e.ts DESC"
     );
     let mut stmt = conn.prepare(&sql)?;

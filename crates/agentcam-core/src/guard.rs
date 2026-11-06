@@ -73,7 +73,8 @@ pub fn save(path: &Path, rules: &[GuardRule]) -> Result<(), GuardError> {
 pub fn subject(tool: &str, input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(String::from);
     match tool {
-        "Bash" => s("command"),
+        // Codex sends Bash and apply_patch calls as `command` too.
+        "Bash" | "apply_patch" => s("command"),
         "Read" | "Edit" | "MultiEdit" | "Write" => s("file_path"),
         "NotebookEdit" => s("notebook_path"),
         "WebFetch" => s("url"),
@@ -98,6 +99,15 @@ pub fn check<'a>(rules: &'a [GuardRule], tool: &str, input: &Value) -> Option<&'
         (r.tool == "*" || r.tool == tool)
             && Regex::new(&r.pattern).is_ok_and(|re| re.is_match(&text))
     })
+}
+
+/// The hook's tool name for a tool as the index records it. Codex
+/// commands are indexed as `exec_command` but reach hooks as `Bash`.
+pub fn hook_tool(indexed: &str) -> &str {
+    match indexed {
+        "exec_command" | "shell" | "local_shell" | "container.exec" => "Bash",
+        other => other,
+    }
 }
 
 /// A starting pattern for blocking a step like this one: the command's

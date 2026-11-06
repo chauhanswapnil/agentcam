@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 pub struct AppState {
     /// Where `guard.yaml` lives; `None` turns the guard API off.
     guard_path: Option<std::path::PathBuf>,
+    /// Where the user's `rules.yaml` lives.
+    rules_path: Option<std::path::PathBuf>,
     db_path: Option<std::path::PathBuf>,
     writer: Arc<Mutex<Index>>,
     reader: Arc<Mutex<Index>>,
@@ -48,6 +50,7 @@ impl AppState {
         let reader = Index::open(db)?;
         Ok(Arc::new(AppState {
             guard_path: Some(agentcam_core::guard::guard_path(db)),
+            rules_path: Some(agentcam_core::index::user_rules_path(db)),
             db_path: Some(db.to_path_buf()),
             writer: Arc::new(Mutex::new(writer)),
             reader: Arc::new(Mutex::new(reader)),
@@ -64,6 +67,7 @@ impl AppState {
     ) -> Arc<Self> {
         let index = Arc::new(Mutex::new(index));
         Arc::new(AppState {
+            rules_path: guard_path.as_ref().map(|g| g.with_file_name("rules.yaml")),
             guard_path,
             db_path: None,
             writer: index.clone(),
@@ -419,22 +423,27 @@ use agentcam_core::guard::{self, GuardRule};
 
 #[derive(Serialize)]
 pub struct HookSetup {
-    /// `~/.claude/settings.json`
+    agent: &'static str,
+    /// The file the snippet goes in.
     settings_path: Option<String>,
-    /// The settings already call `agentcam guard`.
+    /// That file already calls `agentcam guard`.
     installed: bool,
-    /// JSON to merge into the settings file.
+    /// JSON to merge into the file.
     snippet: String,
+    /// Anything else the user has to do.
+    note: &'static str,
 }
 
 #[derive(Serialize)]
 pub struct GuardInfo {
     rules: Vec<GuardRule>,
     path: Option<String>,
-    hook: HookSetup,
+    hooks: Vec<HookSetup>,
 }
 
-fn hook_setup(db: Option<&Path>) -> HookSetup {
+/// Claude Code and Codex use the same hook shape: a `PreToolUse` command
+/// that blocks with exit code 2 and a reason on stderr.
+fn hook_setups(db: Option<&Path>) -> Vec<HookSetup> {
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "agentcam".into());
@@ -444,20 +453,45 @@ fn hook_setup(db: Option<&Path>) -> HookSetup {
         command.push_str(&format!(" --db {}", q(&db.display().to_string())));
     }
     command.push_str(" guard");
-    let snippet = serde_json::to_string_pretty(&serde_json::json!({
-        "hooks": { "PreToolUse": [ { "matcher": "*", "hooks": [ { "type": "command", "command": command } ] } ] }
-    }))
-    .unwrap_or_default();
-    let settings = dirs::home_dir().map(|h| h.join(".claude").join("settings.json"));
-    let installed = settings
+    let snippet = |matcher: &str| {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "hooks": { "PreToolUse": [ { "matcher": matcher, "hooks": [ { "type": "command", "command": command } ] } ] }
+        }))
+        .unwrap_or_default()
+    };
+    let home = dirs::home_dir();
+    let installed = |files: &[std::path::PathBuf]| {
+        files.iter().any(|p| {
+            std::fs::read_to_string(p).is_ok_and(|t| t.contains("agentcam") && t.contains(" guard"))
+        })
+    };
+    let claude = home
         .as_ref()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .is_some_and(|t| t.contains("agentcam") && t.contains(" guard"));
-    HookSetup {
-        settings_path: settings.map(|p| p.display().to_string()),
-        installed,
-        snippet,
-    }
+        .map(|h| h.join(".claude").join("settings.json"));
+    let codex_json = home.as_ref().map(|h| h.join(".codex").join("hooks.json"));
+    let codex_toml = home.as_ref().map(|h| h.join(".codex").join("config.toml"));
+    vec![
+        HookSetup {
+            agent: "claude-code",
+            installed: installed(&claude.iter().cloned().collect::<Vec<_>>()),
+            settings_path: claude.map(|p| p.display().to_string()),
+            snippet: snippet("*"),
+            note: "Merge with any hooks you already have, then restart Claude Code.",
+        },
+        HookSetup {
+            agent: "codex",
+            installed: installed(
+                &codex_json
+                    .iter()
+                    .chain(codex_toml.iter())
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            ),
+            settings_path: codex_json.map(|p| p.display().to_string()),
+            snippet: snippet(".*"),
+            note: "Merge with any hooks you already have, then open /hooks in Codex and trust the new hook. Codex skips hooks until you trust them.",
+        },
+    ]
 }
 
 fn guard_off() -> Response {
@@ -480,7 +514,7 @@ pub async fn guard_info(State(st): Shared) -> Response {
         Ok(rules) => Json(GuardInfo {
             rules,
             path: Some(path.display().to_string()),
-            hook: hook_setup(st.db_path.as_deref()),
+            hooks: hook_setups(st.db_path.as_deref()),
         })
         .into_response(),
         Err(e) => bad(e),
@@ -590,5 +624,69 @@ pub struct SuggestParams {
 }
 
 pub async fn guard_suggest(Query(p): Query<SuggestParams>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "pattern": guard::suggest(&p.tool, &p.title) }))
+    let tool = guard::hook_tool(&p.tool);
+    Json(serde_json::json!({ "tool": tool, "pattern": guard::suggest(tool, &p.title) }))
+}
+
+// ── Rule editor ───────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct RulesInfo {
+    rules: Vec<agentcam_core::audit::RuleDef>,
+    builtin_ids: Vec<String>,
+    user_yaml: String,
+    user_path: Option<String>,
+}
+
+pub async fn rules_info(State(st): Shared) -> Response {
+    let Some(path) = st.rules_path.as_deref() else {
+        return guard_off();
+    };
+    let yaml = std::fs::read_to_string(path).unwrap_or_default();
+    match agentcam_core::audit::Rules::with_user_text(&yaml) {
+        Ok(r) => Json(RulesInfo {
+            rules: r.defs().into_iter().cloned().collect(),
+            builtin_ids: agentcam_core::audit::Rules::builtin_ids(),
+            user_yaml: yaml,
+            user_path: Some(path.display().to_string()),
+        })
+        .into_response(),
+        Err(e) => bad(e),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SaveRules {
+    yaml: String,
+    /// Check only; don't write.
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// Validate and save the user's rules, then re-check every session.
+pub async fn rules_save(State(st): Shared, Json(b): Json<SaveRules>) -> Response {
+    let Some(path) = st.rules_path.clone() else {
+        return guard_off();
+    };
+    let rules = match agentcam_core::audit::Rules::with_user_text(&b.yaml) {
+        Ok(r) => r,
+        Err(e) => return bad(e),
+    };
+    let count = rules.len();
+    if b.dry_run {
+        return Json(serde_json::json!({ "ok": true, "rules": count })).into_response();
+    }
+    if let Some(dir) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(dir)
+    {
+        return bad(e);
+    }
+    if let Err(e) = std::fs::write(&path, &b.yaml) {
+        return bad(e);
+    }
+    let me = st.clone();
+    let _ = tokio::task::spawn_blocking(move || me.writer.lock().unwrap().set_rules(rules)).await;
+    // The rules' fingerprint changed, so this run re-checks every session.
+    st.spawn_index(false);
+    Json(serde_json::json!({ "ok": true, "rules": count })).into_response()
 }

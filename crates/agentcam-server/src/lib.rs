@@ -154,6 +154,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/guard/test", get(api::guard_test))
         .route("/guard/suggest", get(api::guard_suggest))
         .route("/guard/{id}", axum::routing::delete(api::guard_delete))
+        .route("/rules", get(api::rules_info).post(api::rules_save))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -271,7 +272,10 @@ mod tests {
         .await;
         let t: serde_json::Value =
             serde_json::from_slice(&to_bytes(t.into_body(), usize::MAX).await.unwrap()).unwrap();
-        assert_eq!(t["matches"], 1, "the fixture's `npm test`: {t}");
+        assert_eq!(
+            t["matches"], 2,
+            "`npm test` in the Claude and Codex fixtures: {t}"
+        );
 
         let del = Request::delete(format!("/api/guard/{id}"))
             .header(header::HOST, "127.0.0.1:4747")
@@ -283,12 +287,39 @@ mod tests {
         let info: serde_json::Value =
             serde_json::from_slice(&to_bytes(info.into_body(), usize::MAX).await.unwrap()).unwrap();
         assert_eq!(info["rules"].as_array().unwrap().len(), 0);
+        let hooks = info["hooks"].as_array().unwrap();
+        assert_eq!(hooks.len(), 2, "Claude Code and Codex");
         assert!(
-            info["hook"]["snippet"]
-                .as_str()
-                .unwrap()
-                .contains("PreToolUse")
+            hooks
+                .iter()
+                .all(|h| h["snippet"].as_str().unwrap().contains("PreToolUse"))
         );
+
+        // Rule editor: bad YAML is refused, good YAML saved and listed.
+        let save = |yaml: &str| {
+            Request::post("/api/rules")
+                .header(header::HOST, "127.0.0.1:4747")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::json!({ "yaml": yaml }).to_string()))
+                .unwrap()
+        };
+        let bad = send(&app, save("- id: x\n  title: x\n  severity: nope\n")).await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+        let ok = save(
+            "- id: deploy\n  title: Deployed\n  severity: high\n  categories: [command]\n  pattern: 'fly deploy'\n",
+        );
+        assert_eq!(send(&app, ok).await.status(), StatusCode::OK);
+        let r = send(&app, get("/api/rules".into())).await;
+        let r: serde_json::Value =
+            serde_json::from_slice(&to_bytes(r.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert!(
+            r["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|x| x["id"] == "deploy")
+        );
+        assert!(r["user_yaml"].as_str().unwrap().contains("fly deploy"));
     }
 
     async fn get_host(path: &str, host: &str) -> Response {

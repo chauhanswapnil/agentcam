@@ -1,0 +1,74 @@
+.wrap {
+  display: grid;
+  gap: var(--s-4);
+  scroll-margin-top: 72px;
+}
+.badges {
+  display: flex;
+  gap: var(--s-1);
+}
+.rule {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 10px var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+}
+.rule:last-child {
+  border-bottom: 0;
+}
+.ruleText {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.pattern,
+.meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pattern {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.meta {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.meta a {
+  text-decoration: underline;
+}
+.setup {
+  display: grid;
+  gap: var(--s-3);
+  color: var(--text-2);
+}
+.setup + .setup {
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line-1);
+}
+.setupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.pre {
+  margin: 0;
+  padding: var(--s-3);
+  overflow-x: auto;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2);
+  background: var(--bg-0);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.small {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
