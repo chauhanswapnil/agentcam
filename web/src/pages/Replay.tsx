@@ -26,7 +26,7 @@ import {
 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { query, useApi, useIndexStatus, type EventRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { query, useApi, useIndexStatus, type EventRow, type Lasted, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
 import { baseName, formatCompact, formatCost, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { entrypointLabel } from '../lib/live'
@@ -39,6 +39,7 @@ import { ReportCardButton } from '../ui/ReportCard'
 import { BlockDialog } from '../ui/BlockDialog'
 import { sessionCard } from '../lib/reportCard'
 import { ListRow } from '../ui/ListRow'
+import { LastedBar } from '../ui/LastedBar'
 import { AgentLabel, EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
@@ -92,7 +93,7 @@ export function Replay() {
 }
 
 function Player({ id, data }: { id: string; data: SessionDetail }) {
-  const { session: x, events, files, findings, patterns, commits, subagents } = data
+  const { session: x, events, files, findings, patterns, commits, subagents, lasted } = data
   const [view, setView] = useState<'transcript' | 'trace'>('transcript')
   const [, navigate] = useLocation()
   // Read once: the URL follows the playhead, not the other way round.
@@ -255,6 +256,14 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
           <span>
             <b>{x.peak_context ? formatCompact(x.peak_context) : '–'}</b>peak context
           </span>
+          {lasted && (
+            <Link
+              href="/lasted"
+              title={`${formatNumber(lasted.kept)} of ${formatNumber(lasted.added)} added lines are still in the code; ${formatNumber(lasted.reworked)} rewritten by agents, ${formatNumber(lasted.changed)} changed since`}
+            >
+              <b>{Math.round((100 * lasted.kept) / lasted.added)}%</b>still in code
+            </Link>
+          )}
           {x.wasted_ms > 0 && (
             <span title="Agent time on stuck loops, failure streaks and reverts">
               <b style={{ color: 'var(--status-serious)' }}>{formatHours(x.wasted_ms)}</b>stuck
@@ -571,7 +580,7 @@ type Step = {
   is_error: boolean
   duration_ms: number | null
   truncated: boolean
-  touches: { path: string; action: string; diff: string | null }[]
+  touches: { path: string; action: string; diff: string | null; lasted: Lasted | null }[]
 }
 
 const rel = (path: string, root: string | null) => (root && path.startsWith(root + '/') ? path.slice(root.length + 1) : path)
@@ -703,6 +712,19 @@ function StepBody({ st, root }: { st: Step; root: string | null }) {
             <ActionTag action={t.action} />
             <span>{rel(t.path, root)}</span>
           </div>
+          {t.lasted && t.lasted.added > 0 && (
+            <div className={s.lasted}>
+              <LastedBar c={t.lasted} height={6} label="Lines this change added" />
+              <span>
+                <b>
+                  {formatNumber(t.lasted.kept)} of {formatNumber(t.lasted.added)}
+                </b>{' '}
+                added lines still in the file
+                {t.lasted.reworked > 0 && ` · ${formatNumber(t.lasted.reworked)} rewritten by agents`}
+                {t.lasted.changed > 0 && ` · ${formatNumber(t.lasted.changed)} changed since`}
+              </span>
+            </div>
+          )}
           {t.diff ? (
             <DiffView diff={t.diff} created={t.action === 'create' && !t.diff.startsWith('@@')} />
           ) : t.action !== 'delete' ? (

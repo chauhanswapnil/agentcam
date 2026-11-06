@@ -110,6 +110,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/commits` | Commits made by agent sessions, newest first |
 | `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context |
 | `GET /api/limits` | Usage windows (latest reading, last 7 days) and limits reached |
+| `GET /api/lasted` | Which agent-written lines are still in the code: by age, week, agent and model, project, file |
 | `GET /api/outbox` | The metadata a team server would receive (`share.rs`); nothing is sent |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
@@ -145,6 +146,14 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Usage windows come from the logs, never from an API. Codex writes `rate_limits` on token counts (5-hour and weekly `used_percent`, `resets_at`, plan); the parser keeps only changed readings. Claude Code only logs when a limit is reached ("You've hit your session limit · resets 3pm (...)", `error: rate_limit`); it becomes a `System` step, not a reply, plus a hit. Repeats of one hit are merged in the query.
 - `sessions.entrypoint` records where a session started (`cli`, `claude-desktop`, Codex `originator`); the UI maps it to plain words in `web/src/lib/live.ts`.
 - The watcher re-indexes at least every 3 s while an agent keeps writing, so the Live page keeps up.
+
+### What lasted (code survival)
+
+- `survival.rs` takes the lines each edit added (from the diff in the log; all lines for a new file) and looks for them in the file on disk today, by trimmed text. Lines with fewer than three letters or digits are skipped. A missing line is `reworked` if a later agent edit removed it (or the agent deleted the file), else `changed`.
+- It runs at the end of every index run and every 2 minutes from the watcher. A file is re-read only when its size, mtime or edits change (`survival_files.sig`). Bump `ENGINE` in `survival.rs` when you change how lines are read or sorted.
+- Files in agent worktrees are looked up in the main repo once the worktree is gone. If a file's project folder no longer exists, the edit is left out rather than counted as gone.
+- It reads project files but stores only counts. Never store or log file contents here.
+- The session detail carries `lasted` (session plus subagents) and each step touch carries its own counts.
 
 ### Identity and the share contract (team prep)
 
@@ -196,7 +205,7 @@ Open `/styleguide` in the running app to see every token and component. Before a
 - `index.rs` stores sessions in SQLite with an FTS5 table over event titles and bodies. It re-parses a file only when its size or modified time changes. Sessions stay after their log file is deleted (agents prune old logs; agentcam keeps the history).
 - `shell.rs` reads file changes out of shell commands (`>`, `>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `touch`, `cd` chains, skipping heredoc bodies). It is a careful reader, not a shell: when unsure (globs, variables, `~`), it records nothing. Files written by scripts it runs (say `python script.py`) are not seen.
 - Long text is cut to 32 KB in the index. `source_offset` points back at the original record.
-- Change the schema → bump `SCHEMA_VERSION` in `index.rs`; old indexes are dropped and rebuilt.
+- Change the schema → bump `SCHEMA_VERSION` in `index.rs`; every table of an old index is dropped and rebuilt.
 
 ## Log formats
 

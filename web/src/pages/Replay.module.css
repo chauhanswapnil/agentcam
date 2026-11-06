@@ -384,3 +384,16 @@
     display: none;
   }
 }
+.lasted {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-3);
+  margin: 0 0 var(--s-2);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.lasted b {
+  color: var(--text-1);
+  font-weight: var(--fw-medium);
+}

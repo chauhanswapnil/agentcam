@@ -747,3 +747,15 @@ pub async fn limits(State(st): Shared) -> Result<Json<agentcam_core::live::Limit
         .await
         .map(Json)
 }
+
+/// Which agent-written lines are still in the code (`survival.rs`).
+pub async fn lasted(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::survival::Report>, ApiError> {
+    let now = now_ms();
+    let f = p.filter(now);
+    st.read(move |idx| agentcam_core::survival::report(idx.conn(), &f, now))
+        .await
+        .map(Json)
+}

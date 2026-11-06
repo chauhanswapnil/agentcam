@@ -14,6 +14,9 @@ const SETTLE: Duration = Duration::from_millis(750);
 /// An agent that never pauses still gets indexed this often, so the live
 /// view keeps up.
 const MAX_WAIT: Duration = Duration::from_secs(3);
+/// Project files change without the logs changing (you edit code by
+/// hand), so re-check which agent lines are still there this often.
+const RECHECK: Duration = Duration::from_secs(120);
 
 pub fn start(state: Arc<AppState>) -> bool {
     let (tx, rx) = channel();
@@ -53,7 +56,15 @@ pub fn start(state: Arc<AppState>) -> bool {
         .spawn(move || {
             let _watcher = watcher; // keep it alive for the thread's life
             let _rt = handle.enter();
-            while rx.recv().is_ok() {
+            loop {
+                match rx.recv_timeout(RECHECK) {
+                    Ok(()) => {}
+                    Err(RecvTimeoutError::Timeout) => {
+                        state.spawn_index(false);
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => return,
+                }
                 // Let the burst settle.
                 let start = std::time::Instant::now();
                 while start.elapsed() < MAX_WAIT {

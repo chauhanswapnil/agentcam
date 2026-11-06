@@ -723,3 +723,139 @@ fn limits_from_both_agents() {
     assert_eq!(live[0].session.agent, "codex");
     assert!(!live[0].recent.is_empty());
 }
+
+/// A throwaway project and Claude Code log, so survival can read real files.
+fn survival_world(name: &str) -> (PathBuf, Vec<LogSource>) {
+    let dir = std::env::temp_dir().join(format!("agentcam-survival-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let project = dir.join("project");
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    let file = project.join("src/app.rs");
+    let path = file.to_string_lossy().to_string();
+    let cwd = project.to_string_lossy().to_string();
+    let rec = |ty: &str, ts: &str, extra: serde_json::Value| {
+        let mut v = serde_json::json!({
+            "sessionId": "55555555-5555-4555-8555-555555555555", "cwd": cwd, "type": ty,
+            "timestamp": ts, "uuid": ts, "userType": "external"
+        });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        v.to_string()
+    };
+    let created = "fn alpha() {}\nfn beta() {}\nfn gamma() {}\nfn delta() {}\n";
+    let lines = [
+        rec(
+            "user",
+            "2026-10-01T09:00:00.000Z",
+            serde_json::json!({"message": {"role": "user", "content": "Add the app"}}),
+        ),
+        rec(
+            "assistant",
+            "2026-10-01T09:00:01.000Z",
+            serde_json::json!({"message": {"id": "m1", "role": "assistant", "model": "claude-test-1",
+            "content": [{"type": "tool_use", "id": "t1", "name": "Write", "input": {"file_path": path, "content": created}}]}}),
+        ),
+        rec(
+            "user",
+            "2026-10-01T09:00:02.000Z",
+            serde_json::json!({"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]},
+            "toolUseResult": {"type": "create", "filePath": path, "content": created, "structuredPatch": []}}),
+        ),
+        rec(
+            "assistant",
+            "2026-10-01T09:00:03.000Z",
+            serde_json::json!({"message": {"id": "m2", "role": "assistant", "model": "claude-test-1",
+            "content": [{"type": "tool_use", "id": "t2", "name": "Edit", "input": {"file_path": path, "old_string": "beta", "new_string": "beta2"}}]}}),
+        ),
+        rec(
+            "user",
+            "2026-10-01T09:00:04.000Z",
+            serde_json::json!({"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "ok"}]},
+            "toolUseResult": {"filePath": path, "structuredPatch": [{"oldStart": 2, "oldLines": 1, "newStart": 2, "newLines": 1,
+                "lines": ["-fn beta() {}", "+fn beta2() {}"]}]}}),
+        ),
+    ];
+    let logs = dir.join("logs/-project");
+    std::fs::create_dir_all(&logs).unwrap();
+    std::fs::write(
+        logs.join("55555555-5555-4555-8555-555555555555.jsonl"),
+        lines.join("\n"),
+    )
+    .unwrap();
+    // Today: someone else removed `delta`.
+    std::fs::write(&file, "fn alpha() {}\nfn beta2() {}\nfn gamma() {}\n").unwrap();
+    let sources = vec![LogSource {
+        agent: Agent::ClaudeCode,
+        path: dir.join("logs"),
+        exists: true,
+    }];
+    (dir, sources)
+}
+
+#[test]
+fn survival_checks_agent_lines_against_files() {
+    use agentcam_core::survival::{Counts, session_counts};
+    let (dir, sources) = survival_world("lines");
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(&sources, false).unwrap();
+    let id = "55555555-5555-4555-8555-555555555555";
+    assert_eq!(
+        session_counts(idx.conn(), id).unwrap(),
+        Some(Counts {
+            added: 5,
+            kept: 3,
+            reworked: 1,
+            changed: 1
+        }),
+        "alpha, gamma, beta2 kept; beta rewritten by the agent; delta changed since"
+    );
+    let step = agentcam_core::query::step(idx.conn(), id, 2)
+        .unwrap()
+        .unwrap();
+    assert_eq!(step.touches[0].lasted.unwrap().kept, 1);
+
+    // Someone edits the file: the next run sees it without the logs changing.
+    std::fs::write(
+        dir.join("project/src/app.rs"),
+        "fn beta2() {}\n// rewritten by hand\n",
+    )
+    .unwrap();
+    idx.update(&sources, false).unwrap();
+    let c = session_counts(idx.conn(), id).unwrap().unwrap();
+    assert_eq!((c.kept, c.changed), (1, 3));
+
+    let now = agentcam_core::util::parse_ts_ms("2026-11-01T00:00:00.000Z").unwrap();
+    let r =
+        agentcam_core::survival::report(idx.conn(), &agentcam_core::query::Filter::default(), now)
+            .unwrap();
+    assert_eq!(r.settled.added, 5);
+    assert_eq!(r.ages[2].counts.added, 5, "a month old");
+    assert_eq!(r.by_agent.len(), 1);
+
+    // The project is gone: nothing to say, rather than "nothing lasted".
+    std::fs::remove_dir_all(dir.join("project")).unwrap();
+    idx.update(&sources, false).unwrap();
+    assert_eq!(session_counts(idx.conn(), id).unwrap(), None);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn old_schema_is_replaced_whatever_tables_it_had() {
+    let dir = std::env::temp_dir().join(format!("agentcam-schema-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("index.db");
+    let _ = std::fs::remove_file(&db);
+    {
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch(
+            "CREATE TABLE limits (x); CREATE TABLE someday_table (y);
+             CREATE VIRTUAL TABLE events_fts USING fts5(title);
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    }
+    let mut idx = Index::open(&db).unwrap();
+    idx.update(&sources(), false).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}

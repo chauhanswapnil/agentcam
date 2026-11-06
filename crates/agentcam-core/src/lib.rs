@@ -16,6 +16,7 @@ pub mod prices;
 pub mod query;
 pub mod share;
 pub mod shell;
+pub mod survival;
 pub mod util;
 
 use std::path::{Path, PathBuf};

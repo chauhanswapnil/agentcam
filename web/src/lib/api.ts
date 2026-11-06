@@ -124,6 +124,7 @@ export type SessionDetail = {
   patterns: Pattern[]
   commits: CommitRow[]
   subagents: SessionRow[]
+  lasted: Lasted | null
 }
 
 export type RuleSummary = { rule_id: string; title: string; severity: Severity; count: number; sessions: number; last_ts: string | null }
@@ -364,3 +365,16 @@ export type LimitHit = {
 }
 
 export type Limits = { windows: LimitWindow[]; series: LimitSeries[]; hits: LimitHit[]; hits_30d: number }
+
+/** Mirrors `survival.rs`: lines agents added and where they are now. */
+export type Lasted = { added: number; kept: number; reworked: number; changed: number }
+
+export type LastedReport = {
+  settled: Lasted
+  recent: Lasted
+  ages: { label: string; counts: Lasted }[]
+  weeks: { week: string; counts: Lasted }[]
+  by_agent: { agent: AgentId; model: string | null; sessions: number; counts: Lasted }[]
+  by_project: { project: string | null; sessions: number; counts: Lasted }[]
+  files: { path: string; project: string | null; edits: number; counts: Lasted }[]
+}

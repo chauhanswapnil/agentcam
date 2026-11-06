@@ -407,6 +407,8 @@ pub struct SessionDetail {
     pub patterns: Vec<crate::patterns::Pattern>,
     pub commits: Vec<CommitRow>,
     pub subagents: Vec<SessionRow>,
+    /// Lines this session and its subagents added, and where they are now.
+    pub lasted: Option<crate::survival::Counts>,
 }
 
 /// A commit a session made.
@@ -585,6 +587,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     let commits = stmt
         .query_map([id], commit_row)?
         .collect::<std::result::Result<_, _>>()?;
+    let lasted = crate::survival::session_counts(conn, id)?;
     Ok(Some(SessionDetail {
         session,
         events,
@@ -593,6 +596,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
         patterns,
         commits,
         subagents,
+        lasted,
     }))
 }
 
@@ -602,6 +606,8 @@ pub struct Touch {
     pub path: String,
     pub action: String,
     pub diff: Option<String>,
+    /// How many of the lines this change added are still in the file.
+    pub lasted: Option<crate::survival::Counts>,
 }
 
 /// Everything about one step.
@@ -654,13 +660,28 @@ pub fn step(conn: &Connection, session_id: &str, seq: i64) -> Result<Option<Step
         return Ok(None);
     };
     let mut stmt = conn
-        .prepare("SELECT path, action, diff FROM file_touches WHERE session_id = ? AND seq = ?")?;
+        .prepare(
+            "SELECT t.path, t.action, t.diff, v.added, v.kept, v.reworked, v.changed
+             FROM file_touches t
+             LEFT JOIN survival v ON v.session_id = t.session_id AND v.seq = t.seq AND v.path = t.path
+             WHERE t.session_id = ? AND t.seq = ?",
+        )?;
     st.touches = stmt
         .query_map(rusqlite::params![session_id, seq], |r| {
+            let added: Option<i64> = r.get(3)?;
             Ok(Touch {
                 path: r.get(0)?,
                 action: r.get(1)?,
                 diff: r.get(2)?,
+                lasted: match added {
+                    Some(added) => Some(crate::survival::Counts {
+                        added,
+                        kept: r.get(4)?,
+                        reworked: r.get(5)?,
+                        changed: r.get(6)?,
+                    }),
+                    None => None,
+                },
             })
         })?
         .collect::<std::result::Result<_, _>>()?;

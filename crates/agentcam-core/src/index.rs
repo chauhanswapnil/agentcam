@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -162,6 +162,22 @@ CREATE TABLE limits (
 CREATE INDEX limits_session ON limits(session_id);
 CREATE INDEX limits_ts ON limits(ts);
 
+CREATE TABLE survival (
+    session_id  TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    path        TEXT NOT NULL,
+    ts          TEXT NOT NULL,
+    added       INTEGER NOT NULL,
+    kept        INTEGER NOT NULL,
+    reworked    INTEGER NOT NULL,
+    changed     INTEGER NOT NULL
+);
+CREATE INDEX survival_session ON survival(session_id, seq);
+CREATE INDEX survival_path ON survival(path);
+CREATE INDEX survival_ts ON survival(ts);
+
+CREATE TABLE survival_files (path TEXT PRIMARY KEY, sig TEXT NOT NULL);
+
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 CREATE VIRTUAL TABLE events_fts USING fts5(
@@ -189,6 +205,8 @@ pub struct UpdateReport {
     pub files_failed: usize,
     pub events_written: usize,
     pub bad_lines: u64,
+    /// Project files re-read to see which agent lines are still there.
+    pub files_compared: usize,
     pub elapsed_ms: u128,
 }
 
@@ -245,13 +263,21 @@ impl Index {
         )?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version != SCHEMA_VERSION {
-            conn.execute_batch(
-                "DROP TABLE IF EXISTS events_fts; DROP TABLE IF EXISTS file_touches;
-                 DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS sessions;
-                 DROP TABLE IF EXISTS sources; DROP TABLE IF EXISTS findings;
-                 DROP TABLE IF EXISTS meta; DROP TABLE IF EXISTS patterns;
-                 DROP TABLE IF EXISTS commits;",
-            )?;
+            // Drop every table an older version made, whatever it was.
+            // Virtual tables first: they take their shadow tables with them.
+            let tables: Vec<String> = conn
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                     ORDER BY sql NOT LIKE 'CREATE VIRTUAL%'",
+                )?
+                .query_map([], |r| r.get(0))?
+                .collect::<std::result::Result<_, _>>()?;
+            for t in tables {
+                conn.execute_batch(&format!(
+                    "DROP TABLE IF EXISTS \"{}\"",
+                    t.replace('"', "\"\"")
+                ))?;
+            }
             conn.execute_batch(SCHEMA)?;
             conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
         }
@@ -414,6 +440,10 @@ impl Index {
             [&fingerprint],
         )?;
         tx.commit()?;
+        // Files change without the logs changing, so check them every run;
+        // unchanged files cost one stat each.
+        let survival = crate::survival::refresh(&mut self.conn)?;
+        report.files_compared = survival.files_checked;
 
         report.elapsed_ms = start.elapsed().as_millis();
         Ok(report)
@@ -706,6 +736,7 @@ fn write_session(
 }
 
 fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
+    crate::survival::forget_session(tx, id)?;
     tx.execute(
         "INSERT INTO events_fts(events_fts, rowid, title, body)
          SELECT 'delete', id, title, body FROM events WHERE session_id = ?1",

@@ -17,6 +17,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Commits: which commits each session made, a Commits page, and commits in the replay.
 - Trace view in the replay: steps on an agent-time axis with subagents nested inside their calls.
 - `agentcam export otlp`: sessions as OpenTelemetry traces, to a file or an OTLP endpoint.
+- What lasted: of the lines agents added, how many are still in the code, rewritten by later agent edits, or changed since. By age, week, agent and model, project and file; per session and per change in the replay. Works on past sessions with no setup.
 - Live page: sessions running now with their state (working, your turn, quiet), latest steps, cost and context; a dot in the nav while an agent works.
 - Usage limits: Codex 5-hour and weekly windows with a 7-day chart and reset times; limits reached by Claude Code and Codex, linked to the step.
 - Where each session was started from (terminal, desktop app, VS Code, SDK), shown in the replay.
