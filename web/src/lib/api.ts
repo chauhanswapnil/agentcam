@@ -342,6 +342,10 @@ export type LiveSession = {
   state: LiveState
   context_tokens: number | null
   active_subagents: number
+  /** Tool calls in a row that errored, counting back from the latest. */
+  error_streak?: number
+  /** Session plus subagents at API list prices. */
+  cost_usd?: number | null
   recent: LiveStep[]
 }
 
@@ -371,7 +375,42 @@ export type LimitHit = {
   project_root: string | null
 }
 
-export type Limits = { windows: LimitWindow[]; series: LimitSeries[]; hits: LimitHit[]; hits_30d: number }
+/** Mirrors `quota.rs`: Claude Code's usage, estimated from logged tokens. */
+export type QuotaTotals = {
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  total_tokens: number
+  cost_usd: number
+  unpriced_calls: number
+}
+export type QuotaBlock = QuotaTotals & { start: string; end: string; first_at: string; last_at: string; active: boolean }
+export type QuotaPace = {
+  tokens_per_minute: number
+  cost_per_hour: number
+  projected_tokens: number
+  projected_cost_usd: number
+  remaining_ms: number
+}
+export type ClaudeQuota = {
+  estimate: true
+  block_minutes: number
+  active: QuotaBlock | null
+  pace: QuotaPace | null
+  peak: QuotaBlock | null
+  blocks: QuotaBlock[]
+  week: QuotaTotals
+}
+
+export type Limits = {
+  windows: LimitWindow[]
+  series: LimitSeries[]
+  hits: LimitHit[]
+  hits_30d: number
+  claude?: ClaudeQuota | null
+}
 
 /** Mirrors `survival.rs`: lines agents added and where they are now. */
 export type Lasted = { added: number; kept: number; reworked: number; changed: number }

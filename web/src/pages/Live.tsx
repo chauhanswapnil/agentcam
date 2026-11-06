@@ -1,4 +1,5 @@
-import { ArrowUpRight, OctagonAlert, Radio, Workflow } from 'lucide-react'
+import { ArrowUpRight, OctagonAlert, Radio, TriangleAlert, Workflow } from 'lucide-react'
+import { STREAK } from '../lib/alerts'
 import { memo, useEffect, useState } from 'react'
 import { Link, useLocation, useSearch } from 'wouter'
 import type { LimitHit, LiveSession, Limits } from '../lib/api'
@@ -10,6 +11,8 @@ import { AgentLabel, EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import { UsageMeter } from '../ui/UsageMeter'
+import { QuotaMeter } from '../ui/QuotaMeter'
+import { AlertsPanel } from '../ui/AlertsPanel'
 import v from './Views.module.css'
 import s from './Live.module.css'
 
@@ -79,6 +82,8 @@ export function Live() {
         </section>
       )}
 
+      <AlertsPanel projects={(live.data ?? []).map((x) => x.session.project_root ?? '').filter(Boolean)} />
+
       {limits.data && limits.data.hits.length > 0 && <Hits hits={limits.data.hits} total={limits.data.hits_30d} />}
     </div>
   )
@@ -87,7 +92,7 @@ export function Live() {
 function Usage({ data, now }: { data: Limits | null; now: number }) {
   if (!data) return <Skeleton height={120} />
   const claudeHits = data.hits.filter((h) => h.agent === 'claude-code')
-  if (data.windows.length === 0 && data.hits.length === 0) return null
+  if (data.windows.length === 0 && data.hits.length === 0 && !data.claude) return null
   return (
     <section className={s.usage} aria-label="Usage windows">
       {data.windows.map((w) => (
@@ -98,6 +103,7 @@ function Usage({ data, now }: { data: Limits | null; now: number }) {
           points={data.series.find((x) => x.agent === w.agent && x.window === w.window)?.points}
         />
       ))}
+      {data.claude && <QuotaMeter q={data.claude} now={now} />}
       {claudeHits.length > 0 && !data.windows.some((w) => w.agent === 'claude-code') && (
         <div className={s.note}>
           <span className={s.noteTop}>
@@ -157,13 +163,19 @@ const LiveCard = memo(function LiveCard({ x, now }: { x: LiveSession; now: numbe
         </div>
         <div>
           <dt>Cost</dt>
-          <dd>{r.est_cost_usd != null ? formatCost(r.est_cost_usd) : '–'}</dd>
+          <dd>{(x.cost_usd ?? r.est_cost_usd) != null ? formatCost((x.cost_usd ?? r.est_cost_usd)!) : '–'}</dd>
         </div>
         <div>
           <dt>Context</dt>
           <dd>{x.context_tokens != null ? formatCompact(x.context_tokens) : '–'}</dd>
         </div>
       </dl>
+      {(x.error_streak ?? 0) >= STREAK && (
+        <div className={s.subs}>
+          <TriangleAlert aria-hidden style={{ color: 'var(--status-warning)' }} />
+          Last {x.error_streak} tool calls errored · worth a look
+        </div>
+      )}
       {x.active_subagents > 0 && (
         <div className={s.subs}>
           <Workflow aria-hidden />

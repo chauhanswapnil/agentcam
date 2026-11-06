@@ -1,4 +1,4 @@
-import type { LimitWindow } from '../lib/api'
+import type { ClaudeQuota, LimitWindow, QuotaBlock } from '../lib/api'
 import type { StripEvent } from '../ui/EventStrip'
 
 /** Made-up session for the styleguide. Not real data. */
@@ -44,3 +44,29 @@ export const SAMPLE_USAGE = Array.from({ length: 40 }, (_, i) => ({
   ts: new Date(SAMPLE_NOW - (40 - i) * 4 * 3_600_000).toISOString(),
   used_percent: Math.round(((i * 37) % 100) * 0.9),
 }))
+
+const block = (h: number, tokens: number, active = false): QuotaBlock => ({
+  start: new Date(SAMPLE_NOW - h * 3_600_000).toISOString(),
+  end: new Date(SAMPLE_NOW - (h - 5) * 3_600_000).toISOString(),
+  first_at: new Date(SAMPLE_NOW - h * 3_600_000 + 600_000).toISOString(),
+  last_at: new Date(SAMPLE_NOW - (active ? 0 : h - 3) * 3_600_000).toISOString(),
+  active,
+  calls: Math.round(tokens / 40_000),
+  input_tokens: tokens * 0.001,
+  output_tokens: tokens * 0.01,
+  cache_read_tokens: tokens * 0.95,
+  cache_write_tokens: tokens * 0.039,
+  total_tokens: tokens,
+  cost_usd: tokens / 900_000,
+  unpriced_calls: 0,
+})
+const ACTIVE = block(2, 3_100_000, true)
+export const SAMPLE_QUOTA: ClaudeQuota = {
+  estimate: true,
+  block_minutes: 300,
+  active: ACTIVE,
+  pace: { tokens_per_minute: 28_000, cost_per_hour: 1.9, projected_tokens: 8_100_000, projected_cost_usd: 9, remaining_ms: 3 * 3_600_000 },
+  peak: block(50, 9_400_000),
+  blocks: [block(120, 4_200_000), block(74, 6_000_000), block(50, 9_400_000), block(26, 2_800_000), ACTIVE],
+  week: { ...block(0, 25_500_000), calls: 640 },
+}

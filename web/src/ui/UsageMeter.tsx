@@ -2,7 +2,7 @@ import { OctagonAlert, TriangleAlert } from 'lucide-react'
 import type { LimitWindow } from '../lib/api'
 import { AGENTS } from '../lib/agents'
 import { formatAgo, formatDate, formatTime } from '../lib/format'
-import { usageLevel, windowLabel } from '../lib/live'
+import { untilLabel, usageLevel, windowLabel } from '../lib/live'
 import { UsageChart } from './UsageChart'
 import s from './UsageMeter.module.css'
 
@@ -12,14 +12,6 @@ const LEVEL = {
   reached: { label: 'Limit reached', color: 'var(--status-critical)', icon: OctagonAlert },
 } as const
 
-/** "2d 4h", "3h 20m", "12m". */
-function untilLabel(ms: number): string {
-  const m = Math.ceil(ms / 60_000)
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
-  return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${Math.floor(h / 24)}d`
-}
 
 type Props = {
   w: LimitWindow

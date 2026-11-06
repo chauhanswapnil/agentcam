@@ -45,6 +45,8 @@ import { DiffView } from '../ui/DiffView'
 import { Kbd } from '../ui/Kbd'
 import { Markdown } from '../ui/Markdown'
 import { ReportCardButton } from '../ui/ReportCard'
+import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
+import { firstLine } from '../lib/session'
 import { BlockDialog } from '../ui/BlockDialog'
 import { sessionCard } from '../lib/reportCard'
 import { ListRow } from '../ui/ListRow'
@@ -256,7 +258,9 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
           </div>
         </div>
         <div className={s.facts}>
-          <span style={{ alignSelf: 'center' }}>
+          <span className={s.headActions}>
+            <ResumeButton agent={x.agent} id={x.id} cwd={x.project_path} />
+            <ExportLinks id={x.id} />
             <ReportCardButton build={(redact) => sessionCard(data, redact)} filename={`agentcam-session-${id.split('/').pop()}.png`} />
           </span>
           <span>
@@ -517,7 +521,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                 </Panel>
               )}
               {files.length > 0 && (
-                <Panel title="Files" icon={<FileStack />} flush>
+                <Panel title="Files" icon={<FileStack />} actions={<EditorPicker />} flush>
                   <Files files={files} root={x.project_root} current={step} onSeek={jump} />
                 </Panel>
               )}
@@ -875,6 +879,7 @@ function StepBody({ st, root }: { st: Step; root: string | null }) {
           <div className={s.touch}>
             <ActionTag action={t.action} />
             <span>{rel(t.path, root)}</span>
+            {t.action !== 'delete' && <OpenInEditor path={t.path} line={firstLine(t.diff)} />}
           </div>
           {t.lasted && t.lasted.added > 0 && (
             <div className={s.lasted}>
@@ -960,26 +965,28 @@ function Files({
   const at = (f: (typeof list)[number]) => f.seqs.includes(current)
 
   const row = (f: (typeof list)[number]) => (
-    <button
-      key={f.path}
-      type="button"
-      className={`${s.file} ${at(f) ? s.fileOn : ''}`}
-      title={`${f.path}\n${f.seqs.length} ${f.seqs.length === 1 ? 'step' : 'steps'}`}
-      onClick={() => onSeek(f.seqs.find((q) => q > current) ?? f.seqs[0])}
-    >
-      <span className={s.actions}>
-        {['create', 'edit', 'delete', 'read']
-          .filter((a) => f.actions.has(a))
-          .map((a) => (
-            <span key={a} className={s.act} style={{ background: ACTION_COLORS[a] }}>
-              {ACTION_LETTER[a]}
-            </span>
-          ))}
-      </span>
-      <span className={s.filePath}>
-        <bdi>{rel(f.path, root)}</bdi>
-      </span>
-    </button>
+    <div key={f.path} className={s.fileRow}>
+      <button
+        type="button"
+        className={`${s.file} ${at(f) ? s.fileOn : ''}`}
+        title={`${f.path}\n${f.seqs.length} ${f.seqs.length === 1 ? 'step' : 'steps'}`}
+        onClick={() => onSeek(f.seqs.find((q) => q > current) ?? f.seqs[0])}
+      >
+        <span className={s.actions}>
+          {['create', 'edit', 'delete', 'read']
+            .filter((a) => f.actions.has(a))
+            .map((a) => (
+              <span key={a} className={s.act} style={{ background: ACTION_COLORS[a] }}>
+                {ACTION_LETTER[a]}
+              </span>
+            ))}
+        </span>
+        <span className={s.filePath}>
+          <bdi>{rel(f.path, root)}</bdi>
+        </span>
+      </button>
+      {!(f.actions.size === 1 && f.actions.has('delete')) && <OpenInEditor path={f.path} />}
+    </div>
   )
 
   return (

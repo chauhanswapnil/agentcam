@@ -7,6 +7,18 @@ import { EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import s from './Views.module.css'
+import { CsvButton } from '../ui/CsvButton'
+import type { Column } from '../lib/csv'
+
+const TOOL_COLUMNS: Column<ToolStat>[] = [
+  { label: 'tool', value: (t) => t.tool_name },
+  { label: 'category', value: (t) => t.category },
+  { label: 'calls', value: (t) => t.calls },
+  { label: 'errored', value: (t) => t.errors },
+  { label: 'total_ms', value: (t) => t.total_ms },
+  { label: 'sessions', value: (t) => t.sessions },
+  { label: 'last', value: (t) => t.last_ts },
+]
 
 const RANGES = [
   { value: '7d', label: '7 days' },
@@ -51,7 +63,11 @@ export function Tools() {
         </Panel>
       ) : (
         <div className={s.split}>
-          <Panel flush>
+          <Panel
+            title={`${formatNumber(data.length)} tools`}
+            flush
+            actions={<CsvButton name="tools" rows={data} columns={TOOL_COLUMNS} />}
+          >
             <div className={s.tableWrap}>
               <table className={s.table}>
                 <thead>

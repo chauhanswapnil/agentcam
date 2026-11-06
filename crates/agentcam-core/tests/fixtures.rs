@@ -724,6 +724,43 @@ fn limits_from_both_agents() {
     assert!(!live[0].recent.is_empty());
 }
 
+#[test]
+fn claude_quota_estimates_blocks_from_tokens() {
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(&sources(), false).unwrap();
+    // The demo session runs 10:00-10:01 on Nov 1; at 11:00 its block is open.
+    let now = agentcam_core::util::parse_ts_ms("2026-11-01T11:00:00.000Z").unwrap();
+    let q = agentcam_core::quota::claude_quota(idx.conn(), now)
+        .unwrap()
+        .expect("claude calls");
+    let a = q.active.as_ref().expect("open block");
+    // The failed `npm test` was followed by calls that worked: no streak.
+    let live = agentcam_core::live::live(idx.conn(), now, 90 * 60_000).unwrap();
+    let c = live
+        .iter()
+        .find(|x| x.session.agent == "claude-code")
+        .unwrap();
+    assert_eq!(c.error_streak, 0);
+    assert_eq!(a.start, "2026-11-01T10:00:00.000Z");
+    assert_eq!(a.end, "2026-11-01T15:00:00.000Z");
+    assert!(a.totals.total_tokens > 0 && a.totals.calls > 0);
+    assert_eq!(q.week.total_tokens, a.totals.total_tokens);
+    // Six hours after the last call, the block has ended and is the peak.
+    let later = now + 6 * 3_600_000;
+    let q = agentcam_core::quota::claude_quota(idx.conn(), later)
+        .unwrap()
+        .unwrap();
+    assert!(q.active.is_none());
+    assert_eq!(q.peak.unwrap().totals.total_tokens, a.totals.total_tokens);
+    // Codex calls are never counted.
+    let early = agentcam_core::util::parse_ts_ms("2026-10-01T00:00:00.000Z").unwrap();
+    assert!(
+        agentcam_core::quota::claude_quota(idx.conn(), early)
+            .unwrap()
+            .is_none()
+    );
+}
+
 /// A throwaway project and Claude Code log, so survival can read real files.
 fn survival_world(name: &str) -> (PathBuf, Vec<LogSource>) {
     let dir = std::env::temp_dir().join(format!("agentcam-survival-{name}-{}", std::process::id()));

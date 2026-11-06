@@ -303,3 +303,25 @@
     display: none;
   }
 }
+
+.sessionRow {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line-1);
+  transition: background var(--dur-1) var(--ease-out);
+}
+.sessionRow:last-child {
+  border-bottom: 0;
+}
+.sessionRow:hover {
+  background: var(--bg-2);
+}
+.sessionRow > button {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+}
+.rowAction {
+  flex: none;
+  padding-right: var(--s-2);
+}

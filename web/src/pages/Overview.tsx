@@ -34,6 +34,7 @@ import { Heatmap } from '../ui/Heatmap'
 import { ReportCardButton } from '../ui/ReportCard'
 import { weekCard } from '../lib/reportCard'
 import { ListRow } from '../ui/ListRow'
+import { ResumeButton } from '../ui/SessionActions'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
@@ -43,6 +44,29 @@ import { Tooltip } from '../ui/Tooltip'
 import { TurnsPanel } from '../ui/TurnsPanel'
 import type { TurnStats } from '../lib/api'
 import s from './Overview.module.css'
+import { CsvButton } from '../ui/CsvButton'
+import type { Column } from '../lib/csv'
+
+const SESSION_COLUMNS: Column<SessionRow>[] = [
+  { label: 'session_id', value: (r) => r.id },
+  { label: 'agent', value: (r) => r.agent },
+  { label: 'title', value: (r) => r.title ?? r.first_prompt },
+  { label: 'project', value: (r) => r.project_root },
+  { label: 'folder', value: (r) => r.project_path },
+  { label: 'branch', value: (r) => r.git_branch },
+  { label: 'model', value: (r) => r.model },
+  { label: 'started', value: (r) => r.started_at },
+  { label: 'last_step', value: (r) => r.ended_at },
+  { label: 'agent_time_ms', value: (r) => r.active_ms },
+  { label: 'steps', value: (r) => r.event_count },
+  { label: 'tool_calls', value: (r) => r.tool_call_count },
+  { label: 'errored', value: (r) => r.error_count },
+  { label: 'files', value: (r) => r.file_count },
+  { label: 'subagents', value: (r) => r.subagents },
+  { label: 'findings', value: (r) => r.finding_count },
+  { label: 'commits', value: (r) => r.commit_count },
+  { label: 'est_cost_usd', value: (r) => r.est_cost_usd },
+]
 
 const RANGES = [
   { value: '7d', label: '7 days' },
@@ -180,65 +204,69 @@ function SessionList({ rows, onOpen }: { rows: SessionRow[]; onOpen: (id: string
             <span>{formatHours(g.ms)}</span>
           </div>
           {g.rows.map((r) => (
-            <ListRow
-              key={r.id}
-              onClick={() => onOpen(r.id)}
-              leading={<AgentLabel agent={r.agent} hideName />}
-              title={oneLine(r.title ?? r.first_prompt ?? 'Untitled session')}
-              meta={
-                <>
-                  <span>{r.project_root ? baseName(r.project_root) : 'Unknown folder'}</span>
-                  {r.git_branch && (
-                    <span className={s.branchWrap}>
-                      <span>·</span>
-                      <span className={s.branch}>{r.git_branch}</span>
-                    </span>
-                  )}
-                  {r.ended_at && (
-                    <>
-                      <span>·</span>
-                      <span>{formatTime(r.ended_at)}</span>
-                    </>
-                  )}
-                </>
-              }
-              trailing={
-                <span className={s.rowRight}>
-                  {r.max_severity && SEVERITY_RANK[r.max_severity] >= 2 && (
-                    <Tooltip content={`${r.finding_count} risk ${r.finding_count === 1 ? 'finding' : 'findings'}, worst: ${r.max_severity}`}>
-                      <span className={s.hideSmall}>
-                        <SeverityBadge severity={r.max_severity} />
+            <div key={r.id} className={s.sessionRow}>
+              <ListRow
+                onClick={() => onOpen(r.id)}
+                leading={<AgentLabel agent={r.agent} hideName />}
+                title={oneLine(r.title ?? r.first_prompt ?? 'Untitled session')}
+                meta={
+                  <>
+                    <span>{r.project_root ? baseName(r.project_root) : 'Unknown folder'}</span>
+                    {r.git_branch && (
+                      <span className={s.branchWrap}>
+                        <span>·</span>
+                        <span className={s.branch}>{r.git_branch}</span>
                       </span>
-                    </Tooltip>
-                  )}
-                  {r.wasted_ms > 0 && (
-                    <Tooltip content={formatHours(r.wasted_ms) + ' stuck in loops and retries'}>
-                      <Badge icon={<RotateCcw />} color="var(--status-serious)">
-                        {formatHours(r.wasted_ms)}
-                      </Badge>
-                    </Tooltip>
-                  )}
-                  {r.error_count > 0 && (
-                    <Tooltip content={`${r.error_count} failed ${r.error_count === 1 ? 'step' : 'steps'}`}>
-                      <Badge icon={<TriangleAlert />} color="var(--status-critical)">
-                        {r.error_count}
-                      </Badge>
-                    </Tooltip>
-                  )}
-                  {r.subagents > 0 && (
-                    <Tooltip content={`${r.subagents} ${r.subagents === 1 ? 'subagent' : 'subagents'}`}>
-                      <span className={`${s.steps} ${s.hideSmall}`}>
-                        <Bot aria-hidden />
-                        {r.subagents}
-                      </span>
-                    </Tooltip>
-                  )}
-                  <span className={`${s.steps} ${s.hideSmall}`}>{formatNumber(r.event_count)} steps</span>
-                  {r.est_cost_usd != null && <span className={s.hideSmall}>{formatCost(r.est_cost_usd)}</span>}
-                  <span className={s.dur}>{formatHours(r.active_ms)}</span>
-                </span>
-              }
-            />
+                    )}
+                    {r.ended_at && (
+                      <>
+                        <span>·</span>
+                        <span>{formatTime(r.ended_at)}</span>
+                      </>
+                    )}
+                  </>
+                }
+                trailing={
+                  <span className={s.rowRight}>
+                    {r.max_severity && SEVERITY_RANK[r.max_severity] >= 2 && (
+                      <Tooltip content={`${r.finding_count} risk ${r.finding_count === 1 ? 'finding' : 'findings'}, worst: ${r.max_severity}`}>
+                        <span className={s.hideSmall}>
+                          <SeverityBadge severity={r.max_severity} />
+                        </span>
+                      </Tooltip>
+                    )}
+                    {r.wasted_ms > 0 && (
+                      <Tooltip content={formatHours(r.wasted_ms) + ' stuck in loops and retries'}>
+                        <Badge icon={<RotateCcw />} color="var(--status-serious)">
+                          {formatHours(r.wasted_ms)}
+                        </Badge>
+                      </Tooltip>
+                    )}
+                    {r.error_count > 0 && (
+                      <Tooltip content={`${r.error_count} failed ${r.error_count === 1 ? 'step' : 'steps'}`}>
+                        <Badge icon={<TriangleAlert />} color="var(--status-critical)">
+                          {r.error_count}
+                        </Badge>
+                      </Tooltip>
+                    )}
+                    {r.subagents > 0 && (
+                      <Tooltip content={`${r.subagents} ${r.subagents === 1 ? 'subagent' : 'subagents'}`}>
+                        <span className={`${s.steps} ${s.hideSmall}`}>
+                          <Bot aria-hidden />
+                          {r.subagents}
+                        </span>
+                      </Tooltip>
+                    )}
+                    <span className={`${s.steps} ${s.hideSmall}`}>{formatNumber(r.event_count)} steps</span>
+                    {r.est_cost_usd != null && <span className={s.hideSmall}>{formatCost(r.est_cost_usd)}</span>}
+                    <span className={s.dur}>{formatHours(r.active_ms)}</span>
+                  </span>
+                }
+              />
+              <span className={s.rowAction}>
+                <ResumeButton agent={r.agent} id={r.id} cwd={r.project_path} compact />
+              </span>
+            </div>
           ))}
         </div>
       ))}
@@ -336,20 +364,23 @@ export function Overview() {
           icon={<Rows3 />}
           flush
           actions={
-            (f.project || f.day) && (
-              <div className={s.filters}>
-                {f.day && (
-                  <button type="button" className={s.chip} onClick={() => setF({ day: '' })} aria-label={`Remove day filter ${f.day}`}>
-                    {dayLabel(f.day)} <X aria-hidden />
-                  </button>
-                )}
-                {f.project && (
-                  <button type="button" className={s.chip} onClick={() => setF({ project: '' })} aria-label="Remove project filter">
-                    {baseName(f.project)} <X aria-hidden />
-                  </button>
-                )}
-              </div>
-            )
+            <>
+              {sessions.data && <CsvButton name="sessions" rows={sessions.data.items} columns={SESSION_COLUMNS} />}
+              {(f.project || f.day) && (
+                <div className={s.filters}>
+                  {f.day && (
+                    <button type="button" className={s.chip} onClick={() => setF({ day: '' })} aria-label={`Remove day filter ${f.day}`}>
+                      {dayLabel(f.day)} <X aria-hidden />
+                    </button>
+                  )}
+                  {f.project && (
+                    <button type="button" className={s.chip} onClick={() => setF({ project: '' })} aria-label="Remove project filter">
+                      {baseName(f.project)} <X aria-hidden />
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           }
         >
           {sessions.data?.items.length ? (

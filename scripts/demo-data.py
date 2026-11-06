@@ -104,7 +104,7 @@ def write_projects():
         (root / ".git" / "config").write_text(f'[remote "origin"]\n\turl = git@github.com:acme/{project}.git\n')
 
 
-def claude_session(project, task, start, risky, live=False):
+def claude_session(project, task, start, risky, live=False, tail=None):
     sid = str(uuid.UUID(int=random.getrandbits(128)))
     cwd = str(CODE / project)
     folder = HOME / ".claude" / "projects" / ("-" + cwd.strip("/").replace("/", "-"))
@@ -209,6 +209,14 @@ def claude_session(project, task, start, risky, live=False):
             tool("Edit", {"file_path": f"{cwd}/AGENTS.md", "old_string": "a", "new_string": "b"}, "The file has been updated.",
                  structured={"filePath": f"{cwd}/AGENTS.md", "structuredPatch": [{"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 2, "lines": ["+2. `cargo clippy -- -D warnings` is clean."]}]})
         if live:
+            if tail == "waiting":
+                # The agent replied and the turn is over: waiting for you.
+                step(5)
+                assistant([{"type": "text", "text": "The new flag is wired in. Should it default to on for existing accounts, or only new ones?"}], 90)
+            elif tail == "streak":
+                # The same check errors four times in a row.
+                for _ in range(4):
+                    tool("Bash", {"command": COMMANDS[project][0]}, "error: connection refused (database not running)", error=True, took=random.uniform(1, 3))
             break
         if random.random() < 0.2:
             tool("WebFetch", {"url": random.choice(["https://docs.stripe.com/api/refunds", "https://developer.apple.com/documentation/swiftdata", "https://react.dev/reference/react/useOptimistic"]), "prompt": "summarize"}, "Summary of the page.")
@@ -323,7 +331,11 @@ def main():
     claude_session("payments-api", "Tighten the refund checks", AGENTS_CHANGE, None)
     codex_session("infra", "Cut CI time in half", NOW - timedelta(minutes=50), None, used=78)
     claude_session("acme-web", "Add Apple Pay to checkout", NOW - timedelta(minutes=4), None, live=True)
-    count += 3
+    # One that replied and is waiting for you, and one whose checks keep
+    # erroring, so the top bar, Live and alerts have something to show.
+    claude_session("payments-api", "Add a dry-run flag to refunds", NOW - timedelta(minutes=7), None, live=True, tail="waiting")
+    claude_session("infra", "Move staging to the new cluster", NOW - timedelta(minutes=3), None, live=True, tail="streak")
+    count += 5
     # A guard rule and hook configs, so the Audit page shows the guard
     # working (the configs only need to mention `agentcam guard`).
     hook = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "agentcam guard"}]}]}}

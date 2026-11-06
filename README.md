@@ -14,11 +14,13 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Overview.** Agent time, sessions, prompts, tool calls and files changed, compared with the previous period. A year-long activity heatmap, projects with weekly sparklines, every session grouped by day, and how long turns take. Agent worktrees count toward their repo, and subagents toward their parent session.
 
-**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, split into turns: each prompt with how long it ran, its steps, cost, model, effort and mode. Each step shows its command and output, or a line-numbered diff, how it was approved, and the skill behind it. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next error, `R` for the next risk. Every step has its own link.
+**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, split into turns: each prompt with how long it ran, its steps, cost, model, effort and mode. Each step shows its command and output, or a line-numbered diff, how it was approved, and the skill behind it. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next error, `R` for the next risk. Every step has its own link. Copy the command that resumes the session in its folder (`claude --resume` or `codex resume`), and open any changed file at its line in VS Code, Cursor or Zed.
 
 ![Replay: timeline, transcript, and a diff for the current step](docs/screenshots/replay.png)
 
-**Live.** Which agents are working right now and what they just did, with a dot in the top bar while one works.
+**Live.** Which agents are working right now and what they just did, with a dot in the top bar while one works and a count of sessions waiting for you.
+
+**Alerts.** Browser notifications when a session is waiting for you, is done for now, or has several steps in a row error, and when a session or a day passes a cost you set. Mute projects and set quiet hours. Settings stay in your browser.
 
 ![Live: usage windows, a working session and a quiet one](docs/screenshots/live.png)
 
@@ -46,7 +48,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Cost.** Estimated cost per step, turn, session, project and day from an editable price table. A context window chart with compactions marked.
 
-**Usage limits.** Codex's 5-hour and weekly windows, with a 7-day chart and reset times, and every time Claude Code or Codex reached a limit.
+**Usage limits.** Codex's 5-hour and weekly windows, with a 7-day chart and reset times, and every time Claude Code or Codex reached a limit. Claude Code doesn't log its windows, so agentcam estimates them from logged tokens: the current 5-hour block, its pace and where it is heading, compared with your highest past block, plus a rolling 7-day total. Both are marked as estimates.
 
 ### Safety
 
@@ -67,6 +69,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 **Tools and files.** Use, errors and time per tool; skills, plugins and MCP servers behind steps; the most changed files and each file's history.
 
 ### Share and export
+
+**Session export.** Download a session as Markdown (prompts, replies, commands with the start of their output, diffs) or JSON, with secrets masked. Every table (sessions, tools, files, commits, findings) downloads as CSV.
 
 **Report cards.** PNG cards for a session or your week, with titles, projects and file names hidden by default.
 
@@ -142,7 +146,7 @@ For both agents agentcam reads what the logs record: turns and their settings, a
 - agentcam only reads agent logs. It never edits, moves or uploads them, and never edits agent settings; the Audit page shows the hook config for you to add.
 - The server listens on `127.0.0.1` only, refuses requests addressed to any other host name, and refuses cross-site writes.
 - Nothing leaves the machine unless you run `agentcam team join`. Then it sends metadata to a server your company runs, over https; `agentcam team pause` stops it.
-- Secrets that the rules find are masked before they reach the index. Report cards hide titles, projects and file names by default.
+- Secrets that the rules find are masked before they reach the index, and again in session exports. Report cards hide titles, projects and file names by default.
 - To show what lasted and check instructions, agentcam reads project files, AGENTS.md and CLAUDE.md on this machine. It stores counts, never file contents. It reads skill folders for names, descriptions and sizes only.
 - Agent logs can hold secrets and private code. Treat agentcam's index, and any screenshot of it, with the same care as the logs.
 

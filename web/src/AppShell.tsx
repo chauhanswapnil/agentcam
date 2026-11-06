@@ -1,7 +1,8 @@
-import { ChevronDown, Search } from 'lucide-react'
+import { ChevronDown, Hourglass, Search } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'wouter'
 import { useApi, useIndexStatus, type LiveSession } from './lib/api'
+import { needsYou, useAlertSettings, useAlerts } from './lib/alerts'
 import { CommandPalette } from './ui/CommandPalette'
 import { useCommandPalette } from './ui/useCommandPalette'
 import { Kbd } from './ui/Kbd'
@@ -10,10 +11,15 @@ import s from './AppShell.module.css'
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useCommandPalette()
-  const [location] = useLocation()
+  const [location, navigate] = useLocation()
   const gen = useIndexStatus().status?.generation ?? 0
-  const live = useApi<LiveSession[]>('/api/live?minutes=5', gen)
+  // Refetch when the index changes and every 30s, so states age out.
+  const tick = useTick(30_000)
+  const live = useApi<LiveSession[]>('/api/live?minutes=15', gen * 1e6 + tick)
   const active = live.data?.filter((x) => x.state === 'working').length ?? 0
+  const alerts = useAlertSettings()
+  const waiting = needsYou(live.data, alerts)
+  useAlerts(live.data, gen, (id) => navigate(`/sessions/${id}`))
   const nav = [
     { href: '/', label: 'Overview' },
     { href: '/live', label: 'Live' },
@@ -49,6 +55,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           <MoreMenu items={more} location={location} />
         </nav>
         <div className={s.spacer} />
+        {waiting > 0 && (
+          <Link href="/live" className={s.needs} title="Sessions where the agent replied and may be waiting for you">
+            <Hourglass aria-hidden />
+            {waiting}
+            <span className={s.needsText}> waiting for you</span>
+          </Link>
+        )}
         <button type="button" className={s.searchButton} onClick={() => setOpen(true)}>
           <Search aria-hidden />
           <span>Search or jump to…</span>
@@ -59,6 +72,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       <CommandPalette open={open} onOpenChange={setOpen} />
     </div>
   )
+}
+
+/** A number that goes up every `ms`, to refetch on a timer. */
+function useTick(ms: number) {
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    const t = window.setInterval(() => setN((x) => x + 1), ms)
+    return () => window.clearInterval(t)
+  }, [ms])
+  return n
 }
 
 /** The less used pages, in a small menu so the top bar stays short. */

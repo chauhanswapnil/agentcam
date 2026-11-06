@@ -182,6 +182,29 @@ impl Rules {
         })
     }
 
+    /// `text` with every match of a `secret: true` rule masked, for
+    /// exports. Text with no secret comes back unchanged.
+    pub fn mask_secrets<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
+        let mut out = std::borrow::Cow::Borrowed(text);
+        for r in self.rules.iter().filter(|r| r.def.secret) {
+            let Some(re) = &r.re else { continue };
+            if !re.is_match(&out) {
+                continue;
+            }
+            let next = re
+                .replace_all(&out, |c: &regex::Captures| {
+                    let whole = &c[0];
+                    match c.get(1) {
+                        Some(m) => whole.replacen(m.as_str(), &mask(m.as_str()), 1),
+                        None => mask(whole),
+                    }
+                })
+                .into_owned();
+            out = std::borrow::Cow::Owned(next);
+        }
+        out
+    }
+
     /// The rules as written, built-in and user rules merged.
     pub fn defs(&self) -> Vec<&RuleDef> {
         self.rules.iter().map(|r| &r.def).collect()
@@ -400,6 +423,22 @@ mod tests {
         assert!(at(5).contains(&"rm-rf-root"));
         let domain = f.iter().find(|x| x.rule_id == "outbound-domain").unwrap();
         assert_eq!(domain.excerpt, "get.example.sh");
+    }
+
+    #[test]
+    fn mask_secrets_hides_keys_and_keeps_the_rest() {
+        let r = Rules::builtin();
+        let key = "AKIAABCDEFGHIJKLMNOP";
+        let text = format!("export AWS={key} done");
+        let out = r.mask_secrets(&text);
+        assert!(!out.contains(key), "{out}");
+        assert!(out.starts_with("export AWS=AKIAABCD…") && out.ends_with(" done"));
+        // Near miss: fake fixture keys and plain text pass through untouched.
+        let plain = "sk-test-0000 is a placeholder";
+        assert!(matches!(
+            r.mask_secrets(plain),
+            std::borrow::Cow::Borrowed(_)
+        ));
     }
 
     #[test]

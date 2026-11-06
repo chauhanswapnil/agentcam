@@ -336,15 +336,87 @@ pub async fn step(State(st): Shared, Query(p): Query<StepParams>) -> Result<Resp
     })
 }
 
+#[derive(Deserialize)]
+pub struct ExportParams {
+    /// `md` (default) or `json`.
+    format: Option<String>,
+}
+
 pub async fn session(
     State(st): Shared,
     UrlPath(id): UrlPath<String>,
+    Query(q): Query<ExportParams>,
 ) -> Result<Response, ApiError> {
+    // Session ids can hold `/` (subagents), so the wildcard route also
+    // carries `{id}/export`.
+    if let Some(id) = id.strip_suffix("/export") {
+        return export(st, id.to_string(), q.format).await;
+    }
     let found: Option<SessionDetail> = st.read(move |idx| query::session(idx.conn(), &id)).await?;
     Ok(match found {
         Some(d) => Json(d).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     })
+}
+
+/// `GET /api/sessions/{id}/export?format=md|json`: a download of one
+/// session, secrets masked.
+async fn export(
+    st: Arc<AppState>,
+    id: String,
+    format: Option<String>,
+) -> Result<Response, ApiError> {
+    let json = match format.as_deref() {
+        None | Some("md" | "markdown") => false,
+        Some("json") => true,
+        Some(_) => return Ok(bad("format must be md or json")),
+    };
+    let rules_path = st.rules_path.clone();
+    let found = st
+        .read(move |idx| {
+            let rules = match &rules_path {
+                Some(p) => agentcam_core::audit::Rules::with_user_file(p)
+                    .unwrap_or_else(|_| agentcam_core::audit::Rules::builtin()),
+                None => agentcam_core::audit::Rules::builtin(),
+            };
+            agentcam_core::export::session(idx.conn(), &id, &rules)
+        })
+        .await?;
+    let Some(x) = found else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
+    let stem: String = x
+        .session
+        .id
+        .replace('/', "-")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let (body, mime, ext) = if json {
+        (
+            serde_json::to_string_pretty(&x).map_err(|e| ApiError(e.to_string()))?,
+            "application/json; charset=utf-8",
+            "json",
+        )
+    } else {
+        (
+            agentcam_core::export::markdown(&x),
+            "text/markdown; charset=utf-8",
+            "md",
+        )
+    };
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, mime.to_string()),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"agentcam-session-{stem}.{ext}\""),
+            ),
+            (axum::http::header::CACHE_CONTROL, "no-store".to_string()),
+        ],
+        body,
+    )
+        .into_response())
 }
 
 #[cfg(test)]
