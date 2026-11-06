@@ -1,0 +1,153 @@
+.h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.h2 svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-3);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
+}
+.chip:hover {
+  border-color: var(--line-3);
+  background: var(--bg-2);
+}
+.chip small {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.chipOn {
+  border-color: var(--heat-3);
+  background: var(--bg-2);
+}
+.pickers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.selects {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+}
+.select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.select select {
+  height: 32px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.cohorts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+}
+.cohort {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--s-2);
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.cohortName {
+  overflow: hidden;
+  color: var(--text-1);
+  font-weight: var(--fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cohortMeta {
+  grid-column: 2;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.warn {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.warn svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.barCol {
+  width: 22%;
+  min-width: 90px;
+}
+.bar {
+  display: block;
+  height: 5px;
+  min-width: 2px;
+  margin: 2px 0;
+  border-radius: 2px;
+}
+.change {
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.foot {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+@media (max-width: 600px) {
+  .selects,
+  .cohorts {
+    grid-template-columns: 1fr;
+  }
+}

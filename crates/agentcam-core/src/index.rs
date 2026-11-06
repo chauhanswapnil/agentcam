@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 11;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -72,7 +72,9 @@ CREATE TABLE sessions (
     entrypoint          TEXT,
     reasoning_tokens    INTEGER NOT NULL DEFAULT 0,
     service_tier        TEXT,
-    turn_count          INTEGER NOT NULL DEFAULT 0
+    turn_count          INTEGER NOT NULL DEFAULT 0,
+    skills_listed       INTEGER NOT NULL DEFAULT 0,
+    skills_listing_chars INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX sessions_root ON sessions(project_root);
 CREATE INDEX sessions_parent ON sessions(parent_id);
@@ -209,6 +211,21 @@ CREATE TABLE prs (
     repo        TEXT
 );
 CREATE INDEX prs_session ON prs(session_id);
+
+CREATE TABLE skill_uses (
+    session_id    TEXT NOT NULL,
+    seq           INTEGER NOT NULL,
+    ts            TEXT,
+    skill         TEXT NOT NULL,
+    trigger       TEXT NOT NULL,
+    args          TEXT,
+    loaded_chars  INTEGER
+);
+CREATE INDEX skill_uses_session ON skill_uses(session_id);
+CREATE INDEX skill_uses_skill ON skill_uses(skill);
+
+CREATE TABLE session_skills (session_id TEXT NOT NULL, name TEXT NOT NULL);
+CREATE INDEX session_skills_session ON session_skills(session_id);
 
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -524,7 +541,16 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
         &format!("DELETE FROM file_touches WHERE session_id IN ({ids})"),
         [key],
     )?;
-    for table in ["findings", "patterns", "commits", "limits", "turns", "prs"] {
+    for table in [
+        "findings",
+        "patterns",
+        "commits",
+        "limits",
+        "turns",
+        "prs",
+        "skill_uses",
+        "session_skills",
+    ] {
         tx.execute(
             &format!("DELETE FROM {table} WHERE session_id IN ({ids})"),
             [key],
@@ -620,9 +646,9 @@ fn write_session(
             error_count, file_count, project_root, active_ms, finding_count, max_severity,
             est_cost_usd, cost_unpriced, peak_context, wasted_ms, pattern_count, commit_count,
             machine_id, os_user, project_remote, version, indexed_at, entrypoint,
-            reasoning_tokens, service_tier, turn_count)
+            reasoning_tokens, service_tier, turn_count, skills_listed, skills_listing_chars)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25,
-                 ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)",
+                 ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)",
         params![
             s.id,
             s.agent.map(Agent::as_str).unwrap_or("unknown"),
@@ -664,6 +690,8 @@ fn write_session(
             s.reasoning_tokens as i64,
             s.service_tier,
             p.turns.len() as i64,
+            p.skills_available.len() as i64,
+            p.skills_listing_chars as i64,
         ],
     )?;
 
@@ -765,6 +793,30 @@ fn write_session(
             t.sandbox
         ])?;
     }
+    let mut su = tx.prepare_cached(
+        "INSERT INTO skill_uses (session_id, seq, ts, skill, trigger, args, loaded_chars)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )?;
+    for u in p
+        .skill_uses
+        .iter()
+        .chain(crate::skills::detect_reads(p).iter())
+    {
+        su.execute(params![
+            s.id,
+            u.seq,
+            u.timestamp,
+            u.skill,
+            u.trigger,
+            u.args,
+            u.loaded_chars.map(|c| c as i64)
+        ])?;
+    }
+    let mut sk =
+        tx.prepare_cached("INSERT INTO session_skills (session_id, name) VALUES (?, ?)")?;
+    for name in &p.skills_available {
+        sk.execute(params![s.id, name])?;
+    }
     let mut pr = tx.prepare_cached(
         "INSERT INTO prs (session_id, seq, ts, number, url, repo) VALUES (?, ?, ?, ?, ?, ?)",
     )?;
@@ -817,7 +869,16 @@ fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
     )?;
     tx.execute("DELETE FROM events WHERE session_id = ?1", [id])?;
     tx.execute("DELETE FROM file_touches WHERE session_id = ?1", [id])?;
-    for table in ["findings", "patterns", "commits", "limits", "turns", "prs"] {
+    for table in [
+        "findings",
+        "patterns",
+        "commits",
+        "limits",
+        "turns",
+        "prs",
+        "skill_uses",
+        "session_skills",
+    ] {
         tx.execute(&format!("DELETE FROM {table} WHERE session_id = ?1"), [id])?;
     }
     tx.execute("DELETE FROM sessions WHERE id = ?1", [id])?;

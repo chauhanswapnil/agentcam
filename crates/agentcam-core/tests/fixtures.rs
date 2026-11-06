@@ -971,3 +971,151 @@ fn codex_turn_settings_and_tier() {
     assert_eq!(t.mode.as_deref(), Some("default"));
     assert!(t.ended_at.is_some(), "task_complete ends the turn");
 }
+
+#[test]
+fn skills_listed_run_and_loaded() {
+    let p = claude::parse(&fixtures().join("claude-code/turns-and-approvals.jsonl")).unwrap();
+    assert_eq!(p.skills_available, vec!["dataviz", "pdf"]);
+    assert_eq!(p.skill_uses.len(), 1);
+    let u = &p.skill_uses[0];
+    assert_eq!((u.skill.as_str(), u.trigger.as_str()), ("dataviz", "agent"));
+    assert_eq!(u.args.as_deref(), Some("bar chart of turns"));
+    assert_eq!(u.loaded_chars, Some(400));
+    assert_eq!(p.events[u.seq as usize].tool_name.as_deref(), Some("Skill"));
+}
+
+/// A project with an AGENTS.md and a session that edits, then runs only
+/// some of the checks.
+#[test]
+fn follow_through_and_compare_on_an_index() {
+    let dir = std::env::temp_dir().join(format!("agentcam-follow-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let project = dir.join("project");
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    std::fs::write(
+        project.join("AGENTS.md"),
+        "# Demo\n\n## Before you finish\n\n1. `cargo fmt --all` and `cargo test` pass.\n\nNever edit `src/gen.rs` by hand.\n",
+    )
+    .unwrap();
+    let root = project.to_string_lossy().to_string();
+    let file = project.join("src/lib.rs").to_string_lossy().to_string();
+    let rec = |ty: &str, ts: &str, extra: serde_json::Value| {
+        let mut v = serde_json::json!({"sessionId": "77777777-7777-4777-8777-777777777777", "cwd": root,
+            "type": ty, "timestamp": ts, "uuid": ts, "userType": "external", "version": "1.0.0"});
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        v.to_string()
+    };
+    let call = |id: &str, name: &str, input: serde_json::Value| {
+        serde_json::json!({"message": {"id": format!("m{id}"), "role": "assistant", "model": "claude-test-1",
+            "content": [{"type": "tool_use", "id": id, "name": name, "input": input}]}})
+    };
+    let result = |id: &str| serde_json::json!({"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id, "content": "ok"}]}});
+    let lines = [
+        rec(
+            "user",
+            "2026-10-01T09:00:00.000Z",
+            serde_json::json!({"message": {"role": "user", "content": "Fix it"}}),
+        ),
+        rec(
+            "assistant",
+            "2026-10-01T09:00:01.000Z",
+            call(
+                "t1",
+                "Bash",
+                serde_json::json!({"command": "cargo fmt --all"}),
+            ),
+        ),
+        rec("user", "2026-10-01T09:00:02.000Z", result("t1")),
+        rec(
+            "assistant",
+            "2026-10-01T09:00:03.000Z",
+            call(
+                "t2",
+                "Edit",
+                serde_json::json!({"file_path": file, "old_string": "a", "new_string": "b"}),
+            ),
+        ),
+        rec("user", "2026-10-01T09:00:04.000Z", result("t2")),
+        rec(
+            "assistant",
+            "2026-10-01T09:00:05.000Z",
+            call(
+                "t3",
+                "Bash",
+                serde_json::json!({"command": "cd x && cargo test -q"}),
+            ),
+        ),
+        rec("user", "2026-10-01T09:00:06.000Z", result("t3")),
+    ];
+    let logs = dir.join("logs/-project");
+    std::fs::create_dir_all(&logs).unwrap();
+    std::fs::write(
+        logs.join("77777777-7777-4777-8777-777777777777.jsonl"),
+        lines.join("\n"),
+    )
+    .unwrap();
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(
+        &[LogSource {
+            agent: Agent::ClaudeCode,
+            path: dir.join("logs"),
+            exists: true,
+        }],
+        false,
+    )
+    .unwrap();
+
+    let f = agentcam_core::follow::session(idx.conn(), "77777777-7777-4777-8777-777777777777")
+        .unwrap()
+        .unwrap();
+    let status = |kind: &str| {
+        let r = f
+            .rules
+            .iter()
+            .find(|r| serde_json::to_value(r).unwrap()["kind"] == kind)
+            .unwrap();
+        f.outcomes
+            .iter()
+            .find(|o| o.rule_id == r.id)
+            .unwrap()
+            .clone()
+    };
+    let checks = status("checks");
+    assert_eq!(
+        checks.status, "not_followed",
+        "fmt ran before the edit, not after"
+    );
+    assert!(checks.detail.unwrap().contains("cargo fmt --all"));
+    assert_eq!(checks.seq, Some(2));
+    assert_eq!(status("dont_edit").status, "followed");
+
+    let report =
+        agentcam_core::follow::report(idx.conn(), &agentcam_core::query::Filter::default())
+            .unwrap();
+    assert_eq!(report.len(), 1);
+    assert_eq!(
+        report[0].rules.iter().map(|r| r.not_followed).sum::<i64>(),
+        1
+    );
+
+    let now = agentcam_core::util::parse_ts_ms("2026-11-01T00:00:00.000Z").unwrap();
+    let req = agentcam_core::compare::Request {
+        dim: agentcam_core::compare::Dim::Model,
+        a: "claude-test-1".into(),
+        b: "claude-test-2".into(),
+        at: None,
+    };
+    let c = agentcam_core::compare::compare(
+        idx.conn(),
+        &agentcam_core::query::Filter::default(),
+        &req,
+        now,
+    )
+    .unwrap();
+    assert_eq!((c.a.turns, c.b.turns), (1, 0));
+    assert_eq!(c.a.median_steps, 4.0);
+    drop(idx);
+    let _ = std::fs::remove_dir_all(&dir);
+}

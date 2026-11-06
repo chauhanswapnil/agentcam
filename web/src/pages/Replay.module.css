@@ -472,3 +472,38 @@
   border-radius: 2px;
   background: var(--heat-3);
 }
+.follow {
+  display: flex;
+  flex-direction: column;
+}
+.followRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-2) var(--s-4);
+  border: 0;
+  border-bottom: 1px solid var(--line-1);
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+button.followRow {
+  cursor: pointer;
+}
+button.followRow:hover {
+  background: var(--bg-2);
+}
+.followRow svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 2px;
+}
+.followDetail {
+  display: block;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}

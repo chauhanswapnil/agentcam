@@ -175,6 +175,11 @@ pub struct Params {
     path: Option<String>,
     /// Thinking: `longest` or `recent` (default).
     sort: Option<String>,
+    /// Compare: dimension and the two values, plus `at` for dates.
+    dim: Option<String>,
+    a: Option<String>,
+    b: Option<String>,
+    at: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -817,6 +822,82 @@ pub async fn sources(
 ) -> Result<Json<Vec<agentcam_core::turns::Source>>, ApiError> {
     let f = p.filter(now_ms());
     st.read(move |idx| agentcam_core::turns::sources(idx.conn(), &f))
+        .await
+        .map(Json)
+}
+
+fn home_dir() -> std::path::PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default()
+}
+
+/// Skills: installed, listed and used, with recent uses.
+pub async fn skills(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::skills::Report>, ApiError> {
+    let f = p.filter(now_ms());
+    let home = home_dir();
+    st.read(move |idx| agentcam_core::skills::report(idx.conn(), &f, &home))
+        .await
+        .map(Json)
+}
+
+/// Values to compare by and comparisons found in the data.
+pub async fn compare_options(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::compare::Options>, ApiError> {
+    let now = now_ms();
+    let f = p.filter(now);
+    st.read(move |idx| agentcam_core::compare::options(idx.conn(), &f, now))
+        .await
+        .map(Json)
+}
+
+/// Two groups of turns side by side: `dim`, `a`, `b` (and `at` for dates).
+pub async fn compare(State(st): Shared, Query(p): Query<Params>) -> Response {
+    let bad = |msg: &str| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": msg })),
+        )
+            .into_response()
+    };
+    let now = now_ms();
+    let f = p.filter(now);
+    let Ok(dim) = serde_json::from_value::<agentcam_core::compare::Dim>(serde_json::Value::String(
+        p.dim.clone().unwrap_or_default(),
+    )) else {
+        return bad("dim must be model, agent, agent_version, effort, mode, skill or date");
+    };
+    let (Some(a), Some(b)) = (p.a.clone(), p.b.clone()) else {
+        return bad("a and b are required");
+    };
+    let req = agentcam_core::compare::Request {
+        dim,
+        a,
+        b,
+        at: p.at.clone(),
+    };
+    match st
+        .read(move |idx| agentcam_core::compare::compare(idx.conn(), &f, &req, now))
+        .await
+    {
+        Ok(c) => Json(c).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Each project's AGENTS.md / CLAUDE.md rules and how sessions followed them.
+pub async fn follow(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<agentcam_core::follow::ProjectFollow>>, ApiError> {
+    let f = p.filter(now_ms());
+    st.read(move |idx| agentcam_core::follow::report(idx.conn(), &f))
         .await
         .map(Json)
 }

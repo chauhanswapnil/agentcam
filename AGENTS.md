@@ -116,6 +116,9 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model |
 | `GET /api/prs` | Pull requests sessions linked |
 | `GET /api/sources` | Skills, plugins, MCP servers and apps behind steps |
+| `GET /api/skills` | Skills installed, listed and used, with sizes and latest runs |
+| `GET /api/compare/options`, `GET /api/compare?dim=&a=&b=&at=` | Values to compare by, comparisons found in the data, and two groups of turns side by side |
+| `GET /api/follow` | Each project's AGENTS.md / CLAUDE.md rules and how sessions followed them |
 | `GET /api/outbox` | The metadata a team server would receive (`share.rs`); nothing is sent |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
@@ -160,6 +163,12 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - `Event::via` records the skill or plugin (Claude Code `attributionSkill`, `attributionPlugin`) or MCP app (Codex `appName`) behind a step. Thinking steps carry `thinkingDurationMs` as their duration.
 - Claude Code `edited_text_file` attachments become `System` steps (`tool_name = external_edit`): a file changed outside the session. They are not file touches.
 - `pr-link` records go to the `prs` table. Codex `reasoning_output_tokens` and `service_tier` are kept per step and session.
+
+### Skills, comparison and follow-through
+
+- **Skills** (`skills.rs`): uses come from Claude Code's `Skill` tool, slash commands that name a listed skill, `invoked_skills` (loaded size) and either agent reading a `SKILL.md` (`detect_reads`, real folder names only). `skill_listing` gives the skills available per session and how much context the listing takes. The inventory reads `~/.claude/skills`, `~/.claude/plugins`, `~/.codex/skills` and each project's `.claude/skills`: names, descriptions and sizes only.
+- **Comparison** (`compare.rs`): every top-level turn is a row with its model, agent version, effort, mode, skills and start time. A group is the turns with one value. Numbers are medians or rates per 100 steps or calls, so groups of different sizes compare fairly. `options` finds comparisons worth a look: the two most used models, efforts and modes, each agent's newest version against the one before, the latest AGENTS.md or CLAUDE.md change per project, and the most used skill. The UI describes changes ("24% shorter"), never scores them.
+- **Follow-through** (`follow.rs`): rules are pulled from AGENTS.md and CLAUDE.md (following `@file` imports) only when a log can check them: commands under a "before you finish" style heading or a line saying they must pass (optionally only when files under a folder changed), a sole non-npm package manager, paths right after "never edit", commands right after "never run", and folders a layout block marks generated. Checks use command keys (`approvals::command_prefix`), so flags don't matter. Docs-only edits don't call for checks. Files are read as they are today.
 
 ### What lasted (code survival)
 

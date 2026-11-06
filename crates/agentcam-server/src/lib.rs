@@ -165,6 +165,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/thinking", get(api::thinking))
         .route("/prs", get(api::prs))
         .route("/sources", get(api::sources))
+        .route("/skills", get(api::skills))
+        .route("/compare", get(api::compare))
+        .route("/compare/options", get(api::compare_options))
+        .route("/follow", get(api::follow))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -399,6 +403,10 @@ mod tests {
             "/api/thinking?sort=longest",
             "/api/prs",
             "/api/sources",
+            "/api/skills",
+            "/api/compare/options",
+            "/api/compare?dim=model&a=x&b=y",
+            "/api/follow",
         ] {
             let v = json(path).await;
             assert!(v.is_object() || v.is_array(), "{path}");

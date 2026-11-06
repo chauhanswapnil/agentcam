@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - Commits: which commits each session made, a Commits page, and commits in the replay.
 - Trace view in the replay: steps on an agent-time axis with subagents nested inside their calls.
 - `agentcam export otlp`: sessions as OpenTelemetry traces, to a file or an OTLP endpoint.
+- Compare: two groups of turns side by side (model, agent version, effort, mode, skill, or before and after a date), with comparisons found in your sessions such as before and after an AGENTS.md change.
+- Instructions: rules a log can check, pulled from each project's AGENTS.md and CLAUDE.md, with how often sessions followed them and links to the sessions that didn't; also shown in the replay.
+- Skills: which skills exist, which the agents or you ran, how much context they and the skill listing take, and which go unused.
+- A More menu in the top bar for the less used pages.
 - Turns: each prompt and the work until the next, with length, steps, cost, thinking time, model, effort and mode. Turn headers and a Turns view in the replay; typical and longest turns, and how fast you reply, on the overview.
 - Approvals: how each Claude Code tool call was allowed (rule, auto mode, mode, you) or stopped, shown on steps; an Approvals panel on the Audit page with stopped calls and allow rules to copy. Rejected or blocked calls no longer count as file changes or errors.
 - Thinking page: browse the longest or newest thinking, search it, and see thinking time by model.

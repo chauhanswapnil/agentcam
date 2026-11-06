@@ -6,35 +6,63 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Overview: agent time, a year of activity, sessions and projects](docs/screenshots/overview.png)
 
-> **Status:** works on my machine every day, not yet packaged. Install from source below. Screenshots use made-up demo data.
+> **Status:** in heavy development and used every day, not yet packaged. Install from source below. Screenshots use made-up demo data and don't show every page yet.
 
 ## What it does
 
-**Overview.** Agent time, sessions, prompts, tool calls and files changed, compared with the previous period. A year-long activity heatmap, projects with weekly sparklines, and every session grouped by day. Agent worktrees count toward their repo, and subagents toward their parent session.
+### See the work
 
-**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, and each step shows its command and output, or a line-numbered diff. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next failure, `R` for the next risk. Every step has its own link.
+**Overview.** Agent time, sessions, prompts, tool calls and files changed, compared with the previous period. A year-long activity heatmap, projects with weekly sparklines, every session grouped by day, and how long turns take. Agent worktrees count toward their repo, and subagents toward their parent session.
+
+**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, split into turns: each prompt with how long it ran, its steps, cost, model, effort and mode. Each step shows its command and output, or a line-numbered diff, how it was approved, and the skill behind it. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next error, `R` for the next risk. Every step has its own link.
 
 ![Replay: timeline, transcript, and a diff for the current step](docs/screenshots/replay.png)
 
-**Live.** Which agents are working right now, what they just did, and how full your usage windows are: Codex's 5-hour and weekly limits with reset times, and every time Claude Code or Codex reached a limit.
+**Live.** Which agents are working right now and what they just did, with a dot in the top bar while one works.
 
-**What lasted.** Of the lines your agents wrote, how many are still in the code today, how many later agent edits rewrote, and how many changed since. Broken down by age, week, agent and model, project and file, and shown on every change in the replay. It works on your past sessions too, with nothing to install.
-
-**Search.** Full-text search across prompts, replies, commands, output and file paths, from the ⌘K palette or the search page. Every hit opens the replay at that step.
+**Search and thinking.** Full-text search across prompts, replies, commands, output and file paths, from the ⌘K palette or the search page. A Thinking page lists the longest or newest reasoning, with thinking time by model. Every hit opens the replay at that step.
 
 ![Search results with highlighted matches](docs/screenshots/search.png)
 
+### Did it work?
+
+**What lasted.** Of the lines your agents wrote, how many are still in the code today, how many later agent edits rewrote, and how many changed since. By age, week, agent and model, project and file, and on every change in the replay. It works on your past sessions too, with nothing to install.
+
+**Compare.** Put two groups of turns side by side: two models, agent versions, efforts, modes or skills, or before and after a date. agentcam finds comparisons worth a look, such as before and after you changed a project's AGENTS.md. It describes the changes ("24% shorter", "4 points more lines kept") and doesn't score them.
+
+**Instructions.** agentcam reads each project's AGENTS.md and CLAUDE.md and keeps the rules a log can check: commands to run after the last edit, the package manager, files not to edit, commands not to run. See how often sessions followed each one, and jump to the ones that didn't.
+
+**Stuck steps and commits.** Retry loops, error streaks and reverts, with the time they took. The commits each session made, and the pull requests it opened.
+
+### Cost and limits
+
+**Cost.** Estimated cost per step, turn, session, project and day from an editable price table. A context window chart with compactions marked.
+
+**Usage limits.** Codex's 5-hour and weekly windows, with a 7-day chart and reset times, and every time Claude Code or Codex reached a limit.
+
+### Safety
+
 **Risk audit.** 28 built-in rules flag secrets in transcripts (masked before they're stored), sensitive files (`.env`, `~/.ssh`, cloud credentials, keychains), dangerous commands (`rm -rf`, `sudo`, `curl | sh`, force pushes, `git reset --hard`), package installs, domains contacted, and writes outside the project. Findings show on the replay timeline and the Audit page. Add your own rules in YAML from the Audit page.
+
+**Approvals.** How each Claude Code tool call was allowed (a rule, auto mode, the permission mode, you) or stopped. The Audit page lists calls that were stopped and allow rules you could add, so agents ask you less. Broad commands are never suggested, and agentcam never edits your settings: you copy what you want.
 
 **Block next time.** Turn a risky step into a guard rule. A Claude Code or Codex `PreToolUse` hook runs `agentcam guard` before each tool call and stops calls that match, with a message to the agent.
 
 ![Audit: rules that fired, latest findings, and a guard rule](docs/screenshots/audit.png)
 
-**Observability.** Estimated cost per step, session, project and day from an editable price table. A context window chart with compactions marked. Stuck detection for retry loops, failure streaks and reverts, with the time they cost. The commits each session made. A trace view of every session, and `agentcam export otlp` to send sessions to Jaeger, Grafana Tempo or Honeycomb.
+### Skills and tools
 
-**Turns and approvals.** Every prompt and the work it led to: how long it ran, its steps and cost, and the model, effort and mode. See which tool calls you approved, which a rule or auto mode allowed, and which were stopped, with allow rules ready to copy so agents ask you less. Browse and search the agents' thinking on its own page.
+**Skills.** Which skills exist, which the agents or you ran, which sit unused, and how much context each one and the skill listing take.
 
-**Also:** a tool calls page (use, failures and time per tool), a files page (the most changed files and each file's history), shareable report cards (PNG) for a session or your week, and live updates as agents write.
+**Tools and files.** Use, errors and time per tool; skills, plugins and MCP servers behind steps; the most changed files and each file's history.
+
+### Share and export
+
+**Report cards.** PNG cards for a session or your week, with titles, projects and file names hidden by default.
+
+**OpenTelemetry.** `agentcam export otlp` sends sessions as traces to Jaeger, Grafana Tempo or Honeycomb, with subagents nested under the call that started them.
+
+**Outbox.** A preview of the metadata a future team server would receive: counts, times, tokens, findings and file paths relative to the project. Never prompts, output or diffs. Nothing is sent today.
 
 ## Install
 
@@ -70,13 +98,14 @@ All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By defau
 | Claude Code | `~/.claude/projects/` (including subagents) | `~/.claude/settings.json` |
 | Codex | `~/.codex/sessions/` (newer and older formats) | `~/.codex/hooks.json` (trust it in `/hooks`) |
 
-Cursor and others are planned.
+For both agents agentcam reads what the logs record: turns and their settings, approvals (Claude Code), thinking, skills, usage limits, pull requests (Claude Code), reasoning tokens (Codex), and files changed outside a session.
 
 ## Privacy
 
 - agentcam only reads agent logs. It never edits, moves or uploads them, and never edits agent settings; the Audit page shows the hook config for you to add.
 - The server listens on `127.0.0.1` only, refuses requests addressed to any other host name, and refuses cross-site writes.
 - Secrets that the rules find are masked before they reach the index. Report cards hide titles, projects and file names by default.
+- To show what lasted and check instructions, agentcam reads project files, AGENTS.md and CLAUDE.md on this machine. It stores counts, never file contents. It reads skill folders for names, descriptions and sizes only.
 - Agent logs can hold secrets and private code. Treat agentcam's index, and any screenshot of it, with the same care as the logs.
 
 The index keeps sessions after the agent deletes their logs. Claude Code prunes old logs; agentcam keeps the history.

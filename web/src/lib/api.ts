@@ -131,6 +131,7 @@ export type SessionDetail = {
   lasted: Lasted | null
   turns: TurnRow[]
   prs: PrRow[]
+  follow: SessionFollow | null
 }
 
 export type RuleSummary = { rule_id: string; title: string; severity: Severity; count: number; sessions: number; last_ts: string | null }
@@ -459,4 +460,77 @@ export type Thinking = {
   total_ms: number
   by_model: { model: string | null; blocks: number; total_ms: number; timed: number }[]
   items: Thought[]
+}
+
+/** Mirrors `follow.rs`. */
+export type FollowRule = {
+  id: string
+  kind: 'checks' | 'package_manager' | 'dont_edit' | 'dont_run'
+  commands?: string[]
+  when?: string | null
+  tool?: string
+  path?: string
+  command?: string
+  source: string
+  file: string
+}
+export type Outcome = { rule_id: string; status: 'followed' | 'not_followed' | 'not_applicable'; detail: string | null; seq: number | null; session_id: string }
+export type SessionFollow = { files: string[]; rules: FollowRule[]; outcomes: Outcome[] }
+export type ProjectFollow = {
+  project: string
+  files: string[]
+  sessions: number
+  rules: {
+    rule: FollowRule
+    followed: number
+    not_followed: number
+    examples: { session_id: string; seq: number | null; title: string | null; ts: string | null; detail: string | null }[]
+  }[]
+}
+
+/** Mirrors `skills.rs`. */
+export type SkillRow = {
+  name: string
+  description: string | null
+  sources: string[]
+  file_chars: number | null
+  uses: Record<string, number>
+  sessions: number
+  steps: number
+  errored_steps: number
+  avg_loaded_chars: number | null
+  listed_in: number
+  last_used: string | null
+}
+export type SkillsReport = {
+  skills: SkillRow[]
+  listing_sessions: number
+  avg_listed: number
+  avg_listing_chars: number
+  recent: { session_id: string; seq: number; ts: string | null; skill: string; trigger: string; args: string | null; agent: AgentId; title: string | null; project_root: string | null }[]
+}
+
+/** Mirrors `compare.rs`. */
+export type CompareDim = 'model' | 'agent' | 'agent_version' | 'effort' | 'mode' | 'skill' | 'date'
+export type Cohort = {
+  value: string
+  turns: number
+  sessions: number
+  first: string | null
+  last: string | null
+  median_turn_ms: number
+  median_steps: number
+  tool_calls_per_turn: number
+  avg_cost_usd: number | null
+  errored_per_100_steps: number
+  retry_pct: number
+  stopped_per_100_calls: number
+  thinking_ms_per_turn: number
+  lines_added: number
+  lasted_pct: number | null
+}
+export type Comparison = { dim: CompareDim; a: Cohort; b: Cohort }
+export type CompareOptions = {
+  dims: { dim: CompareDim; values: [string, number][] }[]
+  suggestions: { title: string; dim: CompareDim; a: string; b: string; at: string | null; project: string | null; turns_a: number; turns_b: number }[]
 }

@@ -415,6 +415,8 @@ pub struct SessionDetail {
     pub lasted: Option<crate::survival::Counts>,
     pub turns: Vec<crate::turns::TurnRow>,
     pub prs: Vec<crate::turns::PrRow>,
+    /// The project's AGENTS.md / CLAUDE.md rules, checked for this session.
+    pub follow: Option<crate::follow::SessionFollow>,
 }
 
 /// A commit a session made.
@@ -598,6 +600,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     let lasted = crate::survival::session_counts(conn, id)?;
     let turns = crate::turns::session_turns(conn, id)?;
     let prs = crate::turns::prs(conn, &Filter::default(), Some(id), 50)?;
+    let follow = crate::follow::session(conn, id)?;
     Ok(Some(SessionDetail {
         session,
         events,
@@ -609,6 +612,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
         lasted,
         turns,
         prs,
+        follow,
     }))
 }
 

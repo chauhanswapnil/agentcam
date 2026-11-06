@@ -4,6 +4,9 @@ import { Audit } from './pages/Audit'
 import { Commits } from './pages/Commits'
 import { Lasted } from './pages/Lasted'
 import { Live } from './pages/Live'
+import { Compare } from './pages/Compare'
+import { Skills } from './pages/Skills'
+import { Instructions } from './pages/Instructions'
 import { Thinking } from './pages/Thinking'
 import { Outbox } from './pages/Outbox'
 import { Files } from './pages/Files'
@@ -21,6 +24,9 @@ export default function App() {
         <Route path="/sessions/*" component={Replay} />
         <Route path="/live" component={Live} />
         <Route path="/lasted" component={Lasted} />
+        <Route path="/compare" component={Compare} />
+        <Route path="/skills" component={Skills} />
+        <Route path="/instructions" component={Instructions} />
         <Route path="/search" component={Search} />
         <Route path="/thinking" component={Thinking} />
         <Route path="/audit" component={Audit} />

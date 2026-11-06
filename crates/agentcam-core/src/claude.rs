@@ -213,7 +213,22 @@ impl State {
         };
         e.body = truncate(text, MAX_TEXT);
         let started_at = e.timestamp.clone();
+        let command = tag(t, "command-name").map(|c| c.trim_start_matches('/').to_string());
+        let args = tag(t, "command-args")
+            .map(String::from)
+            .filter(|a| !a.is_empty());
         let idx = self.push(e);
+        // A slash command that names a skill is you running that skill.
+        if let Some(cmd) = command.filter(|c| self.out.skills_available.iter().any(|s| s == c)) {
+            self.out.skill_uses.push(SkillUse {
+                seq: idx as u32,
+                timestamp: started_at.clone(),
+                skill: cmd,
+                trigger: "you".into(),
+                args,
+                loaded_chars: None,
+            });
+        }
         if !system_like {
             self.out.turns.push(Turn {
                 seq: idx as u32,
@@ -378,6 +393,18 @@ impl State {
         let name = str_of(b, "name").unwrap_or("unknown");
         let input = b.get("input").cloned().unwrap_or(Value::Null);
         let arg = |k: &str| str_of(&input, k).map(String::from);
+        if name == "Skill"
+            && let Some(skill) = arg("skill")
+        {
+            self.out.skill_uses.push(SkillUse {
+                seq: self.out.events.len() as u32,
+                timestamp: ts.clone(),
+                skill,
+                trigger: "agent".into(),
+                args: arg("args").map(|a| truncate(&a, 500)),
+                loaded_chars: None,
+            });
+        }
         let (category, title, touch) = match name {
             "Bash" => (ToolCategory::Command, arg("command"), None),
             "Read" => (ToolCategory::Read, arg("file_path"), Some(FileAction::Read)),
@@ -439,8 +466,52 @@ impl State {
         let Some(a) = rec.get("attachment") else {
             return;
         };
-        if str_of(a, "type") != Some("edited_text_file") {
-            return;
+        match str_of(a, "type") {
+            Some("skill_listing") => {
+                if let Some(names) = a.get("names").and_then(Value::as_array) {
+                    self.out.skills_available = names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(String::from)
+                        .collect();
+                }
+                self.out.skills_listing_chars =
+                    str_of(a, "content").map_or(0, |c| c.chars().count() as u64);
+                return;
+            }
+            Some("invoked_skills") => {
+                for sk in a
+                    .get("skills")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    let Some(name) = str_of(sk, "name") else {
+                        continue;
+                    };
+                    let chars = str_of(sk, "content").map(|c| c.chars().count() as u64);
+                    match self
+                        .out
+                        .skill_uses
+                        .iter_mut()
+                        .rev()
+                        .find(|u| u.skill == name && u.loaded_chars.is_none())
+                    {
+                        Some(u) => u.loaded_chars = chars,
+                        None => self.out.skill_uses.push(SkillUse {
+                            seq: self.out.events.len().saturating_sub(1) as u32,
+                            timestamp: ts.clone(),
+                            skill: name.to_string(),
+                            trigger: "agent".into(),
+                            args: None,
+                            loaded_chars: chars,
+                        }),
+                    }
+                }
+                return;
+            }
+            Some("edited_text_file") => {}
+            _ => return,
         }
         let Some(path) = str_of(a, "filename") else {
             return;

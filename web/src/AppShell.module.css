@@ -92,3 +92,43 @@
   border-radius: var(--r-full);
   background: var(--rec);
 }
+.more {
+  position: relative;
+  flex: none;
+}
+.moreBtn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.moreBtn svg {
+  width: 13px;
+  height: 13px;
+}
+.menu {
+  position: fixed;
+  z-index: var(--z-overlay, 50);
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  margin-top: 6px;
+  padding: var(--s-1);
+  border-radius: var(--r-3);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-overlay);
+}
+.menuItem {
+  padding: 6px var(--s-2);
+  border-radius: var(--r-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.menuItem:hover {
+  background: var(--bg-3);
+  color: var(--text-1);
+}

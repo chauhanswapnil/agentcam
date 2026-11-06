@@ -1,0 +1,88 @@
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4) var(--s-8);
+}
+.stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stats span,
+.stats small {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.stats b {
+  color: var(--text-1);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.nameCell {
+  white-space: normal !important;
+}
+.name {
+  display: block;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.sub {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.desc {
+  display: block;
+  max-width: 560px;
+  margin-top: var(--s-1);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.use {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-2) var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+  font-size: var(--fs-sm);
+}
+.use:hover {
+  background: var(--bg-2);
+}
+.useSkill {
+  flex: none;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.useWho {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.useArgs {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.useWhen {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+@media (max-width: 600px) {
+  .useWho,
+  .useWhen {
+    display: none;
+  }
+}

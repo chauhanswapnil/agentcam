@@ -13,6 +13,9 @@ import {
   FolderGit2,
   GitBranch,
   Keyboard,
+  ScrollText,
+  CircleCheck,
+  CircleMinus,
   MessagesSquare,
   GitPullRequest,
   Puzzle,
@@ -34,6 +37,8 @@ import { baseName, formatCompact, formatCost, formatDate, formatDuration, format
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { entrypointLabel } from '../lib/live'
 import { approvalInfo, modeLabel, viaLabel } from '../lib/turns'
+import { ruleText } from '../lib/follow'
+import { CodeText } from '../ui/Code'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { DiffView } from '../ui/DiffView'
@@ -97,7 +102,7 @@ export function Replay() {
 }
 
 function Player({ id, data }: { id: string; data: SessionDetail }) {
-  const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs } = data
+  const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs, follow } = data
   const [view, setView] = useState<'transcript' | 'turns' | 'trace'>('transcript')
   const [, navigate] = useLocation()
   // Read once: the URL follows the playhead, not the other way round.
@@ -471,6 +476,43 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                         </span>
                       </button>
                     ))}
+                  </div>
+                </Panel>
+              )}
+              {follow && follow.outcomes.some((o) => o.status !== 'not_applicable') && (
+                <Panel title="Instructions" icon={<ScrollText />} flush>
+                  <div className={s.follow}>
+                    {follow.rules.map((r) => {
+                      const o = follow.outcomes.find((x) => x.rule_id === r.id)
+                      if (!o || o.status === 'not_applicable') return null
+                      const done = o.status === 'followed'
+                      const body = (
+                        <>
+                          {done ? (
+                            <CircleCheck aria-hidden style={{ color: 'var(--status-good)' }} />
+                          ) : (
+                            <CircleMinus aria-hidden style={{ color: 'var(--status-warning)' }} />
+                          )}
+                          <span>
+                            <CodeText text={ruleText(r)} />
+                            {o.detail && (
+                              <span className={s.followDetail}>
+                                <CodeText text={o.detail} />
+                              </span>
+                            )}
+                          </span>
+                        </>
+                      )
+                      return o.seq != null && o.session_id === id ? (
+                        <button key={r.id} type="button" className={s.followRow} onClick={() => jump(o.seq!)}>
+                          {body}
+                        </button>
+                      ) : (
+                        <div key={r.id} className={s.followRow}>
+                          {body}
+                        </div>
+                      )
+                    })}
                   </div>
                 </Panel>
               )}

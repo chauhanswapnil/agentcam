@@ -62,6 +62,20 @@ pub struct Turn {
     pub sandbox: Option<String>,
 }
 
+/// One use of a skill.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct SkillUse {
+    pub seq: u32,
+    pub timestamp: Option<String>,
+    pub skill: String,
+    /// `agent` (the Skill tool), `you` (a slash command) or `read` (the
+    /// agent read the skill's SKILL.md itself).
+    pub trigger: String,
+    pub args: Option<String>,
+    /// Characters of skill text loaded into the context, when the log says.
+    pub loaded_chars: Option<u64>,
+}
+
 /// A pull request a session linked to.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct PrLink {
@@ -261,6 +275,12 @@ pub struct ParsedSession {
     pub turns: Vec<Turn>,
     /// Pull requests the session opened or linked.
     pub prs: Vec<PrLink>,
+    /// Skills the agent ran, you ran as a slash command, or the agent read.
+    pub skill_uses: Vec<SkillUse>,
+    /// Skills the agent said were available (Claude Code `skill_listing`).
+    pub skills_available: Vec<String>,
+    /// Size of that listing, in characters: context it takes up.
+    pub skills_listing_chars: u64,
     /// Lines that weren't valid JSON.
     pub bad_lines: u32,
 }
