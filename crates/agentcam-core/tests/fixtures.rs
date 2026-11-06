@@ -857,5 +857,7 @@ fn old_schema_is_replaced_whatever_tables_it_had() {
     }
     let mut idx = Index::open(&db).unwrap();
     idx.update(&sources(), false).unwrap();
-    std::fs::remove_dir_all(&dir).unwrap();
+    // Windows won't delete a file that's still open.
+    drop(idx);
+    let _ = std::fs::remove_dir_all(&dir);
 }
