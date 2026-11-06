@@ -290,17 +290,20 @@ pub struct SessionRow {
     pub wasted_ms: i64,
     pub pattern_count: i64,
     pub commit_count: i64,
+    /// Where it was started from (`cli`, `claude-desktop`, `vscode`, ...).
+    pub entrypoint: Option<String>,
 }
 
-const SESSION_COLS: &str = "s.id, s.agent, s.title, s.first_prompt, s.project_path, s.project_root,
+pub(crate) const SESSION_COLS: &str =
+    "s.id, s.agent, s.title, s.first_prompt, s.project_path, s.project_root,
     s.git_branch, s.model, s.parent_id, s.started_at, s.ended_at, s.active_ms, s.event_count,
     s.tool_call_count, s.error_count, s.file_count, s.input_tokens, s.output_tokens,
     s.cache_read_tokens, s.cost_usd,
     (SELECT count(*) FROM sessions c WHERE c.parent_id = s.id),
     s.finding_count, s.max_severity, s.est_cost_usd, s.cost_unpriced, s.peak_context, s.wasted_ms,
-    s.pattern_count, s.commit_count";
+    s.pattern_count, s.commit_count, s.entrypoint";
 
-fn session_row(r: &Row) -> rusqlite::Result<SessionRow> {
+pub(crate) fn session_row(r: &Row) -> rusqlite::Result<SessionRow> {
     Ok(SessionRow {
         id: r.get(0)?,
         agent: r.get(1)?,
@@ -331,6 +334,7 @@ fn session_row(r: &Row) -> rusqlite::Result<SessionRow> {
         wasted_ms: r.get(26)?,
         pattern_count: r.get(27)?,
         commit_count: r.get(28)?,
+        entrypoint: r.get(29)?,
     })
 }
 

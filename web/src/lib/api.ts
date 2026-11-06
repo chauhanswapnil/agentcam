@@ -67,6 +67,7 @@ export type SessionRow = {
   wasted_ms: number
   pattern_count: number
   commit_count: number
+  entrypoint: string | null
 }
 
 export type SessionPage = { total: number; items: SessionRow[] }
@@ -311,3 +312,55 @@ export async function sendJson<T>(method: 'POST' | 'DELETE', url: string, body?:
   }
   return r.json() as Promise<T>
 }
+
+/** Mirrors `live.rs` in agentcam-core. */
+export type LiveStep = {
+  session_id: string
+  seq: number
+  ts: string | null
+  kind: EventKind
+  category: ToolCategory | null
+  tool_name: string | null
+  title: string
+  is_error: boolean
+}
+
+export type LiveState = 'working' | 'waiting' | 'quiet'
+
+export type LiveSession = {
+  session: SessionRow
+  last_at: string
+  idle_ms: number
+  state: LiveState
+  context_tokens: number | null
+  active_subagents: number
+  recent: LiveStep[]
+}
+
+export type LimitWindow = {
+  agent: AgentId
+  window: string
+  window_minutes: number | null
+  used_percent: number
+  resets_at: string | null
+  at: string
+  plan: string | null
+  session_id: string
+  expired: boolean
+}
+
+export type LimitSeries = { agent: AgentId; window: string; points: { ts: string; used_percent: number }[] }
+
+export type LimitHit = {
+  agent: AgentId
+  window: string
+  ts: string
+  resets_at: string | null
+  resets_text: string | null
+  session_id: string
+  seq: number | null
+  title: string | null
+  project_root: string | null
+}
+
+export type Limits = { windows: LimitWindow[]; series: LimitSeries[]; hits: LimitHit[]; hits_30d: number }

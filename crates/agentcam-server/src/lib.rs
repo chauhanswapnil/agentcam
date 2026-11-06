@@ -157,6 +157,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/rules", get(api::rules_info).post(api::rules_save))
         .route("/commits", get(api::commits))
         .route("/outbox", get(api::outbox))
+        .route("/live", get(api::live))
+        .route("/limits", get(api::limits))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -380,6 +382,9 @@ mod tests {
         );
         let a = json("/api/audit").await;
         assert!(a["rules"].is_array() && a["findings"].is_array());
+        assert!(json("/api/live?minutes=5").await.is_array());
+        let l = json("/api/limits").await;
+        assert!(l["windows"].is_array() && l["hits"].is_array() && l["series"].is_array());
         let t = json("/api/tools").await;
         assert!(
             t.as_array()

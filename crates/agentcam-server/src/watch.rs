@@ -11,6 +11,9 @@ use crate::AppState;
 /// Wait this long after the last change before re-indexing, so an agent
 /// writing many lines in a burst causes one run, not dozens.
 const SETTLE: Duration = Duration::from_millis(750);
+/// An agent that never pauses still gets indexed this often, so the live
+/// view keeps up.
+const MAX_WAIT: Duration = Duration::from_secs(3);
 
 pub fn start(state: Arc<AppState>) -> bool {
     let (tx, rx) = channel();
@@ -52,7 +55,8 @@ pub fn start(state: Arc<AppState>) -> bool {
             let _rt = handle.enter();
             while rx.recv().is_ok() {
                 // Let the burst settle.
-                loop {
+                let start = std::time::Instant::now();
+                while start.elapsed() < MAX_WAIT {
                     match rx.recv_timeout(SETTLE) {
                         Ok(()) => continue,
                         Err(RecvTimeoutError::Timeout) => break,

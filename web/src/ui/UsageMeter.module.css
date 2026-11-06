@@ -1,0 +1,83 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-3);
+  background: var(--bg-1);
+}
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--r-full);
+}
+.level {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--text-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.level svg {
+  width: 13px;
+  height: 13px;
+}
+.value {
+  color: var(--text-1);
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.unit {
+  margin-left: 2px;
+  color: var(--text-3);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-normal);
+  letter-spacing: 0;
+}
+.muted {
+  color: var(--text-3);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-medium);
+}
+.track {
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--bg-3);
+  overflow: hidden;
+}
+.fill {
+  height: 100%;
+  border-radius: var(--r-full);
+  transition: width var(--dur-3) var(--ease-out);
+}
+.meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  flex-wrap: wrap;
+}

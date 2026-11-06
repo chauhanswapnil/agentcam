@@ -12,7 +12,8 @@ import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import { Stat } from '../ui/Stat'
 import { Tooltip } from '../ui/Tooltip'
-import { SAMPLE_EVENTS, SAMPLE_SESSIONS } from './sample'
+import { UsageMeter } from '../ui/UsageMeter'
+import { SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
 
 const SECTIONS = ['Color', 'Event kinds', 'Type', 'Space', 'Components', 'Timeline', 'Motion'] as const
@@ -335,6 +336,19 @@ export function Styleguide() {
                 Run a coding agent, then come back. agentcam picks up new logs on its own.
               </EmptyState>
             </Panel>
+          </div>
+        </section>
+
+        <section id="usage" className={s.section}>
+          <h2>Usage windows</h2>
+          <p className={s.rule}>
+            How full an agent's usage window is. The bar is blue until 75%, then the warning and critical status colors,
+            always with an icon and a word.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+            {SAMPLE_WINDOWS.map((w) => (
+              <UsageMeter key={w.window + w.used_percent} w={w} now={SAMPLE_NOW} points={w.window === '5h' ? SAMPLE_USAGE : undefined} />
+            ))}
           </div>
         </section>
 

@@ -32,6 +32,28 @@ pub struct Session {
     pub cache_write_tokens: u64,
     /// Only set when the agent itself recorded a cost.
     pub cost_usd: Option<f64>,
+    /// Where the session was started from, as the agent names it
+    /// (`cli`, `claude-desktop`, `vscode`, `Codex Desktop`, ...).
+    pub entrypoint: Option<String>,
+}
+
+/// A usage-window reading, or a limit the agent reported reaching.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct LimitSample {
+    pub timestamp: Option<String>,
+    /// The step it arrived with, when the log ties it to one.
+    pub seq: Option<u32>,
+    /// `5h`, `weekly`, `session`, `spend`, ... as short labels.
+    pub window: String,
+    pub window_minutes: Option<u32>,
+    pub used_percent: Option<f64>,
+    /// When the window resets, if the log gives a time.
+    pub resets_at: Option<String>,
+    /// The reset as the agent wrote it, when it isn't a timestamp.
+    pub resets_text: Option<String>,
+    /// The limit was reached.
+    pub hit: bool,
+    pub plan: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -189,6 +211,7 @@ pub struct ParsedSession {
     pub session: Session,
     pub events: Vec<Event>,
     pub touches: Vec<FileTouch>,
+    pub limits: Vec<LimitSample>,
     /// Lines that weren't valid JSON.
     pub bad_lines: u32,
 }

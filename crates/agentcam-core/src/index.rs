@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -68,7 +68,8 @@ CREATE TABLE sessions (
     os_user             TEXT,
     project_remote      TEXT,
     version             TEXT NOT NULL DEFAULT '',
-    indexed_at          TEXT
+    indexed_at          TEXT,
+    entrypoint          TEXT
 );
 CREATE INDEX sessions_root ON sessions(project_root);
 CREATE INDEX sessions_parent ON sessions(parent_id);
@@ -144,6 +145,22 @@ CREATE TABLE commits (
     message     TEXT
 );
 CREATE INDEX commits_session ON commits(session_id);
+
+CREATE TABLE limits (
+    session_id      TEXT NOT NULL,
+    seq             INTEGER,
+    ts              TEXT,
+    agent           TEXT NOT NULL,
+    window          TEXT NOT NULL,
+    window_minutes  INTEGER,
+    used_percent    REAL,
+    resets_at       TEXT,
+    resets_text     TEXT,
+    hit             INTEGER NOT NULL,
+    plan            TEXT
+);
+CREATE INDEX limits_session ON limits(session_id);
+CREATE INDEX limits_ts ON limits(ts);
 
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -445,7 +462,7 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
         &format!("DELETE FROM file_touches WHERE session_id IN ({ids})"),
         [key],
     )?;
-    for table in ["findings", "patterns", "commits"] {
+    for table in ["findings", "patterns", "commits", "limits"] {
         tx.execute(
             &format!("DELETE FROM {table} WHERE session_id IN ({ids})"),
             [key],
@@ -540,9 +557,9 @@ fn write_session(
             cache_read_tokens, cache_write_tokens, cost_usd, event_count, tool_call_count,
             error_count, file_count, project_root, active_ms, finding_count, max_severity,
             est_cost_usd, cost_unpriced, peak_context, wasted_ms, pattern_count, commit_count,
-            machine_id, os_user, project_remote, version, indexed_at)
+            machine_id, os_user, project_remote, version, indexed_at, entrypoint)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25,
-                 ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)",
+                 ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37)",
         params![
             s.id,
             s.agent.map(Agent::as_str).unwrap_or("unknown"),
@@ -580,6 +597,7 @@ fn write_session(
             ctx.remote,
             ctx.version,
             ctx.indexed_at,
+            s.entrypoint,
         ],
     )?;
 
@@ -651,6 +669,26 @@ fn write_session(
         cm.execute(params![s.id, c.seq, c.hash, c.branch, c.message])?;
     }
 
+    let mut lm = tx.prepare_cached(
+        "INSERT INTO limits (session_id, seq, ts, agent, window, window_minutes, used_percent,
+            resets_at, resets_text, hit, plan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )?;
+    for l in &p.limits {
+        lm.execute(params![
+            s.id,
+            l.seq,
+            l.timestamp,
+            s.agent.map(Agent::as_str).unwrap_or("unknown"),
+            l.window,
+            l.window_minutes,
+            l.used_percent,
+            l.resets_at,
+            l.resets_text,
+            l.hit,
+            l.plan
+        ])?;
+    }
+
     let mut fi = tx.prepare_cached(
         "INSERT INTO findings (session_id, seq, rule_id, title, severity, excerpt) VALUES (?, ?, ?, ?, ?, ?)",
     )?;
@@ -675,7 +713,7 @@ fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
     )?;
     tx.execute("DELETE FROM events WHERE session_id = ?1", [id])?;
     tx.execute("DELETE FROM file_touches WHERE session_id = ?1", [id])?;
-    for table in ["findings", "patterns", "commits"] {
+    for table in ["findings", "patterns", "commits", "limits"] {
         tx.execute(&format!("DELETE FROM {table} WHERE session_id = ?1"), [id])?;
     }
     tx.execute("DELETE FROM sessions WHERE id = ?1", [id])?;

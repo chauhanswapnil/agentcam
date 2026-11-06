@@ -72,7 +72,10 @@ impl State {
                     self.out.session.model = Some(m.to_string());
                 }
             }
-            ("event_msg", "token_count") => self.tokens(p),
+            ("event_msg", "token_count") => {
+                self.tokens(p);
+                self.rate_limits(p, ts);
+            }
             ("event_msg", "item_completed") => {
                 if let Some(item) = p.get("item") {
                     self.item(item, offset, ts);
@@ -107,6 +110,10 @@ impl State {
         }
         s.project_path = str_of(p, "cwd").map(String::from).or(s.project_path.take());
         s.agent_version = str_of(p, "cli_version").map(String::from);
+        s.entrypoint = str_of(p, "originator")
+            .or_else(|| str_of(p, "source"))
+            .map(String::from)
+            .or(s.entrypoint.take());
         s.started_at = str_of(p, "timestamp").map(String::from);
         s.parent_id = str_of(p, "parent_thread_id").map(String::from);
         // Background threads Codex starts itself (e.g. `guardian_review`).
@@ -150,6 +157,55 @@ impl State {
         s.cache_read_tokens = cached;
         s.cache_write_tokens = n("cache_write_input_tokens");
         s.output_tokens = n("output_tokens");
+    }
+
+    /// `rate_limits` on token counts: how full each usage window is.
+    /// Only changes are kept, so a long session stores a few readings.
+    fn rate_limits(&mut self, p: &Value, ts: Option<String>) {
+        let Some(rl) = p.get("rate_limits").filter(|v| v.is_object()) else {
+            return;
+        };
+        let plan = str_of(rl, "plan_type").map(String::from);
+        // Names the window that was reached (`primary`, `secondary`, ...).
+        let reached = str_of(rl, "rate_limit_reached_type").unwrap_or("");
+        for key in ["primary", "secondary"] {
+            let Some(w) = rl.get(key).filter(|v| v.is_object()) else {
+                continue;
+            };
+            let minutes = w
+                .get("window_minutes")
+                .and_then(Value::as_u64)
+                .map(|m| m as u32);
+            let used = w.get("used_percent").and_then(Value::as_f64);
+            let sample = LimitSample {
+                timestamp: ts.clone(),
+                seq: None,
+                window: window_label(minutes, key),
+                window_minutes: minutes,
+                used_percent: used,
+                resets_at: w
+                    .get("resets_at")
+                    .and_then(Value::as_i64)
+                    .map(|s| crate::util::format_ts_ms(s * 1000)),
+                resets_text: None,
+                hit: reached.contains(key) || used.is_some_and(|u| u >= 100.0),
+                plan: plan.clone(),
+            };
+            let same = self
+                .out
+                .limits
+                .iter()
+                .rev()
+                .find(|l| l.window == sample.window)
+                .is_some_and(|l| {
+                    l.used_percent == sample.used_percent
+                        && l.resets_at == sample.resets_at
+                        && l.hit == sample.hit
+                });
+            if !same {
+                self.out.limits.push(sample);
+            }
+        }
     }
 
     fn item(&mut self, item: &Value, offset: u64, ts: Option<String>) {
@@ -444,6 +500,18 @@ fn patch_files(patch: &str) -> Vec<(String, FileAction)> {
             }
         })
         .collect()
+}
+
+/// `300` minutes is the 5-hour window, `10080` the weekly one.
+fn window_label(minutes: Option<u32>, key: &str) -> String {
+    match minutes {
+        Some(300) => "5h".into(),
+        Some(10080) => "weekly".into(),
+        Some(m) if m % 1440 == 0 => format!("{}d", m / 1440),
+        Some(m) if m % 60 == 0 => format!("{}h", m / 60),
+        Some(m) => format!("{m}m"),
+        None => key.into(),
+    }
 }
 
 #[cfg(test)]

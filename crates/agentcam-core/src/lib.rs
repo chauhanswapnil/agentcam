@@ -8,6 +8,7 @@ pub mod commits;
 pub mod guard;
 pub mod identity;
 pub mod index;
+pub mod live;
 pub mod model;
 pub mod otel;
 pub mod patterns;

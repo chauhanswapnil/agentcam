@@ -16,6 +16,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Replay: timeline, transcript, and a diff for the current step](docs/screenshots/replay.png)
 
+**Live.** Which agents are working right now, what they just did, and how full your usage windows are: Codex's 5-hour and weekly limits with reset times, and every time Claude Code or Codex reached a limit.
+
 **Search.** Full-text search across prompts, replies, commands, output and file paths, from the ⌘K palette or the search page. Every hit opens the replay at that step.
 
 ![Search results with highlighted matches](docs/screenshots/search.png)

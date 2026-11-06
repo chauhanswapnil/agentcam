@@ -108,6 +108,8 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
 | `GET /api/commits` | Commits made by agent sessions, newest first |
+| `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context |
+| `GET /api/limits` | Usage windows (latest reading, last 7 days) and limits reached |
 | `GET /api/outbox` | The metadata a team server would receive (`share.rs`); nothing is sent |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
@@ -136,6 +138,13 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - agentcam never edits the agent's settings. The Audit page shows the hook JSON for the user to add.
 - Codex uses the same hook contract (exit 2 + stderr blocks; `Bash` and `apply_patch` send `tool_input.command`). Codex makes users trust new hooks in `/hooks` before they run. Indexed Codex tool names map to hook names with `guard::hook_tool`.
 - Write routes (`POST`, `DELETE`) are refused unless `Origin` and `Sec-Fetch-Site` say the request came from agentcam's own page (`same_site_writes` in the server). Keep it.
+
+### Live view and usage limits
+
+- `live.rs` answers both. A session's state comes from its latest step: `working` (a step in the last 2 minutes, a tool call still running, or a subagent busy), `waiting` (the agent replied), else `quiet`.
+- Usage windows come from the logs, never from an API. Codex writes `rate_limits` on token counts (5-hour and weekly `used_percent`, `resets_at`, plan); the parser keeps only changed readings. Claude Code only logs when a limit is reached ("You've hit your session limit · resets 3pm (...)", `error: rate_limit`); it becomes a `System` step, not a reply, plus a hit. Repeats of one hit are merged in the query.
+- `sessions.entrypoint` records where a session started (`cli`, `claude-desktop`, Codex `originator`); the UI maps it to plain words in `web/src/lib/live.ts`.
+- The watcher re-indexes at least every 3 s while an agent keeps writing, so the Live page keeps up.
 
 ### Identity and the share contract (team prep)
 

@@ -2,6 +2,7 @@ import { Route, Switch } from 'wouter'
 import { AppShell } from './AppShell'
 import { Audit } from './pages/Audit'
 import { Commits } from './pages/Commits'
+import { Live } from './pages/Live'
 import { Outbox } from './pages/Outbox'
 import { Files } from './pages/Files'
 import { Overview } from './pages/Overview'
@@ -16,6 +17,7 @@ export default function App() {
       <Switch>
         <Route path="/" component={Overview} />
         <Route path="/sessions/*" component={Replay} />
+        <Route path="/live" component={Live} />
         <Route path="/search" component={Search} />
         <Route path="/audit" component={Audit} />
         <Route path="/tools" component={Tools} />

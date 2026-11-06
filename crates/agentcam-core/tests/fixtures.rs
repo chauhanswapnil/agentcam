@@ -668,3 +668,58 @@ fn outbox_sends_metadata_only() {
     );
     assert!(!text.contains("/Users/"), "no home folders anywhere");
 }
+
+#[test]
+fn limits_from_both_agents() {
+    let c = claude::parse(&fixtures().join("claude-code/session-limit-hit.jsonl")).unwrap();
+    assert_eq!(c.session.entrypoint.as_deref(), Some("cli"));
+    assert_eq!(c.limits.len(), 1);
+    let hit = &c.limits[0];
+    assert!(hit.hit);
+    assert_eq!(hit.window, "session");
+    assert_eq!(hit.resets_text.as_deref(), Some("3pm (Europe/London)"));
+    let e = &c.events[hit.seq.unwrap() as usize];
+    assert_eq!(
+        e.kind,
+        EventKind::System,
+        "a limit notice is not the agent's reply"
+    );
+    assert!(!e.is_error);
+
+    let x = codex::parse(&fixtures().join(
+        "codex/sessions/2026/11/01/rollout-2026-11-01T12-00-00-22222222-2222-4222-8222-222222222222.jsonl",
+    ))
+    .unwrap();
+    assert_eq!(x.session.entrypoint.as_deref(), Some("codex_cli"));
+    // 5h at 42% then 100%; the weekly reading didn't change, so it's kept once.
+    let five: Vec<_> = x.limits.iter().filter(|l| l.window == "5h").collect();
+    let week: Vec<_> = x.limits.iter().filter(|l| l.window == "weekly").collect();
+    assert_eq!(five.len(), 2);
+    assert_eq!(week.len(), 1);
+    assert_eq!(five[0].used_percent, Some(42.0));
+    assert!(!five[0].hit && five[1].hit);
+    assert_eq!(five[0].plan.as_deref(), Some("plus"));
+    assert_eq!(
+        five[0].resets_at.as_deref(),
+        Some("2026-11-01T18:00:00.000Z")
+    );
+
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(&sources(), false).unwrap();
+    let now = agentcam_core::util::parse_ts_ms("2026-11-01T13:00:00.000Z").unwrap();
+    let l = agentcam_core::live::limits(idx.conn(), now).unwrap();
+    let w5 = l.windows.iter().find(|w| w.window == "5h").unwrap();
+    assert_eq!(w5.used_percent, 100.0);
+    assert!(!w5.expired);
+    assert_eq!(l.hits.iter().filter(|h| h.agent == "codex").count(), 1);
+
+    let later = agentcam_core::util::parse_ts_ms("2026-11-01T12:05:00.000Z").unwrap();
+    let live = agentcam_core::live::live(idx.conn(), later, 15 * 60_000).unwrap();
+    assert_eq!(
+        live.len(),
+        1,
+        "only the Codex session ran in the last 15 minutes"
+    );
+    assert_eq!(live[0].session.agent, "codex");
+    assert!(!live[0].recent.is_empty());
+}

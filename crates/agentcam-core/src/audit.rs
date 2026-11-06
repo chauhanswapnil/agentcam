@@ -358,6 +358,7 @@ mod tests {
             },
             events,
             touches,
+            limits: Vec::new(),
             bad_lines: 0,
         }
     }

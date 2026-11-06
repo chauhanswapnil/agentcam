@@ -117,6 +117,9 @@ impl State {
         if s.agent_version.is_none() {
             s.agent_version = str_of(rec, "version").map(String::from);
         }
+        if s.entrypoint.is_none() {
+            s.entrypoint = str_of(rec, "entrypoint").map(String::from);
+        }
 
         match str_of(rec, "type").unwrap_or("") {
             "user" => self.user(rec, offset, ts),
@@ -252,6 +255,23 @@ impl State {
         let Some(blocks) = msg.get("content").and_then(Value::as_array) else {
             return;
         };
+        // Claude Code writes "You've hit your session limit · resets 3pm
+        // (...)" as an assistant message flagged as an API error.
+        if rec.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true) {
+            let text = text_of(msg.get("content").unwrap_or(&Value::Null));
+            let mut e = Event::new(EventKind::System, offset, ts.clone());
+            e.title = first_line(&text, 200);
+            e.body = truncate(&text, MAX_TEXT);
+            let limit = str_of(rec, "error") == Some("rate_limit");
+            e.is_error = !limit;
+            self.push(e);
+            if limit {
+                self.out
+                    .limits
+                    .push(limit_hit(&text, ts, self.out.events.len() - 1));
+            }
+            return;
+        }
         let before = self.out.events.len();
         self.assistant_blocks(blocks, offset, ts, rec);
         if let Some(id) = str_of(msg, "id")
@@ -421,4 +441,27 @@ fn hunks_to_diff(hunks: &[Value]) -> String {
         }
     }
     out
+}
+
+/// Read "You've hit your weekly limit · resets Nov 9, 3pm (Europe/London)".
+fn limit_hit(text: &str, ts: Option<String>, idx: usize) -> LimitSample {
+    let lower = text.to_lowercase();
+    let window = lower
+        .split_once("hit your ")
+        .and_then(|(_, r)| r.split_once(" limit"))
+        .map(|(w, _)| w.trim().replace(' ', "-"))
+        .filter(|w| !w.is_empty() && w.len() <= 24)
+        .unwrap_or_else(|| "usage".into());
+    let resets_text = text
+        .split_once("resets ")
+        .map(|(_, r)| first_line(r, 80))
+        .filter(|r| !r.is_empty());
+    LimitSample {
+        timestamp: ts,
+        seq: Some(idx as u32),
+        window,
+        resets_text,
+        hit: true,
+        ..Default::default()
+    }
 }

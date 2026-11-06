@@ -83,3 +83,12 @@
     display: none;
   }
 }
+.liveDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  vertical-align: 2px;
+  border-radius: var(--r-full);
+  background: var(--rec);
+}

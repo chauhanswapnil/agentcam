@@ -724,3 +724,26 @@ pub async fn outbox(State(st): Shared, Query(p): Query<Params>) -> Result<Json<O
     .await
     .map(Json)
 }
+
+/// Sessions with a step in the last 15 minutes (or `?minutes=`).
+pub async fn live(
+    State(st): Shared,
+    Query(p): Query<LiveParams>,
+) -> Result<Json<Vec<agentcam_core::live::LiveSession>>, ApiError> {
+    let within = p.minutes.unwrap_or(15).clamp(1, 24 * 60) * 60_000;
+    st.read(move |idx| agentcam_core::live::live(idx.conn(), now_ms(), within))
+        .await
+        .map(Json)
+}
+
+#[derive(Deserialize)]
+pub struct LiveParams {
+    minutes: Option<i64>,
+}
+
+/// Usage windows (latest readings, the last week) and limits reached.
+pub async fn limits(State(st): Shared) -> Result<Json<agentcam_core::live::Limits>, ApiError> {
+    st.read(move |idx| agentcam_core::live::limits(idx.conn(), now_ms()))
+        .await
+        .map(Json)
+}

@@ -13,6 +13,7 @@ import {
   FolderGit2,
   GitBranch,
   Keyboard,
+  MonitorSmartphone,
   Pause,
   Play,
   Rows3,
@@ -28,6 +29,7 @@ import { Link, useLocation, useParams } from 'wouter'
 import { query, useApi, useIndexStatus, type EventRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
 import { baseName, formatCompact, formatCost, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
+import { entrypointLabel } from '../lib/live'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { DiffView } from '../ui/DiffView'
@@ -219,6 +221,11 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
             {x.model && (
               <span className={s.mono}>
                 <Sparkles aria-hidden /> {x.model}
+              </span>
+            )}
+            {entrypointLabel(x.entrypoint) && (
+              <span title={`Started from ${x.entrypoint}`}>
+                <MonitorSmartphone aria-hidden /> {entrypointLabel(x.entrypoint)}
               </span>
             )}
             {x.started_at && (
