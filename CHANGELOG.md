@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Team server (`agentcam team serve`): a self-hosted server that laptops push session metadata to after `agentcam team join`. Pages for Insights (time, cost, what lasted and rules followed by week, team, repo and model), Value (cost per commit and PR, lines kept per dollar, seats against API-priced use, machines active per week, models and agent versions side by side), Governance (findings across the team) and Fleet (agent versions, MCP servers, plugins, skills, hooks and settings worth a look on each machine). Invites, device and viewer tokens, an audit log, and names hidden unless an admin turns them on.
+- `agentcam team join|sync|status|pause|resume|leave` on the laptop; the Outbox page shows the team link and the setup inventory that's sent.
+- Share contract v2: turn count, lines still in the code, instruction rules followed and pull request numbers (counts only).
+
 - Cargo workspace (`agentcam`, `agentcam-server`, `agentcam-core`) and a React + Vite web UI embedded in the binary.
 - `agentcam serve`: local server on `127.0.0.1:4747` with `/api/health`; opens the browser.
 - Parsers for Claude Code and Codex logs (including subagents and older Codex formats) into one event model.

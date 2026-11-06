@@ -15,6 +15,7 @@ categories.workspace = true
 [dependencies]
 agentcam-core.workspace = true
 agentcam-server.workspace = true
+agentcam-team.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 open.workspace = true

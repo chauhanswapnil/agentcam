@@ -1,0 +1,32 @@
+[package]
+name = "agentcam-team"
+description = "Self-hosted team server and laptop sync for agentcam"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+agentcam-core.workspace = true
+agentcam-server.workspace = true
+axum.workspace = true
+getrandom.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+serde_json.workspace = true
+ureq.workspace = true
+
+[lints]
+workspace = true

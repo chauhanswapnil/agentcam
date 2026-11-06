@@ -714,18 +714,68 @@ pub struct Outbox {
     schema_version: u32,
     machine_id: String,
     sessions: Vec<agentcam_core::share::SessionMeta>,
+    /// Agent setup by name, sent with each sync.
+    inventory: agentcam_core::fleet::Inventory,
+    /// The team link, if this machine joined one (never the token).
+    team: Option<TeamLink>,
 }
 
-/// What a team server would receive in metadata-only mode. Nothing is sent
-/// anywhere; this is a preview.
+#[derive(Serialize)]
+pub struct TeamLink {
+    server: Option<String>,
+    team: Option<String>,
+    joined_at: Option<String>,
+    paused: bool,
+    last_sync: Option<String>,
+    last_error: Option<String>,
+    sessions_on_server: usize,
+}
+
+/// `team.json` and `team-sync.json` next to the index, written by
+/// `agentcam team join` and the sync loop.
+fn team_link(db: Option<&std::path::Path>) -> Option<TeamLink> {
+    let db = db?;
+    let read = |name: &str| -> Option<serde_json::Value> {
+        serde_json::from_str(&std::fs::read_to_string(db.with_file_name(name)).ok()?).ok()
+    };
+    let link = read("team.json")?;
+    let state = read("team-sync.json").unwrap_or_default();
+    let s = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
+    Some(TeamLink {
+        server: s(&link, "server"),
+        team: s(&link, "team"),
+        joined_at: s(&link, "joined_at"),
+        paused: link
+            .get("paused")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false),
+        last_sync: s(&state, "last_sync"),
+        last_error: s(&state, "last_error"),
+        sessions_on_server: state
+            .get("sent")
+            .and_then(|x| x.as_object())
+            .map_or(0, |m| m.len()),
+    })
+}
+
+/// What a team server receives in metadata-only mode: a preview, or
+/// exactly what the sync sends once this machine joined a team.
 pub async fn outbox(State(st): Shared, Query(p): Query<Params>) -> Result<Json<Outbox>, ApiError> {
     let f = p.filter(now_ms());
     let limit = p.limit.unwrap_or(50).min(500);
+    let team = team_link(st.db_path.as_deref());
     st.read(move |idx| {
+        let home = dirs::home_dir().unwrap_or_default();
         Ok(Outbox {
             schema_version: agentcam_core::share::SCHEMA_VERSION,
             machine_id: idx.machine_id().to_string(),
             sessions: agentcam_core::share::outbox(idx.conn(), &f, limit)?,
+            inventory: agentcam_core::fleet::inventory(
+                idx.conn(),
+                &home,
+                env!("CARGO_PKG_VERSION"),
+            )?,
+            team,
         })
     })
     .await

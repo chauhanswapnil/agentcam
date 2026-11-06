@@ -1,8 +1,9 @@
-import { Check, Inbox, Send, X } from 'lucide-react'
+import { Check, Inbox, Laptop, Link2, Send, X } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { query, useApi, useIndexStatus } from '../lib/api'
 import { formatAgo, formatCost, formatHours, formatNumber } from '../lib/format'
+import { FLAG_LABEL, ITEM_KIND, type Inventory } from '../lib/fleet'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
@@ -24,7 +25,17 @@ type SessionMeta = {
   files: unknown[]
 }
 
-type OutboxData = { schema_version: number; machine_id: string; sessions: SessionMeta[] }
+type TeamLink = {
+  server: string | null
+  team: string | null
+  joined_at: string | null
+  paused: boolean
+  last_sync: string | null
+  last_error: string | null
+  sessions_on_server: number
+}
+
+type OutboxData = { schema_version: number; machine_id: string; sessions: SessionMeta[]; inventory: Inventory; team: TeamLink | null }
 
 const RANGES = [
   { value: '7d', label: '7 days' },
@@ -38,20 +49,23 @@ const SENT = [
   'Step and tool-call counts, errored steps',
   'Tokens and estimated cost, peak context',
   'Findings: rule, severity, step and the masked excerpt',
-  'Commits: hash and message',
+  'Commits: hash and message; pull request numbers',
   'File paths relative to the project, with read / edit / create / delete',
+  'Turn count, lines still in the code (counts), instruction rules followed (counts)',
+  'Agent setup by name: MCP servers, plugins, skills, hooks, a few settings',
 ]
 const NEVER = [
   'Prompts, replies and thinking',
   'Command text and output',
   'Tool inputs, file contents and diffs',
   'Full local paths and anything outside the project beyond a file name',
+  'Config values: commands, arguments, URLs, environment, tokens',
 ]
 
 /**
- * What a team server would receive from this machine in metadata-only mode.
- * agentcam isn't connected to one, so nothing is sent; this is a preview of
- * the contract in `share.rs`.
+ * What a team server receives from this machine in metadata-only mode:
+ * the contract in `share.rs` and `fleet.rs`. Until `agentcam team join`,
+ * nothing is sent and this is a preview.
  */
 export function Outbox() {
   const p = new URLSearchParams(useSearch())
@@ -67,8 +81,9 @@ export function Outbox() {
         <div>
           <h1>Outbox</h1>
           <p>
-            Exactly what a team server would receive from this machine, in metadata-only mode. agentcam isn't connected
-            to a team server, so nothing is sent.
+            {data?.team
+              ? `Exactly what this machine sends to ${data.team.team ?? 'your team'}: metadata only.`
+              : "Exactly what a team server would receive from this machine, in metadata-only mode. This machine hasn't joined a team, so nothing is sent."}
           </p>
         </div>
         <div className={s.controls}>
@@ -103,6 +118,9 @@ export function Outbox() {
           )}
         </Panel>
       </div>
+
+      {data && <TeamPanel link={data.team} />}
+      {data && <SetupPanel inv={data.inventory} />}
 
       {!data ? (
         <Skeleton height={240} />
@@ -166,5 +184,73 @@ export function Outbox() {
         </Panel>
       )}
     </div>
+  )
+}
+
+function TeamPanel({ link }: { link: TeamLink | null }) {
+  return (
+    <Panel title="Team link" icon={<Link2 />}>
+      {!link ? (
+        <p className={s.note}>
+          Not joined. An admin runs a team server and gives you an invite; then run{' '}
+          <code>agentcam team join https://your-server ac_inv_…</code>. You can pause with <code>agentcam team pause</code>{' '}
+          or leave with <code>agentcam team leave</code> at any time.
+        </p>
+      ) : (
+        <dl className={s.facts}>
+          <dt>Team</dt>
+          <dd>{link.team}</dd>
+          <dt>Server</dt>
+          <dd className={s.mono}>{link.server}</dd>
+          <dt>Sending</dt>
+          <dd>{link.paused ? 'Paused (agentcam team resume to start again)' : 'Every 5 minutes while agentcam runs'}</dd>
+          <dt>Last sync</dt>
+          <dd>{link.last_sync ? formatAgo(link.last_sync) : 'Not yet'}</dd>
+          <dt>On the server</dt>
+          <dd>{formatNumber(link.sessions_on_server)} sessions</dd>
+          {link.last_error && (
+            <>
+              <dt>Last problem</dt>
+              <dd>{link.last_error}</dd>
+            </>
+          )}
+        </dl>
+      )}
+    </Panel>
+  )
+}
+
+function SetupPanel({ inv }: { inv: Inventory }) {
+  const kinds = Object.keys(ITEM_KIND)
+  return (
+    <Panel title="Agent setup sent with each sync" icon={<Laptop />}>
+      <dl className={s.facts}>
+        <dt>Machine</dt>
+        <dd>
+          {inv.os} {inv.arch} · agentcam {inv.agentcam_version}
+        </dd>
+        <dt>Agents</dt>
+        <dd>
+          {inv.agents.length === 0
+            ? 'No sessions in the last 30 days'
+            : inv.agents.map((a) => `${a.agent} ${a.version ?? '(version unknown)'}`).join(', ')}
+        </dd>
+        {kinds.map((k) => {
+          const names = inv.items.filter((i) => i.kind === k)
+          return (
+            <Fragment key={k}>
+              <dt>{ITEM_KIND[k]}</dt>
+              <dd>{names.length === 0 ? 'None' : names.map((i) => i.name + (i.detail ? ` (${i.detail})` : '')).join(', ')}</dd>
+            </Fragment>
+          )
+        })}
+        <dt>Settings</dt>
+        <dd>
+          {inv.flags.length === 0
+            ? 'Nothing to note'
+            : inv.flags.map((f) => `${FLAG_LABEL[f.id]?.label ?? f.id} (${f.agent}, ${f.scope})`).join('; ')}
+        </dd>
+      </dl>
+    </Panel>
   )
 }

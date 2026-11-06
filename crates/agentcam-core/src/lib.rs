@@ -7,6 +7,7 @@ pub mod claude;
 pub mod codex;
 pub mod commits;
 pub mod compare;
+pub mod fleet;
 pub mod follow;
 pub mod guard;
 pub mod identity;

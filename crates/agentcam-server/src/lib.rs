@@ -47,7 +47,7 @@ async fn api_not_found() -> StatusCode {
 
 /// Serve a built asset, or fall back to `index.html` so client-side
 /// routes work on reload.
-async fn static_handler(uri: Uri) -> Response {
+pub async fn static_handler(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
@@ -382,7 +382,9 @@ mod tests {
     #[tokio::test]
     async fn overview_and_sessions() {
         let ob = json("/api/outbox").await;
-        assert_eq!(ob["schema_version"], 1);
+        assert_eq!(ob["schema_version"], 2);
+        assert!(ob["inventory"]["items"].is_array());
+        assert!(ob["team"].is_null(), "not joined to a team");
         assert!(
             ob["sessions"]
                 .as_array()

@@ -9,15 +9,15 @@
 use std::collections::BTreeMap;
 
 use rusqlite::{Connection, params_from_iter};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::index::Result;
 use crate::query::{Filter, conditions, severity_name};
 
 /// Bump when the fields below change; the server checks it.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMeta {
     pub session_id: String,
     pub parent_id: Option<String>,
@@ -46,9 +46,43 @@ pub struct SessionMeta {
     pub findings: Vec<FindingMeta>,
     pub commits: Vec<CommitMeta>,
     pub files: Vec<FileMeta>,
+    /// Prompts typed (turns). Counts only.
+    #[serde(default)]
+    pub turns: i64,
+    /// Lines this session and its subagents added, and where they are now.
+    /// Only on top-level sessions.
+    #[serde(default)]
+    pub lasted: Option<LastedMeta>,
+    /// How the session followed the project's AGENTS.md / CLAUDE.md rules.
+    /// Only on top-level sessions with checkable rules.
+    #[serde(default)]
+    pub follow: Option<FollowMeta>,
+    #[serde(default)]
+    pub prs: Vec<PrMeta>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LastedMeta {
+    pub added: i64,
+    pub kept: i64,
+    pub reworked: i64,
+    pub changed: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FollowMeta {
+    pub followed: i64,
+    pub not_followed: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrMeta {
+    pub number: Option<i64>,
+    /// `owner/repo` as the PR link names it.
+    pub repo: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Tokens {
     /// Input tokens not read from cache.
     pub fresh_input: i64,
@@ -57,7 +91,7 @@ pub struct Tokens {
     pub cache_write: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FindingMeta {
     pub rule_id: String,
     pub severity: String,
@@ -66,14 +100,14 @@ pub struct FindingMeta {
     pub excerpt: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitMeta {
     pub step: i64,
     pub hash: Option<String>,
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMeta {
     pub path: String,
     pub action: String,
@@ -108,14 +142,51 @@ pub fn share_text(text: &str, root: Option<&str>) -> String {
 /// subagents, newest first.
 pub fn outbox(conn: &Connection, f: &Filter, limit: u32) -> Result<Vec<SessionMeta>> {
     let (cond, args) = conditions(f);
+    let wh = format!(
+        "s.id IN (SELECT DISTINCT e.session_id FROM events e JOIN sessions s ON s.id = e.session_id WHERE {cond})
+         ORDER BY s.ended_at DESC LIMIT {limit}"
+    );
+    load(conn, &wh, args)
+}
+
+/// Every session's id and version, for a sync to find what changed.
+pub fn versions(conn: &Connection) -> Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare("SELECT id, version FROM sessions ORDER BY ended_at")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    Ok(rows)
+}
+
+/// Metadata for the given sessions, in the order given (unknown ids are
+/// skipped).
+pub fn metas(conn: &Connection, ids: &[String]) -> Result<Vec<SessionMeta>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let marks = vec!["?"; ids.len()].join(",");
+    let mut out = load(conn, &format!("s.id IN ({marks})"), ids.to_vec())?;
+    let pos: std::collections::HashMap<&str, usize> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (id.as_str(), i))
+        .collect();
+    out.sort_by_key(|m| {
+        pos.get(m.session_id.as_str())
+            .copied()
+            .unwrap_or(usize::MAX)
+    });
+    Ok(out)
+}
+
+fn load(conn: &Connection, wh: &str, args: Vec<String>) -> Result<Vec<SessionMeta>> {
     let sql = format!(
         "SELECT s.id, s.parent_id, s.version, s.machine_id, s.os_user, s.agent, s.agent_version, s.model,
                 s.project_remote, s.project_root, s.git_branch, s.started_at, s.ended_at, s.active_ms,
                 s.wasted_ms, s.error_count, s.input_tokens, s.output_tokens, s.cache_read_tokens,
-                s.cache_write_tokens, s.est_cost_usd, s.peak_context
+                s.cache_write_tokens, s.est_cost_usd, s.peak_context, s.turn_count
          FROM sessions s
-         WHERE s.id IN (SELECT DISTINCT e.session_id FROM events e JOIN sessions s ON s.id = e.session_id WHERE {cond})
-         ORDER BY s.ended_at DESC LIMIT {limit}"
+         WHERE {wh}"
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut out: Vec<(SessionMeta, Option<String>)> = stmt
@@ -147,11 +218,15 @@ pub fn outbox(conn: &Connection, f: &Filter, limit: u32) -> Result<Vec<SessionMe
                     },
                     est_cost_usd: r.get(20)?,
                     peak_context: r.get(21)?,
+                    turns: r.get::<_, Option<i64>>(22)?.unwrap_or(0),
                     steps: BTreeMap::new(),
                     tool_calls: BTreeMap::new(),
                     findings: Vec::new(),
                     commits: Vec::new(),
                     files: Vec::new(),
+                    lasted: None,
+                    follow: None,
+                    prs: Vec::new(),
                 },
                 root,
             ))
@@ -168,6 +243,9 @@ pub fn outbox(conn: &Connection, f: &Filter, limit: u32) -> Result<Vec<SessionMe
         conn.prepare("SELECT seq, hash, message FROM commits WHERE session_id = ? ORDER BY seq")?;
     let mut files = conn.prepare(
         "SELECT path, action FROM file_touches WHERE session_id = ? GROUP BY path, action ORDER BY min(seq)",
+    )?;
+    let mut prs = conn.prepare(
+        "SELECT number, repo FROM prs WHERE session_id = ? GROUP BY url ORDER BY min(seq)",
     )?;
     for (m, root) in &mut out {
         let mut rows = steps.query([&m.session_id])?;
@@ -206,6 +284,30 @@ pub fn outbox(conn: &Connection, f: &Filter, limit: u32) -> Result<Vec<SessionMe
                 })
             })?
             .collect::<std::result::Result<_, _>>()?;
+        m.prs = prs
+            .query_map([&m.session_id], |r| {
+                Ok(PrMeta {
+                    number: r.get(0)?,
+                    repo: r.get(1)?,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        if m.parent_id.is_none() {
+            m.lasted = crate::survival::session_counts(conn, &m.session_id)?.map(|c| LastedMeta {
+                added: c.added,
+                kept: c.kept,
+                reworked: c.reworked,
+                changed: c.changed,
+            });
+            m.follow = crate::follow::session(conn, &m.session_id)?.and_then(|f| {
+                let n = |s: &str| f.outcomes.iter().filter(|o| o.status == s).count() as i64;
+                let fm = FollowMeta {
+                    followed: n("followed"),
+                    not_followed: n("not_followed"),
+                };
+                (fm.followed + fm.not_followed > 0).then_some(fm)
+            });
+        }
     }
     Ok(out.into_iter().map(|(m, _)| m).collect())
 }

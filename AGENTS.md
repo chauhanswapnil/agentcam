@@ -9,7 +9,7 @@ agentcam is a local-first, open-source tool that reads the session logs coding a
 Product rules that shape every change:
 
 - **Read only.** Never write to, move or delete an agent's log files.
-- **Local only.** Bind to `127.0.0.1`. No network calls, no telemetry, no accounts.
+- **Local only.** Bind to `127.0.0.1`. No network calls, no telemetry, no accounts. The one exception is opt-in: after `agentcam team join`, the laptop pushes metadata (never content) to a team server the company runs itself.
 - **Zero setup.** Work from the logs that already exist; no hooks or SDK required.
 - **The UI is the product.** Visual polish is a feature, not a nice-to-have.
 - **Healthy skepticism.** Assume the agent is capable and acting in good faith. Show what happened clearly; flag only what deserves a second look, in neutral words; never hinder the agent by default.
@@ -32,16 +32,18 @@ crates/
   agentcam-core/     parsers, event model, index (no I/O beyond reading logs + SQLite)
   agentcam-server/   axum server: JSON API under /api, embedded UI for everything else
     ui-dist/         built web UI (generated, gitignored, embedded with rust-embed)
+  agentcam-team/     self-hosted team server (store, sync API, team views) and the laptop's join/sync client
   agentcam/          the CLI binary (clap); published as `agentcam` on crates.io
 web/                 React + Vite + TypeScript UI; builds into crates/agentcam-server/ui-dist
   src/styles/        design tokens and base CSS
   src/ui/            shared components (one CSS module each)
   src/pages/         routed pages, including /styleguide
   src/lib/           event kinds, agents, formatting
+  src/team/          the team server's pages, under /team (same build)
 fixtures/            synthetic agent logs for tests (never real ones, see below)
 ```
 
-Dependencies flow one way: `agentcam` → `agentcam-server` → `agentcam-core`. Core must not depend on the server or the CLI.
+Dependencies flow one way: `agentcam` → `agentcam-team` → `agentcam-server` → `agentcam-core`. Core must not depend on the server, the team crate or the CLI. Team code stays in `agentcam-team` so it can be licensed apart later.
 
 ## Commands
 
@@ -119,7 +121,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/skills` | Skills installed, listed and used, with sizes and latest runs |
 | `GET /api/compare/options`, `GET /api/compare?dim=&a=&b=&at=` | Values to compare by, comparisons found in the data, and two groups of turns side by side |
 | `GET /api/follow` | Each project's AGENTS.md / CLAUDE.md rules and how sessions followed them |
-| `GET /api/outbox` | The metadata a team server would receive (`share.rs`); nothing is sent |
+| `GET /api/outbox` | The metadata a team server receives (`share.rs`), the setup inventory (`fleet.rs`) and the team link, if any |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
@@ -184,6 +186,17 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - `share.rs` is the only thing a sync may send. `SessionMeta` holds counts, times, tokens, cost, findings, commits and file paths; never prompts, replies, thinking, command text, output, inputs or diffs. Paths are relative to the project, others cut to a file name; excerpts lose home folders (`share_text`). Bump `share::SCHEMA_VERSION` when fields change.
 - `outbox_sends_metadata_only` in `tests/fixtures.rs` fails if a content field or a home path slips in. Keep it passing when you add fields.
 - The Outbox page (`/outbox`) shows exactly what would be sent.
+- `fleet.rs` is the other half of the contract: agent versions in use, MCP servers, plugins, skills and hooks **by name**, and a few setting flags (`approvals_skipped_by_default`, `sandbox_off`, `broad_allow_rule`, `danger_prompt_skipped`, `guard_hook_installed`). Never commands, arguments, URLs, headers or environment values; hook commands become the program's file name. Its test fails if a URL, path or secret leaks.
+
+### Team server
+
+- `crates/agentcam-team`: `store.rs` (SQLite, numbered `MIGRATIONS`, plain SQL that Postgres also runs: `ON CONFLICT ... DO UPDATE`, no SQLite-only functions in queries), `server.rs` (axum), `views.rs` (Insights, Value, Governance, Fleet), `client.rs` (laptop side).
+- `agentcam team serve --data <dir> --bind 127.0.0.1:4850` prints the first admin token once. It serves the same embedded UI; `web/src/main.tsx` renders the team app for paths under `/team`.
+- Auth is by token, not Host: laptops use device tokens (`ac_dev_`), the UI uses viewer tokens (`ac_view_`, roles `admin` and `viewer`, kept in the browser's localStorage and sent as `Authorization: Bearer`). Invites (`ac_inv_`) are traded for a device token. Only SHA-256 hashes of tokens are stored. Admin changes go to `audit_log`.
+- `POST /api/team/join` and `POST /api/team/sync` (device token; at most 1000 sessions per request, unchanged versions skipped, a laptop may only send its own machine id). UI routes: `GET /api/team/me|insights|value|governance|fleet|settings` (`range`, `team`), `POST /api/team/settings|invites|viewers` (admin).
+- The laptop keeps `team.json` (link and token, mode 600) and `team-sync.json` (versions sent, last sync, last error) next to the index. `agentcam serve` syncs every 5 minutes when linked; `agentcam team sync|status|pause|resume|leave` do the rest. `https://` is required unless the server is on loopback or `--allow-http` is passed.
+- Views describe, never rank people. Machines show as `Machine abc123` unless an admin turns on `show_people` (logged). Cost is at API list prices; seats compare a monthly seat price with that.
+- Demo: `agentcam team serve --data /tmp/agentcam-team-demo`, then `python3 scripts/team-demo.py http://127.0.0.1:4850 <admin token>` makes 24 fake machines in 4 teams over 90 days. Team screenshots come from it.
 
 ### Cost, context, waste and commits
 

@@ -1,0 +1,209 @@
+/* Team server pages. Shares the page, head and table styles in Views.module.css. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-3);
+  background: var(--bg-1);
+}
+.stats4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.stat {
+  padding: var(--s-4) var(--s-5);
+  border-left: 1px solid var(--line-1);
+}
+.stat:first-child {
+  border-left: 0;
+}
+.barCell {
+  width: 140px;
+  min-width: 120px;
+}
+.sparkCell {
+  width: 1%;
+}
+.repo {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.excerpt {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.how {
+  max-width: 760px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.who {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.groupRow {
+  padding-top: var(--s-4) !important;
+  color: var(--text-3) !important;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.flags {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flags li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: baseline;
+}
+.flagCount {
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+}
+.flagName {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-1);
+}
+.good {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.good svg {
+  width: 14px;
+  height: 14px;
+  color: var(--status-good);
+}
+.flagNote {
+  display: block;
+  margin-top: var(--s-1);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.form {
+  display: grid;
+  gap: var(--s-4);
+  max-width: 520px;
+}
+.field {
+  display: grid;
+  gap: var(--s-1);
+}
+.field input,
+.field select {
+  width: 100%;
+}
+.label {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.hint {
+  display: block;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.check {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.formRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.made {
+  display: grid;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+.code {
+  margin: 0;
+  padding: var(--s-3);
+  overflow-x: auto;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2);
+  background: var(--bg-0);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.login {
+  display: grid;
+  gap: var(--s-6);
+  justify-items: center;
+  max-width: 440px;
+  margin: var(--s-16) auto;
+  padding: 0 var(--s-4);
+}
+.login > section {
+  width: 100%;
+}
+.loginForm {
+  display: grid;
+  gap: var(--s-3);
+}
+
+@media (max-width: 1000px) {
+  .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .stat:nth-child(4) {
+    border-left: 0;
+  }
+  .stat:nth-child(n + 4) {
+    border-top: 1px solid var(--line-1);
+  }
+  .stats4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stats4 .stat:nth-child(3) {
+    border-left: 0;
+  }
+  .stats4 .stat:nth-child(n + 3) {
+    border-top: 1px solid var(--line-1);
+  }
+  .stats4 .stat:nth-child(4) {
+    border-left: 1px solid var(--line-1);
+  }
+}
+@media (max-width: 640px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat:nth-child(odd) {
+    border-left: 0;
+  }
+  .stat:nth-child(even) {
+    border-left: 1px solid var(--line-1);
+  }
+  .stat:nth-child(n + 3) {
+    border-top: 1px solid var(--line-1);
+  }
+  .stat {
+    padding: var(--s-3) var(--s-4);
+  }
+  .who {
+    display: none;
+  }
+}

@@ -56,6 +56,11 @@ enum Command {
         #[command(subcommand)]
         format: ExportFormat,
     },
+    /// Team server and joining one (metadata only; see the Outbox page).
+    Team {
+        #[command(subcommand)]
+        command: TeamCommand,
+    },
     /// Full-text search across all indexed sessions.
     Search {
         /// Words to look for (SQLite FTS5 syntax).
@@ -63,6 +68,62 @@ enum Command {
         #[arg(long, short, default_value_t = 20)]
         limit: usize,
     },
+}
+
+#[derive(Subcommand)]
+enum TeamCommand {
+    /// Run a team server. Laptops push session metadata to it.
+    Serve {
+        /// Folder for the team database. Defaults to `agentcam-team` in the data folder.
+        #[arg(long)]
+        data: Option<PathBuf>,
+        /// Address to listen on. Use 0.0.0.0:4850 to reach it from other machines (put TLS in front).
+        #[arg(long, default_value = "127.0.0.1:4850")]
+        bind: String,
+    },
+    /// Make a token for the team UI (on the server machine).
+    Token {
+        #[arg(long)]
+        data: Option<PathBuf>,
+        /// Who it's for, shown in the audit log.
+        #[arg(long, default_value = "Admin")]
+        name: String,
+        /// admin or viewer.
+        #[arg(long, default_value = "admin")]
+        role: String,
+    },
+    /// Make an invite code for a team (on the server machine).
+    Invite {
+        /// Team name; created if new.
+        team: String,
+        #[arg(long)]
+        data: Option<PathBuf>,
+        /// How many machines may use it.
+        #[arg(long, default_value_t = 50)]
+        uses: i64,
+        /// Days until it expires.
+        #[arg(long, default_value_t = 7)]
+        days: i64,
+    },
+    /// Join a team server with an invite code.
+    Join {
+        /// The server, like https://agentcam.example.com
+        server: String,
+        invite: String,
+        /// Allow http:// to a server on another machine (tokens travel unencrypted).
+        #[arg(long)]
+        allow_http: bool,
+    },
+    /// Send changed session metadata now.
+    Sync,
+    /// Show the link and the last sync.
+    Status,
+    /// Stop sending until `resume`.
+    Pause,
+    /// Start sending again.
+    Resume,
+    /// Forget the team link (the server keeps what it has).
+    Leave,
 }
 
 #[derive(Subcommand)]
@@ -127,7 +188,165 @@ async fn main() -> anyhow::Result<()> {
             } => export_otlp(&db, &range, project, out, endpoint, &headers),
         },
         Command::Search { query, limit } => search(&db, &query.join(" "), limit),
+        Command::Team { command } => team(&db, command).await,
     }
+}
+
+fn team_data(data: Option<PathBuf>, db: &std::path::Path) -> PathBuf {
+    data.unwrap_or_else(|| db.with_file_name("agentcam-team"))
+}
+
+fn home() -> anyhow::Result<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .context("can't find the home folder")
+}
+
+async fn team(db: &std::path::Path, cmd: TeamCommand) -> anyhow::Result<()> {
+    use agentcam_team::{client, server, store::Store};
+    match cmd {
+        TeamCommand::Serve { data, bind } => {
+            let dir = team_data(data, db);
+            let store = Store::open(&dir.join("team.db"))?;
+            if store.viewer_count()? == 0 {
+                let t = store.create_viewer("Admin", "admin")?;
+                store.log("server", "created first admin token", None)?;
+                println!("First start. Your admin token (shown once):\n\n  {t}\n");
+                println!("Open http://{bind}/team/login#{t} to sign in.\n");
+            }
+            let addr: std::net::SocketAddr =
+                bind.parse().context("--bind looks like 127.0.0.1:4850")?;
+            if !addr.ip().is_loopback() {
+                println!(
+                    "Listening on {addr}. Put TLS in front (a reverse proxy) before laptops join over a network."
+                );
+            }
+            println!(
+                "agentcam team server at http://{addr}  (data in {})",
+                dir.display()
+            );
+            server::serve(addr, server::TeamState::new(store)).await?;
+        }
+        TeamCommand::Token { data, name, role } => {
+            let store = Store::open(&team_data(data, db).join("team.db"))?;
+            let t = store.create_viewer(&name, &role)?;
+            store.log("cli", "added viewer", Some(&format!("{name} ({role})")))?;
+            println!("{t}");
+        }
+        TeamCommand::Invite {
+            team,
+            data,
+            uses,
+            days,
+        } => {
+            let store = Store::open(&team_data(data, db).join("team.db"))?;
+            let id = store.team(&team)?;
+            let code = store.create_invite(id, uses, days)?;
+            store.log("cli", "created invite", Some(&team))?;
+            println!(
+                "Invite for {team} ({uses} machines, {days} days):\n\n  agentcam team join <server> {code}"
+            );
+        }
+        TeamCommand::Join {
+            server,
+            invite,
+            allow_http,
+        } => {
+            let idx = open_index(db)?;
+            let link = client::join(
+                db,
+                &server,
+                &invite,
+                idx.machine_id(),
+                agentcam_core::identity::os_user(),
+                allow_http,
+            )?;
+            println!("Joined {} on {}.", link.team, link.server);
+            println!(
+                "agentcam sends session metadata only: counts, times, tokens, findings, file paths in the project. Never prompts, output or diffs."
+            );
+            println!("See exactly what's sent on the Outbox page. Sending now…");
+            team_sync(db)?;
+        }
+        TeamCommand::Sync => team_sync(db)?,
+        TeamCommand::Status => {
+            let s = client::status(db);
+            if !s.joined {
+                println!("Not joined to a team.");
+                return Ok(());
+            }
+            println!("Team:      {}", s.team.unwrap_or_default());
+            println!("Server:    {}", s.server.unwrap_or_default());
+            println!("Paused:    {}", if s.paused { "yes" } else { "no" });
+            println!(
+                "Last sync: {}",
+                s.last_sync.unwrap_or_else(|| "never".into())
+            );
+            if let Some(e) = s.last_error {
+                println!("Problem:   {e}");
+            }
+            println!("Sessions on the server: {}", s.sessions_on_server);
+        }
+        TeamCommand::Pause | TeamCommand::Resume => {
+            let paused = matches!(cmd, TeamCommand::Pause);
+            let mut link = client::load_link(db).context("not joined to a team")?;
+            link.paused = paused;
+            client::save_link(db, &link)?;
+            println!(
+                "{}",
+                if paused {
+                    "Paused. Nothing is sent until `agentcam team resume`."
+                } else {
+                    "Sending again."
+                }
+            );
+        }
+        TeamCommand::Leave => {
+            if client::leave(db)? {
+                println!(
+                    "Left the team. The server keeps what it already has; ask an admin to remove this machine."
+                );
+            } else {
+                println!("Not joined to a team.");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Index, then push what changed.
+fn team_sync(db: &std::path::Path) -> anyhow::Result<()> {
+    let mut idx = open_index(db)?;
+    idx.update(&agentcam_core::default_log_sources(), false)?;
+    let r = agentcam_team::client::sync(idx.conn(), db, &home()?, env!("CARGO_PKG_VERSION"))?;
+    println!(
+        "Sent {} sessions ({} new or changed on the server, {} unchanged here).",
+        r.sent, r.written, r.unchanged
+    );
+    Ok(())
+}
+
+/// While the local app runs and this machine is joined, push changes every
+/// few minutes on a thread of its own. Errors are kept for `team status`
+/// and the Outbox page; they never stop the app.
+fn spawn_team_sync(db: PathBuf) {
+    if agentcam_team::client::load_link(&db).is_none() {
+        return;
+    }
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            if let (Ok(idx), Ok(home)) = (Index::open(&db), home()) {
+                if let Err(e) =
+                    agentcam_team::client::sync(idx.conn(), &db, &home, env!("CARGO_PKG_VERSION"))
+                {
+                    tracing::warn!("team sync: {e}");
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(4 * 60));
+        }
+    });
 }
 
 /// Run as a Claude Code `PreToolUse` hook. Returns the exit code: 2 blocks
@@ -341,6 +560,7 @@ async fn serve(db: &std::path::Path, port: u16, no_open: bool) -> anyhow::Result
             .with_context(|| format!("opening {}", db.display()))?;
     // Index in the background; the UI shows progress and refetches.
     state.spawn_index(false);
+    spawn_team_sync(db.to_path_buf());
     if !state.watch() {
         tracing::warn!("live updates are off; use the re-index button to pick up new sessions");
     }

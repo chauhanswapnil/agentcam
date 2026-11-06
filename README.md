@@ -72,7 +72,31 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **OpenTelemetry.** `agentcam export otlp` sends sessions as traces to Jaeger, Grafana Tempo or Honeycomb, with subagents nested under the call that started them.
 
-**Outbox.** A preview of the metadata a future team server would receive: counts, times, tokens, findings and file paths relative to the project. Never prompts, output or diffs. Nothing is sent today.
+**Outbox.** Exactly what a team server receives from this machine: counts, times, tokens, findings, file paths relative to the project, and agent setup by name. Never prompts, output or diffs. Nothing leaves until you join a team.
+
+## For teams
+
+Run your own team server, and each laptop sends it metadata only. Vendor dashboards each count usage of their own agent. agentcam covers Claude Code and Codex together, works on any plan or API key, and shows what the work came to: lines still in the code, rules followed, commits and pull requests.
+
+- **Insights:** agent time, cost, lines still there and rules followed, by week, team, repo and model.
+- **Value:** cost per commit and per pull request, lines kept per dollar, seats against use at API prices, machines active each week, and models and agent versions side by side.
+- **Governance:** what the risk rules found across the team, with secrets masked on each laptop before anything is sent.
+- **Fleet:** agent versions, MCP servers, plugins, skills and hooks on each machine, and settings worth a look, such as approvals skipped by default or the sandbox off.
+
+People's names stay hidden unless an admin turns them on (logged), and no view ranks people.
+
+![Team insights: time, cost and what lasted by week, team and repo](docs/screenshots/team-insights.png)
+
+![Fleet: settings worth a look, agent versions and what's installed across machines](docs/screenshots/team-fleet.png)
+
+```sh
+# On the server (put TLS in front when laptops reach it over a network)
+agentcam team serve --bind 0.0.0.0:4850     # prints the first admin token
+agentcam team invite Platform               # or make invites on the Settings page
+
+# On each laptop
+agentcam team join https://agentcam.example.com ac_inv_...
+```
 
 ## Install
 
@@ -98,6 +122,9 @@ agentcam
 | `agentcam scan [--min high] [--range 30d]` | Print what the risk rules found |
 | `agentcam export otlp [--range 7d] [--out f] [--endpoint url]` | Sessions as OpenTelemetry traces (OTLP/JSON); sends data only with `--endpoint` |
 | `agentcam guard` | The hook command: reads a tool call on stdin, exits 2 to block it |
+| `agentcam team serve [--data dir] [--bind addr]` | Run a team server |
+| `agentcam team invite <team>` / `team token` | Make an invite code or a viewer token on the server machine |
+| `agentcam team join <server> <invite>` | Join a team; then `team sync`, `status`, `pause`, `resume`, `leave` |
 
 All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By default the index lives in your data folder (`~/Library/Application Support/agentcam/` on macOS), next to `rules.yaml` (your rules) and `guard.yaml` (your guard rules).
 
@@ -114,6 +141,7 @@ For both agents agentcam reads what the logs record: turns and their settings, a
 
 - agentcam only reads agent logs. It never edits, moves or uploads them, and never edits agent settings; the Audit page shows the hook config for you to add.
 - The server listens on `127.0.0.1` only, refuses requests addressed to any other host name, and refuses cross-site writes.
+- Nothing leaves the machine unless you run `agentcam team join`. Then it sends metadata to a server your company runs, over https; `agentcam team pause` stops it.
 - Secrets that the rules find are masked before they reach the index. Report cards hide titles, projects and file names by default.
 - To show what lasted and check instructions, agentcam reads project files, AGENTS.md and CLAUDE.md on this machine. It stores counts, never file contents. It reads skill folders for names, descriptions and sizes only.
 - Agent logs can hold secrets and private code. Treat agentcam's index, and any screenshot of it, with the same care as the logs.
