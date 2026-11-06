@@ -1,6 +1,10 @@
 import {
   ArrowLeft,
   Ban,
+  ChartNoAxesGantt,
+  Gauge,
+  GitCommitHorizontal,
+  RotateCcw,
   Bot,
   CalendarClock,
   ChevronLeft,
@@ -22,7 +26,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
 import { query, useApi, useIndexStatus, type EventRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
-import { baseName, formatCompact, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
+import { baseName, formatCompact, formatCost, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -40,6 +44,8 @@ import { SEVERITY_COLOR, SEVERITY_RANK } from '../lib/severity'
 import { SeverityBadge } from '../ui/Severity'
 import { Tooltip } from '../ui/Tooltip'
 import { Track } from '../ui/Track'
+import { TraceView } from '../ui/TraceView'
+import { ContextChart } from '../ui/ContextChart'
 import s from './Replay.module.css'
 
 const SPEEDS = [
@@ -84,7 +90,8 @@ export function Replay() {
 }
 
 function Player({ id, data }: { id: string; data: SessionDetail }) {
-  const { session: x, events, files, findings, subagents } = data
+  const { session: x, events, files, findings, patterns, commits, subagents } = data
+  const [view, setView] = useState<'transcript' | 'trace'>('transcript')
   const [, navigate] = useLocation()
   // Read once: the URL follows the playhead, not the other way round.
   const [search] = useState(() => window.location.search)
@@ -234,10 +241,18 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
           <span>
             <b>{formatNumber(x.error_count)}</b>failed
           </span>
-          <span>
-            <b>{formatCompact(x.input_tokens + x.cache_read_tokens + x.output_tokens)}</b>
-            tokens{x.cost_usd != null ? ` · $${x.cost_usd.toFixed(2)}` : ''}
+          <span title={x.cost_unpriced ? 'Some calls use a model with no price; add it to prices.yaml' : 'Estimated from the price table'}>
+            <b>{x.est_cost_usd != null ? formatCost(x.est_cost_usd) + (x.cost_unpriced ? '+' : '') : x.cost_usd != null ? formatCost(x.cost_usd) : '–'}</b>
+            est. cost
           </span>
+          <span>
+            <b>{x.peak_context ? formatCompact(x.peak_context) : '–'}</b>peak context
+          </span>
+          {x.wasted_ms > 0 && (
+            <span title="Agent time on stuck loops, failure streaks and reverts">
+              <b style={{ color: 'var(--status-serious)' }}>{formatHours(x.wasted_ms)}</b>stuck
+            </span>
+          )}
         </div>
       </header>
 
@@ -335,8 +350,27 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
           </div>
 
           <div className={s.body}>
-            <Panel title="Transcript" icon={<Rows3 />} flush>
-              <Transcript events={events} current={step} onSeek={jump} />
+            <Panel
+              title={view === 'trace' ? 'Trace' : 'Transcript'}
+              icon={view === 'trace' ? <ChartNoAxesGantt /> : <Rows3 />}
+              flush
+              actions={
+                <Segmented
+                  label="View"
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: 'transcript', label: 'Transcript' },
+                    { value: 'trace', label: 'Trace' },
+                  ]}
+                />
+              }
+            >
+              {view === 'trace' ? (
+                <TraceView events={events} subagents={subagents} current={step} onSeek={jump} />
+              ) : (
+                <Transcript events={events} current={step} onSeek={jump} />
+              )}
             </Panel>
             <div className={`${s.column} ${s.stickyCol}`}>
               <Panel flush>
@@ -352,6 +386,46 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                   />
                 </div>
               </Panel>
+              {events.some((e) => e.context_tokens != null) && (
+                <Panel title="Context window" icon={<Gauge />}>
+                  <ContextChart events={events} current={step} onSeek={jump} />
+                </Panel>
+              )}
+              {patterns.length > 0 && (
+                <Panel title={`Stuck · ${patterns.length}`} icon={<RotateCcw />} flush>
+                  <div className={s.scroll} style={{ maxHeight: 220 }}>
+                    {patterns.map((p, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className={`${s.file} ${step >= p.start_seq && step <= p.end_seq ? s.fileOn : ''}`}
+                        onClick={() => jump(p.start_seq)}
+                        title={`Steps ${p.start_seq + 1}–${p.end_seq + 1}`}
+                      >
+                        <RotateCcw aria-hidden style={{ width: 13, height: 13, flex: 'none', color: p.kind === 'edit_churn' ? 'var(--text-3)' : 'var(--status-serious)' }} />
+                        <span className={s.filePath} style={{ direction: 'ltr', fontFamily: 'var(--font-sans)' }}>
+                          {p.title}
+                        </span>
+                        {p.wasted_ms > 0 && <span className="num">{formatDuration(p.wasted_ms)}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </Panel>
+              )}
+              {commits.length > 0 && (
+                <Panel title={`Commits · ${commits.length}`} icon={<GitCommitHorizontal />} flush>
+                  {commits.map((c) => (
+                    <button key={c.seq} type="button" className={`${s.file} ${c.seq === cur?.seq ? s.fileOn : ''}`} onClick={() => jump(c.seq)}>
+                      <span className="mono" style={{ flex: 'none', color: 'var(--text-3)' }}>
+                        {c.hash ?? '·······'}
+                      </span>
+                      <span className={s.filePath} style={{ direction: 'ltr', fontFamily: 'var(--font-sans)' }}>
+                        {c.message ?? '(no message)'}
+                      </span>
+                    </button>
+                  ))}
+                </Panel>
+              )}
               {findings.length > 0 && (
                 <Panel title={`Risks · ${findings.length}`} icon={<ShieldAlert />} flush>
                   <div className={s.scroll} style={{ maxHeight: 260 }}>

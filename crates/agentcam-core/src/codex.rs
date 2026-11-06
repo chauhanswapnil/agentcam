@@ -119,6 +119,27 @@ impl State {
     }
 
     fn tokens(&mut self, p: &Value) {
+        // Per-call usage goes on the latest step.
+        if let Some(l) = p.get("info").and_then(|i| i.get("last_token_usage")) {
+            let n = |k: &str| l.get(k).and_then(Value::as_u64).unwrap_or(0);
+            let cached = n("cached_input_tokens");
+            let model = self.out.session.model.clone();
+            let target = if self.items.is_empty() {
+                self.legacy.last_mut()
+            } else {
+                self.items.last_mut()
+            };
+            if let Some(ev) = target {
+                let u = ev.usage.get_or_insert_with(|| TokenUsage {
+                    model,
+                    ..Default::default()
+                });
+                u.input += n("input_tokens").saturating_sub(cached);
+                u.cache_read += cached;
+                u.cache_write += n("cache_write_input_tokens");
+                u.output += n("output_tokens");
+            }
+        }
         let Some(u) = p.get("info").and_then(|i| i.get("total_token_usage")) else {
             return;
         };

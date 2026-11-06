@@ -34,6 +34,15 @@ pub fn command_touches(cmd: &str, cwd: Option<&str>) -> Vec<(String, FileAction)
     out
 }
 
+/// Each simple command in `cmd` as unquoted words, heredoc bodies skipped.
+pub(crate) fn command_words(cmd: &str) -> Vec<Vec<String>> {
+    segments(&strip_heredocs(cmd))
+        .iter()
+        .map(|s| words(s))
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
 /// Drop heredoc bodies (`<<EOF ... EOF`), keeping the command lines.
 fn strip_heredocs(cmd: &str) -> String {
     let mut out = String::new();

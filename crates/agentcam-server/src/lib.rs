@@ -155,6 +155,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/guard/suggest", get(api::guard_suggest))
         .route("/guard/{id}", axum::routing::delete(api::guard_delete))
         .route("/rules", get(api::rules_info).post(api::rules_save))
+        .route("/commits", get(api::commits))
         .fallback(api_not_found)
         .with_state(state);
 

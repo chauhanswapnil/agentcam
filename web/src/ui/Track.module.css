@@ -102,3 +102,15 @@
   box-shadow: 0 0 0 1.5px var(--bg-1);
   pointer-events: none;
 }
+
+/* A failed step inside a stuck loop: a red tick under the mark. */
+.waste {
+  position: absolute;
+  right: 0;
+  bottom: -6px;
+  left: 0;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--status-critical);
+  pointer-events: none;
+}

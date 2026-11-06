@@ -4,6 +4,12 @@ const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFra
 export const formatNumber = (n: number) => nf.format(n)
 export const formatCompact = (n: number) => compact.format(n)
 
+/** "$1.24", "$1,204", "<$0.01". */
+export function formatCost(usd: number): string {
+  if (usd > 0 && usd < 0.01) return '<$0.01'
+  return usd >= 100 ? '$' + Math.round(usd).toLocaleString('en-US') : '$' + usd.toFixed(2)
+}
+
 /** 2400 -> "2.4s", 95_000 -> "1m 35s", 7_380_000 -> "2h 3m". */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`

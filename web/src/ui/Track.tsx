@@ -116,6 +116,7 @@ const Mark = memo(function Mark({
       onClick={() => onSeek(i)}
     >
       {state === 'on' && <span className={s.playhead} aria-hidden />}
+      {e.wasted && <span className={s.waste} aria-label="stuck" />}
       {flag && <span className={s.flag} style={{ background: SEVERITY_COLOR[flag] }} aria-label={`${flag} risk`} />}
     </button>
   )

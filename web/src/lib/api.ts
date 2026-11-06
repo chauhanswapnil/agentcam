@@ -16,6 +16,10 @@ export type Stats = {
   projects: number
   findings: number
   serious_findings: number
+  cost_usd: number
+  unpriced_calls: number
+  wasted_ms: number
+  commits: number
 }
 
 export type Project = {
@@ -24,13 +28,14 @@ export type Project = {
   active_ms: number
   events: number
   last_active: string | null
+  cost_usd: number
   agents: AgentId[]
   weekly_ms: number[]
 }
 
 export type Overview = { since: string | null; stats: Stats; previous: Stats | null; projects: Project[] }
 
-export type Day = { day: string; sessions: number; active_ms: number; events: number; tool_calls: number }
+export type Day = { day: string; sessions: number; active_ms: number; events: number; tool_calls: number; cost_usd: number }
 
 export type SessionRow = {
   id: string
@@ -56,6 +61,12 @@ export type SessionRow = {
   subagents: number
   finding_count: number
   max_severity: Severity | null
+  est_cost_usd: number | null
+  cost_unpriced: boolean
+  peak_context: number
+  wasted_ms: number
+  pattern_count: number
+  commit_count: number
 }
 
 export type SessionPage = { total: number; items: SessionRow[] }
@@ -71,6 +82,31 @@ export type EventRow = {
   duration_ms: number | null
   /** Start of the text for prompts, responses, thinking and notices. */
   text: string | null
+  context_tokens: number | null
+  tokens_out: number
+  cost_usd: number | null
+  wasted: boolean
+}
+
+export type Pattern = {
+  kind: 'retry_loop' | 'error_streak' | 'revert' | 'edit_churn'
+  start_seq: number
+  end_seq: number
+  title: string
+  wasted_ms: number
+  wasted_tokens: number
+}
+
+export type CommitRow = {
+  session_id: string
+  seq: number
+  ts: string | null
+  hash: string | null
+  branch: string | null
+  message: string | null
+  agent: AgentId
+  project_root: string | null
+  session_title: string | null
 }
 
 export type FileRow = { seq: number; path: string; action: 'read' | 'edit' | 'create' | 'delete' }
@@ -84,6 +120,8 @@ export type SessionDetail = {
   events: EventRow[]
   files: FileRow[]
   findings: FindingRow[]
+  patterns: Pattern[]
+  commits: CommitRow[]
   subagents: SessionRow[]
 }
 

@@ -89,6 +89,24 @@ impl ToolCategory {
     }
 }
 
+/// Tokens one model call used, attached to the first step it produced.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct TokenUsage {
+    pub model: Option<String>,
+    /// Fresh input tokens (not read from cache).
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+}
+
+impl TokenUsage {
+    /// How full the context window was for this call.
+    pub fn context(&self) -> u64 {
+        self.input + self.cache_read + self.cache_write
+    }
+}
+
 /// One step in a session.
 #[derive(Debug, Clone, Serialize)]
 pub struct Event {
@@ -110,6 +128,8 @@ pub struct Event {
     /// Agent's own id for the call, used to pair results.
     #[serde(skip)]
     pub call_id: Option<String>,
+    /// Model tokens spent producing this step, when the log says.
+    pub usage: Option<TokenUsage>,
 }
 
 impl Event {
@@ -127,6 +147,7 @@ impl Event {
             duration_ms: None,
             source_offset,
             call_id: None,
+            usage: None,
         }
     }
 }

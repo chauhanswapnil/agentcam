@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { Day } from '../lib/api'
-import { formatHours, formatNumber, fromLocalDay, localDay } from '../lib/format'
+import { formatCost, formatHours, formatNumber, fromLocalDay, localDay } from '../lib/format'
 import s from './Heatmap.module.css'
 
 const CELL = 12
@@ -148,7 +148,10 @@ export function Heatmap({ days, selected, onSelect }: Props) {
           <strong>{fullDate(hover.cell.day)}</strong>
           {hover.cell.data ? (
             <>
-              <span>{formatHours(hover.cell.data.active_ms)} of agent time</span>
+              <span>
+                {formatHours(hover.cell.data.active_ms)} of agent time
+                {hover.cell.data.cost_usd > 0 ? ' · ' + formatCost(hover.cell.data.cost_usd) : ''}
+              </span>
               <span>
                 {hover.cell.data.sessions} {hover.cell.data.sessions === 1 ? 'session' : 'sessions'} ·{' '}
                 {formatNumber(hover.cell.data.tool_calls)} tool calls

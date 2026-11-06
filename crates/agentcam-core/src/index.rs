@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -57,7 +57,13 @@ CREATE TABLE sessions (
     file_count          INTEGER NOT NULL DEFAULT 0,
     active_ms           INTEGER NOT NULL DEFAULT 0,
     finding_count       INTEGER NOT NULL DEFAULT 0,
-    max_severity        INTEGER NOT NULL DEFAULT 0
+    max_severity        INTEGER NOT NULL DEFAULT 0,
+    est_cost_usd        REAL,
+    cost_unpriced       INTEGER NOT NULL DEFAULT 0,
+    peak_context        INTEGER NOT NULL DEFAULT 0,
+    wasted_ms           INTEGER NOT NULL DEFAULT 0,
+    pattern_count       INTEGER NOT NULL DEFAULT 0,
+    commit_count        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX sessions_root ON sessions(project_root);
 CREATE INDEX sessions_parent ON sessions(parent_id);
@@ -80,6 +86,14 @@ CREATE TABLE events (
     duration_ms   INTEGER,
     source_offset INTEGER NOT NULL,
     gap_ms        INTEGER NOT NULL DEFAULT 0,
+    model         TEXT,
+    tok_in        INTEGER NOT NULL DEFAULT 0,
+    tok_out       INTEGER NOT NULL DEFAULT 0,
+    tok_cache_read  INTEGER NOT NULL DEFAULT 0,
+    tok_cache_write INTEGER NOT NULL DEFAULT 0,
+    context_tokens  INTEGER,
+    cost_usd      REAL,
+    wasted        INTEGER NOT NULL DEFAULT 0,
     UNIQUE(session_id, seq)
 );
 CREATE INDEX events_ts ON events(ts);
@@ -105,6 +119,26 @@ CREATE TABLE findings (
 );
 CREATE INDEX findings_session ON findings(session_id, seq);
 CREATE INDEX findings_rule ON findings(rule_id);
+
+CREATE TABLE patterns (
+    session_id    TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    start_seq     INTEGER NOT NULL,
+    end_seq       INTEGER NOT NULL,
+    title         TEXT NOT NULL,
+    wasted_ms     INTEGER NOT NULL,
+    wasted_tokens INTEGER NOT NULL
+);
+CREATE INDEX patterns_session ON patterns(session_id);
+
+CREATE TABLE commits (
+    session_id  TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    hash        TEXT,
+    branch      TEXT,
+    message     TEXT
+);
+CREATE INDEX commits_session ON commits(session_id);
 
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -149,6 +183,7 @@ pub struct SearchHit {
 pub struct Index {
     conn: Connection,
     rules: crate::audit::Rules,
+    prices: crate::prices::Prices,
 }
 
 /// The user's own rules: `rules.yaml` next to the index.
@@ -184,7 +219,8 @@ impl Index {
                 "DROP TABLE IF EXISTS events_fts; DROP TABLE IF EXISTS file_touches;
                  DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS sessions;
                  DROP TABLE IF EXISTS sources; DROP TABLE IF EXISTS findings;
-                 DROP TABLE IF EXISTS meta;",
+                 DROP TABLE IF EXISTS meta; DROP TABLE IF EXISTS patterns;
+                 DROP TABLE IF EXISTS commits;",
             )?;
             conn.execute_batch(SCHEMA)?;
             conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
@@ -192,6 +228,7 @@ impl Index {
         Ok(Index {
             conn,
             rules: crate::audit::Rules::builtin(),
+            prices: crate::prices::Prices::builtin(),
         })
     }
 
@@ -207,6 +244,15 @@ impl Index {
         self.rules = rules;
     }
 
+    /// Use these prices from the next `update` on (changes re-check all).
+    pub fn set_prices(&mut self, prices: crate::prices::Prices) {
+        self.prices = prices;
+    }
+
+    fn fingerprint(&self) -> String {
+        format!("{}:{}", self.rules.fingerprint, self.prices.fingerprint)
+    }
+
     pub fn rules(&self) -> &crate::audit::Rules {
         &self.rules
     }
@@ -219,7 +265,7 @@ impl Index {
                 r.get(0)
             })
             .optional()?;
-        let full = full || stored.as_deref() != Some(self.rules.fingerprint.as_str());
+        let full = full || stored.as_deref() != Some(self.fingerprint().as_str());
         let files = discover(sources);
         let mut report = UpdateReport {
             files_seen: files.len(),
@@ -268,6 +314,7 @@ impl Index {
             })
             .collect();
 
+        let fingerprint = self.fingerprint();
         let tx = self.conn.transaction()?;
         // A file that still exists but is no longer picked up (say, a type
         // of log we now skip) shouldn't linger. Deleted logs stay indexed.
@@ -289,7 +336,7 @@ impl Index {
                     report.files_parsed += 1;
                     report.bad_lines += u64::from(p.bad_lines);
                     report.events_written += p.events.len();
-                    write_session(&tx, &p, &findings)?;
+                    write_session(&tx, &p, &findings, &self.prices)?;
                     tx.execute(
                         "INSERT INTO sources (path, agent, size, mtime_ns, session_id, bad_lines)
                          VALUES (?, ?, ?, ?, ?, ?)",
@@ -307,7 +354,7 @@ impl Index {
         }
         tx.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('rules', ?)",
-            [&self.rules.fingerprint],
+            [&fingerprint],
         )?;
         tx.commit()?;
 
@@ -358,10 +405,12 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
         &format!("DELETE FROM file_touches WHERE session_id IN ({ids})"),
         [key],
     )?;
-    tx.execute(
-        &format!("DELETE FROM findings WHERE session_id IN ({ids})"),
-        [key],
-    )?;
+    for table in ["findings", "patterns", "commits"] {
+        tx.execute(
+            &format!("DELETE FROM {table} WHERE session_id IN ({ids})"),
+            [key],
+        )?;
+    }
     tx.execute("DELETE FROM sessions WHERE source_path = ?1", [key])?;
     tx.execute("DELETE FROM sources WHERE path = ?1", [key])?;
     Ok(())
@@ -371,6 +420,7 @@ fn write_session(
     tx: &rusqlite::Transaction,
     p: &ParsedSession,
     findings: &[crate::audit::Finding],
+    prices: &crate::prices::Prices,
 ) -> Result<()> {
     let s = &p.session;
     // Another file may have claimed this id before (a moved or copied log).
@@ -405,14 +455,42 @@ fn write_session(
         })
         .collect();
     let active_ms: i64 = gaps.iter().sum();
+
+    // Cost per step from the price table; a model without a price leaves
+    // the session's estimate marked incomplete.
+    let costs: Vec<Option<f64>> = p
+        .events
+        .iter()
+        .map(|e| e.usage.as_ref().and_then(|u| prices.cost(u)))
+        .collect();
+    let unpriced = p
+        .events
+        .iter()
+        .zip(&costs)
+        .any(|(e, c)| e.usage.is_some() && c.is_none());
+    let priced: Vec<f64> = costs.iter().flatten().copied().collect();
+    let est_cost = (!priced.is_empty()).then(|| priced.iter().sum::<f64>());
+    let peak_context = p
+        .events
+        .iter()
+        .filter_map(|e| e.usage.as_ref())
+        .map(|u| u.context())
+        .max()
+        .unwrap_or(0);
+    let patterns = crate::patterns::detect(p, &gaps);
+    let wasted = crate::patterns::wasted_ms(p, &gaps, &patterns);
+    let wasted_steps = crate::patterns::wasted_steps(p, &patterns);
+    let commits = crate::commits::detect(p);
     let root = s.project_path.as_deref().map(crate::project_root);
 
     tx.execute(
         "INSERT INTO sessions (id, agent, source_path, parent_id, project_path, title, first_prompt,
             git_branch, model, agent_version, started_at, ended_at, input_tokens, output_tokens,
             cache_read_tokens, cache_write_tokens, cost_usd, event_count, tool_call_count,
-            error_count, file_count, project_root, active_ms, finding_count, max_severity)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+            error_count, file_count, project_root, active_ms, finding_count, max_severity,
+            est_cost_usd, cost_unpriced, peak_context, wasted_ms, pattern_count, commit_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25,
+                 ?26, ?27, ?28, ?29, ?30, ?31)",
         params![
             s.id,
             s.agent.map(Agent::as_str).unwrap_or("unknown"),
@@ -439,17 +517,24 @@ fn write_session(
             active_ms,
             findings.len() as i64,
             findings.iter().map(|f| f.severity as i64).max().unwrap_or(0),
+            est_cost,
+            unpriced,
+            peak_context as i64,
+            wasted,
+            patterns.len() as i64,
+            commits.len() as i64,
         ],
     )?;
 
     let mut ev = tx.prepare_cached(
         "INSERT INTO events (session_id, seq, ts, kind, tool_name, category, title, body, input,
-            is_error, duration_ms, source_offset, gap_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            is_error, duration_ms, source_offset, gap_ms, model, tok_in, tok_out, tok_cache_read,
+            tok_cache_write, context_tokens, cost_usd, wasted)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
     )?;
     let mut fts =
         tx.prepare_cached("INSERT INTO events_fts (rowid, title, body) VALUES (?, ?, ?)")?;
-    for (e, gap) in p.events.iter().zip(&gaps) {
+    for ((e, gap), cost) in p.events.iter().zip(&gaps).zip(&costs) {
         let input = e
             .input
             .as_ref()
@@ -468,6 +553,14 @@ fn write_session(
             e.duration_ms.map(|d| d as i64),
             e.source_offset as i64,
             gap,
+            e.usage.as_ref().and_then(|u| u.model.clone()),
+            e.usage.as_ref().map_or(0, |u| u.input as i64),
+            e.usage.as_ref().map_or(0, |u| u.output as i64),
+            e.usage.as_ref().map_or(0, |u| u.cache_read as i64),
+            e.usage.as_ref().map_or(0, |u| u.cache_write as i64),
+            e.usage.as_ref().map(|u| u.context() as i64),
+            cost,
+            wasted_steps.contains(&e.seq),
         ])?;
         fts.execute(params![tx.last_insert_rowid(), e.title, e.body])?;
     }
@@ -477,6 +570,28 @@ fn write_session(
     )?;
     for t in &p.touches {
         ft.execute(params![s.id, t.seq, t.path, t.action.as_str(), t.diff])?;
+    }
+
+    let mut pt = tx.prepare_cached(
+        "INSERT INTO patterns (session_id, kind, start_seq, end_seq, title, wasted_ms, wasted_tokens)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )?;
+    for x in &patterns {
+        pt.execute(params![
+            s.id,
+            x.kind,
+            x.start_seq,
+            x.end_seq,
+            x.title,
+            x.wasted_ms,
+            x.wasted_tokens
+        ])?;
+    }
+    let mut cm = tx.prepare_cached(
+        "INSERT INTO commits (session_id, seq, hash, branch, message) VALUES (?, ?, ?, ?, ?)",
+    )?;
+    for c in &commits {
+        cm.execute(params![s.id, c.seq, c.hash, c.branch, c.message])?;
     }
 
     let mut fi = tx.prepare_cached(
@@ -503,7 +618,9 @@ fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
     )?;
     tx.execute("DELETE FROM events WHERE session_id = ?1", [id])?;
     tx.execute("DELETE FROM file_touches WHERE session_id = ?1", [id])?;
-    tx.execute("DELETE FROM findings WHERE session_id = ?1", [id])?;
+    for table in ["findings", "patterns", "commits"] {
+        tx.execute(&format!("DELETE FROM {table} WHERE session_id = ?1"), [id])?;
+    }
     tx.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
     Ok(())
 }

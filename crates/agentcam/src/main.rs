@@ -51,12 +51,40 @@ enum Command {
     /// Claude Code PreToolUse hook: reads the tool call from stdin and
     /// exits 2 (block) if a guard rule matches. Set up from the Audit page.
     Guard,
+    /// Export sessions as OpenTelemetry traces (OTLP/JSON).
+    Export {
+        #[command(subcommand)]
+        format: ExportFormat,
+    },
     /// Full-text search across all indexed sessions.
     Search {
         /// Words to look for (SQLite FTS5 syntax).
         query: Vec<String>,
         #[arg(long, short, default_value_t = 20)]
         limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExportFormat {
+    /// OTLP/JSON traces: write a file, or send to a collector with --endpoint.
+    Otlp {
+        /// Time range: 7d, 30d, 90d or all.
+        #[arg(long, default_value = "7d")]
+        range: String,
+        /// Only this project root.
+        #[arg(long)]
+        project: Option<String>,
+        /// File to write (default agentcam-traces.json). Ignored with --endpoint.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+        /// POST to an OTLP/HTTP traces endpoint, e.g. http://localhost:4318/v1/traces.
+        /// This sends session data off the machine only if the endpoint is remote.
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// Extra request header for --endpoint, as `name=value` (repeatable).
+        #[arg(long = "header")]
+        headers: Vec<String>,
     },
 }
 
@@ -89,6 +117,15 @@ async fn main() -> anyhow::Result<()> {
         Command::Index { full } => index(&db, full),
         Command::Scan { min, range, all } => scan(&db, &min, &range, all),
         Command::Guard => unreachable!("handled before startup"),
+        Command::Export { format } => match format {
+            ExportFormat::Otlp {
+                range,
+                project,
+                out,
+                endpoint,
+                headers,
+            } => export_otlp(&db, &range, project, out, endpoint, &headers),
+        },
         Command::Search { query, limit } => search(&db, &query.join(" "), limit),
     }
 }
@@ -126,6 +163,55 @@ fn guard(db: Option<&std::path::Path>) -> i32 {
         }
         None => 0,
     }
+}
+
+fn export_otlp(
+    db: &std::path::Path,
+    range: &str,
+    project: Option<String>,
+    out: Option<PathBuf>,
+    endpoint: Option<String>,
+    headers: &[String],
+) -> anyhow::Result<()> {
+    let mut idx = open_index(db)?;
+    idx.update(&agentcam_core::default_log_sources(), false)?;
+    let days: Option<i64> = range.strip_suffix('d').and_then(|d| d.parse().ok());
+    let f = agentcam_core::query::Filter {
+        since: days.map(|d| {
+            agentcam_core::util::format_ts_ms(agentcam_core::util::now_ms() - d * 86_400_000)
+        }),
+        project,
+        ..Default::default()
+    };
+    let (body, sessions) = agentcam_core::otel::export(idx.conn(), &f)?;
+    let spans = body["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        .as_array()
+        .map_or(0, Vec::len);
+    match endpoint {
+        Some(url) => {
+            let mut req = ureq::post(&url).set("Content-Type", "application/json");
+            for h in headers {
+                let (k, v) = h.split_once('=').context("headers look like name=value")?;
+                req = req.set(k.trim(), v.trim());
+            }
+            req.send_string(&body.to_string())
+                .map_err(|e| anyhow::anyhow!("sending to {url}: {e}"))?;
+            println!("Sent {spans} spans from {sessions} sessions to {url}");
+        }
+        None => {
+            let path = out.unwrap_or_else(|| PathBuf::from("agentcam-traces.json"));
+            std::fs::write(&path, serde_json::to_string(&body)?)?;
+            println!(
+                "Wrote {spans} spans from {sessions} sessions to {}",
+                path.display()
+            );
+            println!(
+                "Send it with: curl -X POST -H 'Content-Type: application/json' --data @{} http://localhost:4318/v1/traces",
+                path.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Built-in rules plus `rules.yaml` next to the index, if present.

@@ -95,6 +95,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool |
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
+| `GET /api/commits` | Commits made by agent sessions, newest first |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
@@ -122,6 +123,14 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - agentcam never edits the agent's settings. The Audit page shows the hook JSON for the user to add.
 - Codex uses the same hook contract (exit 2 + stderr blocks; `Bash` and `apply_patch` send `tool_input.command`). Codex makes users trust new hooks in `/hooks` before they run. Indexed Codex tool names map to hook names with `guard::hook_tool`.
 - Write routes (`POST`, `DELETE`) are refused unless `Origin` and `Sec-Fetch-Site` say the request came from agentcam's own page (`same_site_writes` in the server). Keep it.
+
+### Cost, context, waste and commits
+
+- **Tokens per step:** each model call's usage sits on the first step it produced (`TokenUsage` in `model.rs`); context size = fresh input + cache reads + cache writes.
+- **Prices:** `rules/prices.yaml` (built in, Anthropic list prices) plus the user's `prices.yaml` next to the index. Longest `match` prefix wins. Missing cache prices are estimated (10% / 125% of input), and a model without a price leaves the cost unknown, never guessed. Changing prices re-checks every session (fingerprint in `meta`).
+- **Waste (`patterns.rs`):** retry loops (same call failing 3+ times), error streaks (4+ failed tool calls in a row), reverts (an Edit that undoes an earlier one) and edit churn (6+ edits to one file, a signal only). `events.wasted` marks steps counted as wasted, each once.
+- **Commits (`commits.rs`):** only real `git commit` command segments count (via `shell::command_words`, heredoc bodies skipped); hash and branch from git's `[branch hash] message` output when present.
+- **OTel (`otel.rs`):** `agentcam export otlp` writes OTLP/JSON; it only sends data when `--endpoint` is given.
 
 ### Performance rules
 

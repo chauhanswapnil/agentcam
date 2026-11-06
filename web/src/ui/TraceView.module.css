@@ -1,0 +1,133 @@
+.trace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.axis,
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-4);
+}
+.axis {
+  height: 28px;
+  border-bottom: 1px solid var(--line-1);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.rows {
+  position: relative;
+  max-height: calc(100vh - 260px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.row {
+  height: 26px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
+  cursor: pointer;
+}
+.row:hover {
+  background: var(--bg-2);
+}
+.on,
+.on:hover {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--text-1);
+}
+.wasted {
+  background: color-mix(in oklab, var(--status-critical) 8%, transparent);
+}
+.child {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  cursor: default;
+}
+.labelCol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.labelCol > * {
+  flex: none;
+}
+.labelCol > .title {
+  flex: 1;
+  min-width: 0;
+}
+.title {
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.on .title {
+  color: var(--text-1);
+}
+.toggle,
+.toggleSpace {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.toggle:hover {
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+.toggle svg {
+  width: 13px;
+  height: 13px;
+}
+.indent {
+  flex: none;
+  width: 12px;
+  border-left: 1px solid var(--line-3);
+  height: 16px;
+}
+.barCol {
+  position: relative;
+  height: 100%;
+}
+.axis .barCol i {
+  position: absolute;
+  top: 50%;
+  font-style: normal;
+  transform: translate(-50%, -50%);
+}
+.axis .barCol i:first-child {
+  transform: translate(0, -50%);
+}
+.axis .barCol i:last-child {
+  transform: translate(-100%, -50%);
+}
+.span,
+.dot {
+  position: absolute;
+  top: 50%;
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+.span {
+  height: 12px;
+}
+.dot {
+  width: 5px;
+  height: 5px;
+  margin-left: -2px;
+  border-radius: 50%;
+  opacity: 0.8;
+}

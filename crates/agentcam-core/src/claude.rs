@@ -27,6 +27,8 @@ struct State {
     pending: HashMap<String, usize>,
     /// Final usage per API message (one message spans several records).
     usage: HashMap<String, Usage>,
+    /// API message id -> index of the first event it produced, and its model.
+    msg_first: HashMap<String, (usize, Option<String>)>,
     custom_title: Option<String>,
     ai_title: Option<String>,
     summary: Option<String>,
@@ -64,6 +66,18 @@ pub fn parse(path: &Path) -> io::Result<ParsedSession> {
     }
     if s.title.is_none() {
         s.title = st.custom_title.or(st.ai_title).or(st.summary);
+    }
+    // Put each API call's tokens on the first step it produced.
+    for (id, (idx, model)) in &st.msg_first {
+        if let (Some(u), Some(ev)) = (st.usage.get(id), out.events.get_mut(*idx)) {
+            ev.usage = Some(TokenUsage {
+                model: model.clone(),
+                input: u.input,
+                output: u.output,
+                cache_read: u.cache_read,
+                cache_write: u.cache_write,
+            });
+        }
     }
     out.finish();
     Ok(out)
@@ -238,6 +252,20 @@ impl State {
         let Some(blocks) = msg.get("content").and_then(Value::as_array) else {
             return;
         };
+        let before = self.out.events.len();
+        self.assistant_blocks(blocks, offset, ts, rec);
+        if let Some(id) = str_of(msg, "id")
+            && self.out.events.len() > before
+            && !self.msg_first.contains_key(id)
+        {
+            let model = str_of(msg, "model")
+                .filter(|m| !m.starts_with('<'))
+                .map(String::from);
+            self.msg_first.insert(id.to_string(), (before, model));
+        }
+    }
+
+    fn assistant_blocks(&mut self, blocks: &[Value], offset: u64, ts: Option<String>, rec: &Value) {
         for b in blocks {
             match str_of(b, "type") {
                 Some("text") => {
@@ -326,6 +354,21 @@ impl State {
     }
 
     fn system(&mut self, rec: &Value, offset: u64, ts: Option<String>) {
+        if str_of(rec, "subtype") == Some("compact_boundary") {
+            let mut e = Event::new(EventKind::System, offset, ts);
+            e.title = "Context compacted".into();
+            let meta = rec.get("compactMetadata");
+            let pre = meta
+                .and_then(|m| m.get("preTokens"))
+                .and_then(Value::as_u64);
+            let trigger = meta.and_then(|m| str_of(m, "trigger")).unwrap_or("auto");
+            e.body = match pre {
+                Some(n) => format!("{trigger} compaction at {n} tokens"),
+                None => format!("{trigger} compaction"),
+            };
+            self.push(e);
+            return;
+        }
         let level = str_of(rec, "level").unwrap_or("");
         if level != "error" && level != "warning" {
             return;

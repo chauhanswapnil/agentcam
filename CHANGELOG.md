@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format follows [Kee
 - Parsers for Claude Code and Codex logs (including subagents and older Codex formats) into one event model.
 - SQLite index with full-text search; only changed logs are re-read, and sessions are kept after their logs are deleted.
 - `agentcam index` and `agentcam search` commands.
+- Cost: per-step token usage and an estimated cost from a model price table (`prices.yaml`, editable); cost in the overview, projects, sessions, heatmap and replay.
+- Context window chart per session, with compactions marked.
+- Stuck detection: retry loops, failure streaks and reverts, with time lost shown on sessions, the overview and the replay timeline.
+- Commits: which commits each session made, a Commits page, and commits in the replay.
+- Trace view in the replay: steps on an agent-time axis with subagents nested inside their calls.
+- `agentcam export otlp`: sessions as OpenTelemetry traces, to a file or an OTLP endpoint.
 - README with screenshots, commands, supported agents and privacy notes; `scripts/demo-data.py` makes fake sessions for demos.
 - Rule editor on the Audit page: see all rules, write your own in YAML, check and save; saving re-checks every session.
 - Block next time works for Codex too (same hook contract), with setup for both agents on the Audit page.

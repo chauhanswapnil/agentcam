@@ -573,3 +573,29 @@ fn audit_tools_and_files_views() {
     assert!(hist.iter().all(|h| h.action.is_some()));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn otel_export_nests_subagents() {
+    use agentcam_core::query::Filter;
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(&sources(), false).unwrap();
+    let (body, n) = agentcam_core::otel::export(idx.conn(), &Filter::default()).unwrap();
+    assert_eq!(n, 3, "three top-level sessions");
+    let spans = body["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        .as_array()
+        .unwrap();
+    let sub = spans
+        .iter()
+        .find(|s| s["name"] == "Find other password checks" && s.get("parentSpanId").is_some())
+        .unwrap();
+    let agent_call = spans.iter().find(|s| s["name"] == "Agent").unwrap();
+    assert_eq!(
+        sub["parentSpanId"], agent_call["spanId"],
+        "subagent nests under its Agent call"
+    );
+    assert_eq!(sub["traceId"], agent_call["traceId"]);
+    assert!(
+        spans.iter().any(|s| s["status"]["code"] == 2),
+        "failed steps are errors"
+    );
+}

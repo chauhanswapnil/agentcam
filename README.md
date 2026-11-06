@@ -26,6 +26,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Audit: rules that fired, latest findings, and a guard rule](docs/screenshots/audit.png)
 
+**Observability.** Estimated cost per step, session, project and day from an editable price table. A context window chart with compactions marked. Stuck detection for retry loops, failure streaks and reverts, with the time they cost. The commits each session made. A trace view of every session, and `agentcam export otlp` to send sessions to Jaeger, Grafana Tempo or Honeycomb.
+
 **Also:** a tool calls page (use, failures and time per tool), a files page (the most changed files and each file's history), shareable report cards (PNG) for a session or your week, and live updates as agents write.
 
 ## Install
@@ -50,6 +52,7 @@ agentcam
 | `agentcam index [--full]` | Read new and changed logs, print a summary |
 | `agentcam search <words>` | Full-text search from the terminal |
 | `agentcam scan [--min high] [--range 30d]` | Print what the risk rules found |
+| `agentcam export otlp [--range 7d] [--out f] [--endpoint url]` | Sessions as OpenTelemetry traces (OTLP/JSON); sends data only with `--endpoint` |
 | `agentcam guard` | The hook command: reads a tool call on stdin, exits 2 to block it |
 
 All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By default the index lives in your data folder (`~/Library/Application Support/agentcam/` on macOS), next to `rules.yaml` (your rules) and `guard.yaml` (your guard rules).

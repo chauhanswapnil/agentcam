@@ -4,9 +4,13 @@
 pub mod audit;
 pub mod claude;
 pub mod codex;
+pub mod commits;
 pub mod guard;
 pub mod index;
 pub mod model;
+pub mod otel;
+pub mod patterns;
+pub mod prices;
 pub mod query;
 pub mod shell;
 pub mod util;

@@ -690,3 +690,14 @@ pub async fn rules_save(State(st): Shared, Json(b): Json<SaveRules>) -> Response
     st.spawn_index(false);
     Json(serde_json::json!({ "ok": true, "rules": count })).into_response()
 }
+
+pub async fn commits(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<query::CommitRow>>, ApiError> {
+    let f = p.filter(now_ms());
+    let limit = p.limit.unwrap_or(300).min(1000);
+    st.read(move |idx| query::commits(idx.conn(), &f, limit))
+        .await
+        .map(Json)
+}

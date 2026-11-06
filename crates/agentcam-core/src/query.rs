@@ -24,7 +24,7 @@ pub struct Filter {
 }
 
 /// SQL conditions on `e` (events) and `s` (sessions) for a filter.
-fn conditions(f: &Filter) -> (String, Vec<String>) {
+pub(crate) fn conditions(f: &Filter) -> (String, Vec<String>) {
     let mut sql = vec!["1 = 1".to_string()];
     let mut args = Vec::new();
     let mut add = |cond: &str, v: &Option<String>| {
@@ -56,6 +56,13 @@ pub struct Stats {
     pub findings: i64,
     /// Findings rated high or critical.
     pub serious_findings: i64,
+    /// Estimated dollars from the price table, over priced calls.
+    pub cost_usd: f64,
+    /// Model calls with tokens but no price (cost unknown).
+    pub unpriced_calls: i64,
+    /// Agent time spent on stuck loops, failure streaks and reverts.
+    pub wasted_ms: i64,
+    pub commits: i64,
 }
 
 pub fn stats(conn: &Connection, f: &Filter) -> Result<Stats> {
@@ -68,7 +75,10 @@ pub fn stats(conn: &Connection, f: &Filter) -> Result<Stats> {
                 coalesce(sum(e.kind = 'tool_call'), 0),
                 coalesce(sum(e.category = 'command'), 0),
                 coalesce(sum(e.is_error), 0),
-                count(DISTINCT s.project_root)
+                count(DISTINCT s.project_root),
+                coalesce(sum(e.cost_usd), 0),
+                coalesce(sum(e.cost_usd IS NULL AND (e.tok_in + e.tok_out + e.tok_cache_read) > 0), 0),
+                coalesce(sum(CASE WHEN e.wasted THEN coalesce(e.duration_ms, e.gap_ms) END), 0)
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE {cond}"
     );
@@ -82,6 +92,9 @@ pub fn stats(conn: &Connection, f: &Filter) -> Result<Stats> {
             commands: r.get(5)?,
             errors: r.get(6)?,
             projects: r.get(7)?,
+            cost_usd: r.get(8)?,
+            unpriced_calls: r.get(9)?,
+            wasted_ms: r.get(10)?,
             ..Default::default()
         })
     })?;
@@ -102,6 +115,15 @@ pub fn stats(conn: &Connection, f: &Filter) -> Result<Stats> {
     (st.findings, st.serious_findings) = conn.query_row(&fsql, params_from_iter(&args), |r| {
         Ok((r.get(0)?, r.get(1)?))
     })?;
+    st.commits = conn.query_row(
+        &format!(
+            "SELECT count(*) FROM commits c
+             JOIN events e ON e.session_id = c.session_id AND e.seq = c.seq
+             JOIN sessions s ON s.id = e.session_id WHERE {cond}"
+        ),
+        params_from_iter(&args),
+        |r| r.get(0),
+    )?;
     (st.files_changed, st.files_created) =
         conn.query_row(&files, params_from_iter(&args), |r| {
             Ok((r.get(0)?, r.get(1)?))
@@ -117,6 +139,7 @@ pub struct Day {
     pub active_ms: i64,
     pub events: i64,
     pub tool_calls: i64,
+    pub cost_usd: f64,
 }
 
 /// Activity per local day for days with any steps. Ignores `f.day`.
@@ -129,7 +152,7 @@ pub fn activity(conn: &Connection, f: &Filter) -> Result<Vec<Day>> {
     let sql = format!(
         "SELECT date(e.ts, 'localtime') AS d,
                 count(DISTINCT coalesce(s.parent_id, s.id)),
-                sum(e.gap_ms), count(*), sum(e.kind = 'tool_call')
+                sum(e.gap_ms), count(*), sum(e.kind = 'tool_call'), coalesce(sum(e.cost_usd), 0)
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE e.ts IS NOT NULL AND {cond}
          GROUP BY d ORDER BY d"
@@ -142,6 +165,7 @@ pub fn activity(conn: &Connection, f: &Filter) -> Result<Vec<Day>> {
             active_ms: r.get(2)?,
             events: r.get(3)?,
             tool_calls: r.get(4)?,
+            cost_usd: r.get(5)?,
         })
     })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
@@ -155,6 +179,7 @@ pub struct Project {
     pub active_ms: i64,
     pub events: i64,
     pub last_active: Option<String>,
+    pub cost_usd: f64,
     pub agents: Vec<String>,
     /// Active time per week, oldest first, ending with the week before `until`.
     pub weekly_ms: Vec<i64>,
@@ -170,7 +195,7 @@ pub fn projects(conn: &Connection, f: &Filter, weeks: usize, now: &str) -> Resul
     let (cond, args) = conditions(&f);
     let sql = format!(
         "SELECT coalesce(s.project_root, ''), count(DISTINCT coalesce(s.parent_id, s.id)),
-                sum(e.gap_ms), count(*), max(e.ts), group_concat(DISTINCT s.agent)
+                sum(e.gap_ms), count(*), max(e.ts), group_concat(DISTINCT s.agent), coalesce(sum(e.cost_usd), 0)
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE {cond}
          GROUP BY 1 ORDER BY 3 DESC"
@@ -185,6 +210,7 @@ pub fn projects(conn: &Connection, f: &Filter, weeks: usize, now: &str) -> Resul
                 active_ms: r.get(2)?,
                 events: r.get(3)?,
                 last_active: r.get(4)?,
+                cost_usd: r.get(6)?,
                 agents: agents
                     .map(|a| a.split(',').map(String::from).collect())
                     .unwrap_or_default(),
@@ -255,6 +281,15 @@ pub struct SessionRow {
     pub finding_count: i64,
     /// Worst finding: `low`, `medium`, `high`, `critical`, or null.
     pub max_severity: Option<String>,
+    /// Estimated from the price table; null when no call had a price.
+    pub est_cost_usd: Option<f64>,
+    /// Some calls had no price, so the estimate is low.
+    pub cost_unpriced: bool,
+    /// Largest context window seen in one call.
+    pub peak_context: i64,
+    pub wasted_ms: i64,
+    pub pattern_count: i64,
+    pub commit_count: i64,
 }
 
 const SESSION_COLS: &str = "s.id, s.agent, s.title, s.first_prompt, s.project_path, s.project_root,
@@ -262,7 +297,8 @@ const SESSION_COLS: &str = "s.id, s.agent, s.title, s.first_prompt, s.project_pa
     s.tool_call_count, s.error_count, s.file_count, s.input_tokens, s.output_tokens,
     s.cache_read_tokens, s.cost_usd,
     (SELECT count(*) FROM sessions c WHERE c.parent_id = s.id),
-    s.finding_count, s.max_severity";
+    s.finding_count, s.max_severity, s.est_cost_usd, s.cost_unpriced, s.peak_context, s.wasted_ms,
+    s.pattern_count, s.commit_count";
 
 fn session_row(r: &Row) -> rusqlite::Result<SessionRow> {
     Ok(SessionRow {
@@ -289,6 +325,12 @@ fn session_row(r: &Row) -> rusqlite::Result<SessionRow> {
         subagents: r.get(20)?,
         finding_count: r.get(21)?,
         max_severity: severity_name(r.get(22)?),
+        est_cost_usd: r.get(23)?,
+        cost_unpriced: r.get(24)?,
+        peak_context: r.get(25)?,
+        wasted_ms: r.get(26)?,
+        pattern_count: r.get(27)?,
+        commit_count: r.get(28)?,
     })
 }
 
@@ -337,6 +379,11 @@ pub struct EventRow {
     /// Start of the text for prompts, responses, thinking and notices
     /// (the transcript). Tool output comes from [`step`].
     pub text: Option<String>,
+    /// Context window size for the model call that produced this step.
+    pub context_tokens: Option<i64>,
+    pub tokens_out: i64,
+    pub cost_usd: Option<f64>,
+    pub wasted: bool,
 }
 
 /// A file a step touched.
@@ -353,7 +400,55 @@ pub struct SessionDetail {
     pub events: Vec<EventRow>,
     pub files: Vec<FileRow>,
     pub findings: Vec<FindingRow>,
+    pub patterns: Vec<crate::patterns::Pattern>,
+    pub commits: Vec<CommitRow>,
     pub subagents: Vec<SessionRow>,
+}
+
+/// A commit a session made.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitRow {
+    pub session_id: String,
+    pub seq: i64,
+    pub ts: Option<String>,
+    pub hash: Option<String>,
+    pub branch: Option<String>,
+    pub message: Option<String>,
+    pub agent: String,
+    pub project_root: Option<String>,
+    pub session_title: Option<String>,
+}
+
+const COMMIT_COLS: &str =
+    "c.session_id, c.seq, e.ts, c.hash, c.branch, c.message, s.agent, s.project_root,
+    coalesce(r.title, r.first_prompt)";
+const COMMIT_JOIN: &str = "FROM commits c
+    JOIN events e ON e.session_id = c.session_id AND e.seq = c.seq
+    JOIN sessions s ON s.id = c.session_id
+    LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)";
+
+fn commit_row(r: &Row) -> rusqlite::Result<CommitRow> {
+    Ok(CommitRow {
+        session_id: r.get(0)?,
+        seq: r.get(1)?,
+        ts: r.get(2)?,
+        hash: r.get(3)?,
+        branch: r.get(4)?,
+        message: r.get(5)?,
+        agent: r.get(6)?,
+        project_root: r.get(7)?,
+        session_title: r.get(8)?,
+    })
+}
+
+/// Commits made by agent sessions under `f`, newest first.
+pub fn commits(conn: &Connection, f: &Filter, limit: u32) -> Result<Vec<CommitRow>> {
+    let (cond, args) = conditions(f);
+    let sql =
+        format!("SELECT {COMMIT_COLS} {COMMIT_JOIN} WHERE {cond} ORDER BY e.ts DESC LIMIT {limit}");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), commit_row)?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -403,7 +498,8 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     };
     let mut stmt = conn.prepare(&format!(
         "SELECT seq, ts, kind, tool_name, category, title, is_error, duration_ms,
-                CASE WHEN kind != 'tool_call' THEN substr(body, 1, {TRANSCRIPT_TEXT}) END
+                CASE WHEN kind != 'tool_call' THEN substr(body, 1, {TRANSCRIPT_TEXT}) END,
+                context_tokens, tok_out, cost_usd, wasted
          FROM events WHERE session_id = ? ORDER BY seq"
     ))?;
     let events = stmt
@@ -418,6 +514,10 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
                 is_error: r.get(6)?,
                 duration_ms: r.get(7)?,
                 text: r.get(8)?,
+                context_tokens: r.get(9)?,
+                tokens_out: r.get(10)?,
+                cost_usd: r.get(11)?,
+                wasted: r.get(12)?,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
@@ -453,11 +553,41 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     let subagents = stmt
         .query_map([id], session_row)?
         .collect::<std::result::Result<_, _>>()?;
+    let mut stmt = conn.prepare(
+        "SELECT kind, start_seq, end_seq, title, wasted_ms, wasted_tokens FROM patterns
+         WHERE session_id = ? ORDER BY start_seq",
+    )?;
+    let patterns = stmt
+        .query_map([id], |r| {
+            let kind: String = r.get(0)?;
+            Ok(crate::patterns::Pattern {
+                kind: match kind.as_str() {
+                    "retry_loop" => "retry_loop",
+                    "error_streak" => "error_streak",
+                    "revert" => "revert",
+                    _ => "edit_churn",
+                },
+                start_seq: r.get(1)?,
+                end_seq: r.get(2)?,
+                title: r.get(3)?,
+                wasted_ms: r.get(4)?,
+                wasted_tokens: r.get(5)?,
+            })
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COMMIT_COLS} {COMMIT_JOIN} WHERE c.session_id = ? ORDER BY c.seq"
+    ))?;
+    let commits = stmt
+        .query_map([id], commit_row)?
+        .collect::<std::result::Result<_, _>>()?;
     Ok(Some(SessionDetail {
         session,
         events,
         files,
         findings,
+        patterns,
+        commits,
         subagents,
     }))
 }

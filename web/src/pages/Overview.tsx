@@ -1,4 +1,4 @@
-import { Bot, CalendarDays, FolderGit2, Inbox, RefreshCw, Rows3, TriangleAlert, X } from 'lucide-react'
+import { Bot, CalendarDays, RotateCcw, FolderGit2, Inbox, RefreshCw, Rows3, TriangleAlert, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { AGENTS, type AgentId } from '../lib/agents'
@@ -22,6 +22,7 @@ import {
   formatHours,
   formatNumber,
   formatTime,
+  formatCost,
   localDay,
   oneLine,
 } from '../lib/format'
@@ -87,13 +88,21 @@ function StatsStrip({ stats, prev, range }: { stats: Stats; prev?: Stats | null;
   return (
     <div className={s.stats}>
       <div className={s.stat}>
-        <Stat label="Agent time" value={formatHours(stats.active_ms)} sub={delta(stats.active_ms, p?.active_ms, range) ?? 'idle gaps over 5 min left out'} />
+        <Stat
+          label="Agent time"
+          value={formatHours(stats.active_ms)}
+          sub={stats.wasted_ms > 0 ? formatHours(stats.wasted_ms) + ' stuck in loops and retries' : (delta(stats.active_ms, p?.active_ms, range) ?? 'idle gaps over 5 min left out')}
+        />
       </div>
       <div className={s.stat}>
         <Stat label="Sessions" value={formatNumber(stats.sessions)} sub={delta(stats.sessions, p?.sessions, range) ?? `${stats.projects} projects`} />
       </div>
       <div className={s.stat}>
-        <Stat label="Prompts" value={formatNumber(stats.prompts)} sub={`${formatCompact(stats.events)} steps in all`} />
+        <Stat
+          label="Est. cost"
+          value={formatCost(stats.cost_usd) + (stats.unpriced_calls ? '+' : '')}
+          sub={stats.unpriced_calls ? formatNumber(stats.unpriced_calls) + ' calls with no price' : formatNumber(stats.prompts) + ' prompts · ' + formatNumber(stats.commits) + ' commits'}
+        />
       </div>
       <div className={s.stat}>
         <Stat label="Tool calls" value={formatCompact(stats.tool_calls)} sub={`${formatNumber(stats.commands)} commands`} />
@@ -132,6 +141,7 @@ function Projects({ projects, selected, onSelect }: { projects: Project[]; selec
               ))}
             </span>
             {p.sessions} {p.sessions === 1 ? 'session' : 'sessions'}
+            {p.cost_usd > 0 && <> · {formatCost(p.cost_usd)}</>}
             {p.last_active && <> · {formatAgo(p.last_active)}</>}
           </span>
         </button>
@@ -199,6 +209,13 @@ function SessionList({ rows, onOpen }: { rows: SessionRow[]; onOpen: (id: string
                       </span>
                     </Tooltip>
                   )}
+                  {r.wasted_ms > 0 && (
+                    <Tooltip content={formatHours(r.wasted_ms) + ' stuck in loops and retries'}>
+                      <Badge icon={<RotateCcw />} color="var(--status-serious)">
+                        {formatHours(r.wasted_ms)}
+                      </Badge>
+                    </Tooltip>
+                  )}
                   {r.error_count > 0 && (
                     <Tooltip content={`${r.error_count} failed ${r.error_count === 1 ? 'step' : 'steps'}`}>
                       <Badge icon={<TriangleAlert />} color="var(--status-critical)">
@@ -215,6 +232,7 @@ function SessionList({ rows, onOpen }: { rows: SessionRow[]; onOpen: (id: string
                     </Tooltip>
                   )}
                   <span className={`${s.steps} ${s.hideSmall}`}>{formatNumber(r.event_count)} steps</span>
+                  {r.est_cost_usd != null && <span className={s.hideSmall}>{formatCost(r.est_cost_usd)}</span>}
                   <span className={s.dur}>{formatHours(r.active_ms)}</span>
                 </span>
               }
