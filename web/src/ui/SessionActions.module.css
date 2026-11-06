@@ -1,0 +1,57 @@
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: 24px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.link:hover {
+  background: var(--bg-3);
+  border-color: var(--line-3);
+}
+.link svg {
+  width: 13px;
+  height: 13px;
+}
+.open {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-1);
+  color: var(--text-3);
+  transition: color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
+}
+.open:hover {
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+.open svg {
+  width: 13px;
+  height: 13px;
+}
+.select {
+  height: 24px;
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-xs);
+}

@@ -372,7 +372,8 @@
   .scroll {
     max-height: 60vh;
   }
-  .facts {
+  /* Only the action buttons stay on narrow screens. */
+  .facts > :not(.headActions) {
     display: none;
   }
 }
@@ -506,4 +507,22 @@ button.followRow:hover {
   display: block;
   color: var(--text-3);
   font-size: var(--fs-xs);
+}
+
+/* Resume, export and report card, beside the facts */
+.headActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: center;
+  gap: var(--s-2);
+}
+.fileRow {
+  display: flex;
+  align-items: center;
+  padding-right: var(--s-2);
+}
+.fileRow .file {
+  flex: 1;
+  min-width: 0;
 }

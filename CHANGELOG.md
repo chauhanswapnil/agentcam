@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Alerts: browser notifications (asked for only when you click) when a session is waiting for you, is done for now, has 4+ steps in a row error, or passes a cost per session or per day. Per-kind switches, project mutes and quiet hours, kept in the browser. A "waiting for you" count in the top bar.
+- Claude Code usage estimate: 5-hour blocks counted from logged tokens the way ccusage does, with tokens and API-priced value, pace, a projection to the block end, your highest past block as the reference, and a rolling 7-day total. On the Live page and in `/api/limits` (`claude`), always marked as an estimate.
+- Resume and open: copy `claude --resume <id>` or `codex resume <id>` with a `cd` into the session's folder (worktrees included) from the replay and session rows; open changed files at their line in VS Code, Cursor or Zed (choice remembered in the browser).
+- Export: `GET /api/sessions/{id}/export?format=md|json` downloads a session as Markdown or JSON, secrets masked; CSV downloads on the sessions, tools, files, commits and findings tables.
+
 - Cargo workspace (`agentcam`, `agentcam-server`, `agentcam-core`) and a React + Vite web UI embedded in the binary.
 - `agentcam serve`: local server on `127.0.0.1:4747` with `/api/health`; opens the browser.
 - Parsers for Claude Code and Codex logs (including subagents and older Codex formats) into one event model.

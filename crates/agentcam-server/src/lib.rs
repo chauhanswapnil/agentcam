@@ -465,6 +465,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exports_a_session_as_markdown_and_json() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let res = get(&format!("/api/sessions/{id}/export")).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let cd = res.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            cd.starts_with("attachment;") && cd.ends_with(".md\""),
+            "{cd}"
+        );
+        let md = String::from_utf8(
+            to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(md.contains("## You") && md.contains("The login form rejects valid passwords"));
+        assert!(md.contains("```sh\nnpm test"), "{md}");
+        assert!(md.contains("```diff") && md.contains("+export function check(p)"));
+        assert!(md.contains(&format!("claude --resume {id}")));
+
+        let j = json(&format!("/api/sessions/{id}/export?format=json")).await;
+        assert_eq!(j["session"]["id"], id);
+        assert!(j["steps"].as_array().unwrap().len() > 3);
+        assert_eq!(j["subagents"].as_array().unwrap().len(), 1);
+
+        let sub = get(&format!("/api/sessions/{id}/agent-a1/export?format=json")).await;
+        assert_eq!(sub.status(), StatusCode::OK);
+        assert_eq!(
+            get("/api/sessions/missing/export").await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            get(&format!("/api/sessions/{id}/export?format=pdf"))
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[tokio::test]
+    async fn limits_carry_a_claude_estimate() {
+        // Fixture sessions are old, so nothing is open now, but the key is there.
+        let l = json("/api/limits").await;
+        assert!(l.get("claude").is_some());
+        let live = json("/api/live?minutes=5").await;
+        assert!(live.is_array());
+    }
+
+    #[tokio::test]
     async fn health_reports_name_and_version() {
         let json = json("/api/health").await;
         assert_eq!(json["name"], "agentcam");

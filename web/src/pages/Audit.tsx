@@ -12,6 +12,31 @@ import { ApprovalsPanel } from '../ui/ApprovalsPanel'
 import { RuleEditor } from '../ui/RuleEditor'
 import { SeverityBadge } from '../ui/Severity'
 import s from './Views.module.css'
+import { CsvButton } from '../ui/CsvButton'
+import type { Column } from '../lib/csv'
+import type { FindingHit, RuleSummary } from '../lib/api'
+
+/** Excerpts are stored with secrets already masked. */
+const FINDING_COLUMNS: Column<FindingHit>[] = [
+  { label: 'when', value: (h) => h.ts },
+  { label: 'rule', value: (h) => h.rule_id },
+  { label: 'title', value: (h) => h.title },
+  { label: 'severity', value: (h) => h.severity },
+  { label: 'excerpt', value: (h) => h.excerpt },
+  { label: 'agent', value: (h) => h.agent },
+  { label: 'project', value: (h) => h.project_root },
+  { label: 'session', value: (h) => h.session_title },
+  { label: 'session_id', value: (h) => h.session_id },
+  { label: 'step', value: (h) => h.seq },
+]
+const RULE_COLUMNS: Column<RuleSummary>[] = [
+  { label: 'rule', value: (r) => r.rule_id },
+  { label: 'title', value: (r) => r.title },
+  { label: 'severity', value: (r) => r.severity },
+  { label: 'times', value: (r) => r.count },
+  { label: 'sessions', value: (r) => r.sessions },
+  { label: 'last', value: (r) => r.last_ts },
+]
 
 const RANGES = [
   { value: '30d', label: '30 days' },
@@ -66,7 +91,12 @@ export function Audit() {
         </Panel>
       ) : (
         <div className={s.split}>
-          <Panel title="Rules that fired" icon={<ShieldAlert />} flush>
+          <Panel
+            title="Rules that fired"
+            icon={<ShieldAlert />}
+            flush
+            actions={<CsvButton name="rules" rows={data.rules} columns={RULE_COLUMNS} />}
+          >
             <div className={s.tableWrap}>
               <table className={s.table}>
                 <thead>
@@ -105,7 +135,11 @@ export function Audit() {
           </Panel>
 
           <div className={s.sticky}>
-            <Panel title={f.rule ? `Steps · ${f.rule}` : 'Latest findings'} flush>
+            <Panel
+              title={f.rule ? `Steps · ${f.rule}` : 'Latest findings'}
+              flush
+              actions={<CsvButton name="findings" rows={data.findings} columns={FINDING_COLUMNS} />}
+            >
               <div className={s.list}>
                 {data.findings.length === 0 && <EmptyState title="No findings at this severity" />}
                 {data.findings.map((h) => (

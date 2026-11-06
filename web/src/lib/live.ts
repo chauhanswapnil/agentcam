@@ -47,3 +47,12 @@ export function usageLevel(pct: number): 'ok' | 'near' | 'reached' {
   if (pct >= 75) return 'near'
   return 'ok'
 }
+
+/** "2d 4h", "3h 20m", "12m". */
+export function untilLabel(ms: number): string {
+  const m = Math.ceil(ms / 60_000)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
+  return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${Math.floor(h / 24)}d`
+}

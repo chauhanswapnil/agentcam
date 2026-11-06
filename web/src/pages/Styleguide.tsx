@@ -13,7 +13,10 @@ import { Segmented } from '../ui/Segmented'
 import { Stat } from '../ui/Stat'
 import { Tooltip } from '../ui/Tooltip'
 import { UsageMeter } from '../ui/UsageMeter'
-import { SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
+import { QuotaMeter } from '../ui/QuotaMeter'
+import { CsvButton } from '../ui/CsvButton'
+import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
+import { SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
 
 const SECTIONS = ['Color', 'Event kinds', 'Type', 'Space', 'Components', 'Timeline', 'Motion'] as const
@@ -234,6 +237,16 @@ export function Styleguide() {
             <Button disabled>Disabled</Button>
           </div>
 
+          <span className={s.sub}>Session actions: resume, export, open in editor, CSV</span>
+          <div className={s.row}>
+            <ResumeButton agent="claude-code" id="11111111-1111-4111-8111-111111111111" cwd="/Users/dev/app" />
+            <ResumeButton agent="codex" id="019a-demo" cwd="/Users/dev/app" compact />
+            <ExportLinks id="demo" />
+            <OpenInEditor path="/Users/dev/app/src/auth.ts" line={12} />
+            <EditorPicker />
+            <CsvButton name="demo" rows={[{ a: 1 }]} columns={[{ label: 'a', value: (r: { a: number }) => r.a }]} />
+          </div>
+
           <span className={s.sub}>Badges, agents, key hints</span>
           <div className={s.row}>
             <AgentLabel agent="claude-code" />
@@ -349,6 +362,13 @@ export function Styleguide() {
             {SAMPLE_WINDOWS.map((w) => (
               <UsageMeter key={w.window + w.used_percent} w={w} now={SAMPLE_NOW} points={w.window === '5h' ? SAMPLE_USAGE : undefined} />
             ))}
+          </div>
+          <p className={s.rule}>
+            Claude Code logs no usage windows, so its meters are estimates from logged tokens, always marked Estimate. The
+            reference is the highest past block, not a limit; the striped part is where the current pace leads.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+            <QuotaMeter q={SAMPLE_QUOTA} now={SAMPLE_NOW} />
           </div>
         </section>
 

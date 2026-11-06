@@ -7,6 +7,20 @@ import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import s from './Views.module.css'
+import { CsvButton } from '../ui/CsvButton'
+import type { Column } from '../lib/csv'
+
+const COMMIT_COLUMNS: Column<CommitRow>[] = [
+  { label: 'when', value: (c) => c.ts },
+  { label: 'message', value: (c) => c.message },
+  { label: 'hash', value: (c) => c.hash },
+  { label: 'branch', value: (c) => c.branch },
+  { label: 'project', value: (c) => c.project_root },
+  { label: 'agent', value: (c) => c.agent },
+  { label: 'session', value: (c) => c.session_title },
+  { label: 'session_id', value: (c) => c.session_id },
+  { label: 'step', value: (c) => c.seq },
+]
 
 const RANGES = [
   { value: '7d', label: '7 days' },
@@ -51,7 +65,12 @@ export function Commits() {
           <EmptyState icon={<GitCommitHorizontal />} title="No agent commits in this range" />
         </Panel>
       ) : (
-        <Panel title={`${data.length} commits`} icon={<GitCommitHorizontal />} flush>
+        <Panel
+          title={`${data.length} commits`}
+          icon={<GitCommitHorizontal />}
+          flush
+          actions={<CsvButton name="commits" rows={data} columns={COMMIT_COLUMNS} />}
+        >
           <div className={s.tableWrap}>
             <table className={s.table}>
               <thead>

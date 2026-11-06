@@ -1,0 +1,16 @@
+.projected {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(-45deg, var(--heat-1) 0 3px, transparent 3px 6px);
+}
+.line {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
+}
+.line b {
+  color: var(--text-2);
+  font-weight: var(--fw-medium);
+}

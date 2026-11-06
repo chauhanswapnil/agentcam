@@ -102,14 +102,15 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/activity` | Agent time per local day for the last 371 days |
 | `GET /api/sessions` | Top-level sessions, most recently active first, paged |
 | `GET /api/sessions/{id}` | One session: steps (titles, plus the start of transcript text), files touched, subagents |
+| `GET /api/sessions/{id}/export?format=md\|json` | One session as a download (Markdown or JSON), secrets masked |
 | `GET /api/step?session=&seq=` | One step in full: output, input, file changes with diffs |
 | `GET /api/audit` | Rules that fired and the latest findings; takes `rule`, `severity` (lowest to show) |
 | `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool |
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
 | `GET /api/commits` | Commits made by agent sessions, newest first |
-| `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context |
-| `GET /api/limits` | Usage windows (latest reading, last 7 days) and limits reached |
+| `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context, error streak, cost |
+| `GET /api/limits` | Usage windows (latest reading, last 7 days), limits reached, and `claude`: Claude Code's 5-hour blocks estimated from tokens |
 | `GET /api/lasted` | Which agent-written lines are still in the code: by age, week, agent and model, project, file |
 | `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
 | `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
@@ -154,6 +155,17 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Usage windows come from the logs, never from an API. Codex writes `rate_limits` on token counts (5-hour and weekly `used_percent`, `resets_at`, plan); the parser keeps only changed readings. Claude Code only logs when a limit is reached ("You've hit your session limit · resets 3pm (...)", `error: rate_limit`); it becomes a `System` step, not a reply, plus a hit. Repeats of one hit are merged in the query.
 - `sessions.entrypoint` records where a session started (`cli`, `claude-desktop`, Codex `originator`); the UI maps it to plain words in `web/src/lib/live.ts`.
 - The watcher re-indexes at least every 3 s while an agent keeps writing, so the Live page keeps up.
+- `quota.rs` estimates Claude Code's windows from logged tokens (sessions and subagents, last 90 days): a block starts at the hour of the first call after the previous block ended and lasts 5 hours, or ends after 5 hours without a call (as ccusage does). Tokens are all four counts added up; value is the per-step API price. The reference is the highest ended block, never a limit. Always label it an estimate in the UI.
+- `LiveSession.error_streak` counts tool calls in a row that errored, newest first, across the session and its subagents; rejected or blocked calls are skipped.
+
+### Alerts, resume and export
+
+- Alerts run in the browser (`web/src/lib/alerts.ts`, mounted in `AppShell`): they compare each `/api/live` reading with the last and use the Notification API, asked for only from a click. Settings (kinds, cost limits, muted projects, quiet hours) live in localStorage, every access in try/catch. The first reading only sets a baseline. Cost alerts remember what fired so a reload doesn't repeat them. The server sends nothing.
+- Alert text follows the voice guide: "Waiting for you", "Done for now", "4 steps in a row errored · worth a look". Never "failed".
+- Resume commands (`web/src/lib/session.ts`, `export::resume_command`) `cd` into `sessions.project_path` (the real folder, worktree included); subagents resume through their parent.
+- "Open in editor" links use `vscode://file`, `cursor://file` and `zed://file` URLs; the editor choice is in localStorage.
+- `export.rs` builds exports from the index (text already cut to 32 KB) and masks every match of a `secret: true` rule with `Rules::mask_secrets`. Markdown leaves out thinking and keeps the first 20 lines of command output.
+- CSV downloads are built in the browser from the rows a table shows (`web/src/lib/csv.ts`); cells that start with `=`, `+`, `-` or `@` get a leading `'` so spreadsheets don't run them.
 
 ### Turns, approvals and what the logs add
 

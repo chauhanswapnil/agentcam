@@ -8,6 +8,18 @@ import { EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import s from './Views.module.css'
+import { CsvButton } from '../ui/CsvButton'
+import type { Column } from '../lib/csv'
+
+const FILE_COLUMNS: Column<FileStat>[] = [
+  { label: 'path', value: (x) => x.path },
+  { label: 'reads', value: (x) => x.reads },
+  { label: 'edits', value: (x) => x.edits },
+  { label: 'creates', value: (x) => x.creates },
+  { label: 'deletes', value: (x) => x.deletes },
+  { label: 'sessions', value: (x) => x.sessions },
+  { label: 'last', value: (x) => x.last_ts },
+]
 
 const RANGES = [
   { value: '7d', label: '7 days' },
@@ -77,7 +89,12 @@ export function Files() {
         <Skeleton height={300} />
       ) : (
         <div className={s.split}>
-          <Panel title={`${formatNumber(rows.length)} files`} icon={<FileStack />} flush>
+          <Panel
+            title={`${formatNumber(rows.length)} files`}
+            icon={<FileStack />}
+            flush
+            actions={<CsvButton name="files" rows={rows} columns={FILE_COLUMNS} />}
+          >
             {rows.length === 0 ? (
               <EmptyState title="No files match" />
             ) : (

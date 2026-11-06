@@ -24,6 +24,10 @@ pub struct LiveSession {
     /// Context size of the latest model call.
     pub context_tokens: Option<i64>,
     pub active_subagents: i64,
+    /// Tool calls in a row that errored, counting back from the latest one.
+    pub error_streak: i64,
+    /// Tokens priced at API list prices, for the session and its subagents.
+    pub cost_usd: Option<f64>,
     /// Latest steps across the session and its subagents, newest first.
     pub recent: Vec<LiveStep>,
 }
@@ -70,6 +74,15 @@ pub fn live(conn: &Connection, now_ms: i64, within_ms: i64) -> Result<Vec<LiveSe
          ORDER BY e.ts DESC, e.seq DESC LIMIT 8",
     )?;
 
+    let mut streak = conn.prepare_cached(
+        "SELECT e.is_error FROM events e JOIN sessions s ON s.id = e.session_id
+         WHERE (s.id = ?1 OR s.parent_id = ?1) AND e.kind = 'tool_call' AND e.ts IS NOT NULL
+           AND coalesce(e.approval, '') != 'rejected' AND coalesce(e.approval, '') NOT LIKE 'blocked%'
+         ORDER BY e.ts DESC, e.seq DESC LIMIT 20",
+    )?;
+    let mut cost = conn
+        .prepare_cached("SELECT sum(est_cost_usd) FROM sessions WHERE id = ?1 OR parent_id = ?1")?;
+
     let mut out = Vec::with_capacity(rows.len());
     for (session, last_at) in rows {
         let idle_ms = parse_ts_ms(&last_at).map_or(within_ms, |t| (now_ms - t).max(0));
@@ -93,6 +106,11 @@ pub fn live(conn: &Connection, now_ms: i64, within_ms: i64) -> Result<Vec<LiveSe
                 })
             })?
             .collect::<std::result::Result<_, _>>()?;
+        let errors: Vec<bool> = streak
+            .query_map([&session.id], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        let error_streak = errors.iter().take_while(|e| **e).count() as i64;
+        let cost_usd: Option<f64> = cost.query_row([&session.id], |r| r.get(0))?;
         let state = state_of(
             steps.first().map(|s| s.kind.as_str()),
             idle_ms,
@@ -105,6 +123,8 @@ pub fn live(conn: &Connection, now_ms: i64, within_ms: i64) -> Result<Vec<LiveSe
             state,
             context_tokens,
             active_subagents,
+            error_streak,
+            cost_usd,
             recent: steps,
         });
     }
@@ -172,6 +192,8 @@ pub struct Limits {
     /// Limits reached in the last 90 days, newest first.
     pub hits: Vec<LimitHit>,
     pub hits_30d: i64,
+    /// Claude Code logs no usage windows; this estimates them from tokens.
+    pub claude: Option<crate::quota::ClaudeQuota>,
 }
 
 pub fn limits(conn: &Connection, now_ms: i64) -> Result<Limits> {
@@ -275,6 +297,7 @@ pub fn limits(conn: &Connection, now_ms: i64) -> Result<Limits> {
         series,
         hits,
         hits_30d,
+        claude: crate::quota::claude_quota(conn, now_ms)?,
     })
 }
 
