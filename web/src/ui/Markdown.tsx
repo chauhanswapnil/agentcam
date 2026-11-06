@@ -35,7 +35,7 @@ function blocks(text: string): ReactNode[] {
       )
       continue
     }
-    const h = line.match(/^(#{1,4})\s+(.*)$/)
+    const h = line.match(/^\s{0,3}(#{1,4})\s+(.*)$/)
     if (h) {
       const Tag = `h${Math.min(h[1].length + 1, 4)}` as 'h2' | 'h3' | 'h4'
       out.push(<Tag key={key()}>{inline(h[2])}</Tag>)
@@ -104,6 +104,9 @@ function blocks(text: string): ReactNode[] {
       !/^\s*(```|~~~|#{1,4}\s|>|([-*+]|\d+[.)])\s)/.test(lines[i])
     )
       para.push(lines[i++])
+    // A line no rule above took (say `    ## x`, indented too far for a
+    // heading) still has to move us on, or this loop never ends.
+    if (!para.length) para.push(lines[i++])
     out.push(<p key={key()}>{inline(para.join('\n'))}</p>)
   }
   return out

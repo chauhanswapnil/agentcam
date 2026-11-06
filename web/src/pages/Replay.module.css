@@ -397,3 +397,78 @@
   color: var(--text-1);
   font-weight: var(--fw-medium);
 }
+.turnHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--s-2);
+  padding: var(--s-3) var(--s-4) var(--s-1);
+  border-top: 1px solid var(--line-1);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.turnHead:first-child {
+  border-top: 0;
+}
+.turnN {
+  color: var(--text-2);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+.turnWait {
+  margin-left: auto;
+}
+.turnRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-2) var(--s-4);
+  border: 0;
+  border-bottom: 1px solid var(--line-1);
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}
+.turnRow:hover {
+  background: var(--bg-2);
+}
+.turnMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.turnPrompt {
+  overflow: hidden;
+  color: var(--text-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turnMeta {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turnLen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.turnBar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--heat-3);
+}

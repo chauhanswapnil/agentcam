@@ -1,5 +1,5 @@
 import { Search as SearchIcon, SearchX } from 'lucide-react'
-import { useLocation, useSearch } from 'wouter'
+import { Link, useLocation, useSearch } from 'wouter'
 import { AGENTS } from '../lib/agents'
 import { query, useApi, useDebounced, type Hit } from '../lib/api'
 import { baseName, formatAgo, oneLine } from '../lib/format'
@@ -70,6 +70,9 @@ export function Search() {
         <Segmented label="Type" value={f.type} onChange={(type) => set({ type })} options={TYPES} />
         <Segmented label="Agent" value={f.agent} onChange={(agent) => set({ agent })} options={AGENT_OPTIONS} />
         <Segmented label="Time range" value={f.range} onChange={(range) => set({ range })} options={RANGES} />
+        <Link href="/thinking" className={s.count} style={{ marginLeft: 'auto' }}>
+          Browse thinking →
+        </Link>
       </div>
 
       {q.length < 2 ? (

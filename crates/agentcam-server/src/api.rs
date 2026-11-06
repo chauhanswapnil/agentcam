@@ -173,6 +173,8 @@ pub struct Params {
     tool: Option<String>,
     /// File history: one path.
     path: Option<String>,
+    /// Thinking: `longest` or `recent` (default).
+    sort: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -756,6 +758,65 @@ pub async fn lasted(
     let now = now_ms();
     let f = p.filter(now);
     st.read(move |idx| agentcam_core::survival::report(idx.conn(), &f, now))
+        .await
+        .map(Json)
+}
+
+/// Turn lengths, waits between turns, and turns by model, effort and mode.
+pub async fn turns(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::turns::TurnStats>, ApiError> {
+    let f = p.filter(now_ms());
+    st.read(move |idx| agentcam_core::turns::turn_stats(idx.conn(), &f))
+        .await
+        .map(Json)
+}
+
+/// How tool calls were allowed or stopped, and allow rules to suggest.
+pub async fn approvals(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::approvals::Approvals>, ApiError> {
+    let f = p.filter(now_ms());
+    st.read(move |idx| agentcam_core::approvals::approvals(idx.conn(), &f))
+        .await
+        .map(Json)
+}
+
+/// Thinking steps and thinking time by model. Search thinking text with
+/// `/api/search?kind=thinking`.
+pub async fn thinking(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::approvals::Thinking>, ApiError> {
+    let f = p.filter(now_ms());
+    let sort = p.sort.clone().unwrap_or_default();
+    let limit = p.limit.unwrap_or(50).min(200);
+    st.read(move |idx| agentcam_core::approvals::thinking(idx.conn(), &f, &sort, limit))
+        .await
+        .map(Json)
+}
+
+/// Pull requests sessions linked, newest first.
+pub async fn prs(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<agentcam_core::turns::PrRow>>, ApiError> {
+    let f = p.filter(now_ms());
+    let limit = p.limit.unwrap_or(100).min(500);
+    st.read(move |idx| agentcam_core::turns::prs(idx.conn(), &f, None, limit))
+        .await
+        .map(Json)
+}
+
+/// Skills, plugins, MCP servers and apps behind steps.
+pub async fn sources(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<agentcam_core::turns::Source>>, ApiError> {
+    let f = p.filter(now_ms());
+    st.read(move |idx| agentcam_core::turns::sources(idx.conn(), &f))
         .await
         .map(Json)
 }

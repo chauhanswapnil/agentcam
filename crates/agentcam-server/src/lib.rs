@@ -160,6 +160,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/live", get(api::live))
         .route("/limits", get(api::limits))
         .route("/lasted", get(api::lasted))
+        .route("/turns", get(api::turns))
+        .route("/approvals", get(api::approvals))
+        .route("/thinking", get(api::thinking))
+        .route("/prs", get(api::prs))
+        .route("/sources", get(api::sources))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -388,6 +393,16 @@ mod tests {
         assert!(l["windows"].is_array() && l["hits"].is_array() && l["series"].is_array());
         let w = json("/api/lasted?range=all").await;
         assert!(w["settled"]["added"].is_number() && w["weeks"].is_array());
+        for path in [
+            "/api/turns",
+            "/api/approvals",
+            "/api/thinking?sort=longest",
+            "/api/prs",
+            "/api/sources",
+        ] {
+            let v = json(path).await;
+            assert!(v.is_object() || v.is_array(), "{path}");
+        }
         let t = json("/api/tools").await;
         assert!(
             t.as_array()

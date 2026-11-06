@@ -4,6 +4,7 @@ import { Audit } from './pages/Audit'
 import { Commits } from './pages/Commits'
 import { Lasted } from './pages/Lasted'
 import { Live } from './pages/Live'
+import { Thinking } from './pages/Thinking'
 import { Outbox } from './pages/Outbox'
 import { Files } from './pages/Files'
 import { Overview } from './pages/Overview'
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/live" component={Live} />
         <Route path="/lasted" component={Lasted} />
         <Route path="/search" component={Search} />
+        <Route path="/thinking" component={Thinking} />
         <Route path="/audit" component={Audit} />
         <Route path="/tools" component={Tools} />
         <Route path="/files" component={Files} />

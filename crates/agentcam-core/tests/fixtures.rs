@@ -861,3 +861,113 @@ fn old_schema_is_replaced_whatever_tables_it_had() {
     drop(idx);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn claude_turns_approvals_and_context() {
+    let p = claude::parse(&fixtures().join("claude-code/turns-and-approvals.jsonl")).unwrap();
+    assert_eq!(p.turns.len(), 2);
+    let (a, b) = (&p.turns[0], &p.turns[1]);
+    assert_eq!(
+        (a.mode.as_deref(), a.effort.as_deref(), a.model.as_deref()),
+        (Some("acceptEdits"), Some("high"), Some("claude-test-1"))
+    );
+    assert_eq!(
+        (b.mode.as_deref(), b.effort.as_deref(), b.model.as_deref()),
+        (Some("plan"), Some("medium"), Some("claude-test-2"))
+    );
+    let approvals: Vec<_> = p
+        .events
+        .iter()
+        .filter_map(|e| e.approval.as_deref())
+        .collect();
+    assert_eq!(approvals, vec!["you", "rejected"]);
+    let thinking = p
+        .events
+        .iter()
+        .find(|e| e.kind == EventKind::Thinking)
+        .unwrap();
+    assert_eq!(thinking.duration_ms, Some(1500));
+    let edit = p
+        .events
+        .iter()
+        .find(|e| e.tool_name.as_deref() == Some("external_edit"))
+        .unwrap();
+    assert_eq!(edit.title, "auth.ts changed outside the session");
+    assert!(
+        p.touches.is_empty(),
+        "an outside edit isn't the agent's change"
+    );
+    let reply = p
+        .events
+        .iter()
+        .find(|e| e.kind == EventKind::Response)
+        .unwrap();
+    assert_eq!(reply.via.as_deref(), Some("skill:dataviz"));
+    assert_eq!(p.prs.len(), 1);
+    assert_eq!(p.prs[0].number, Some(7));
+
+    // Through the index: turn rows with counts and the wait between them.
+    let dir = std::env::temp_dir().join(format!("agentcam-turns-{}", std::process::id()));
+    let logs = dir.join("logs/-demo");
+    std::fs::create_dir_all(&logs).unwrap();
+    std::fs::copy(
+        fixtures().join("claude-code/turns-and-approvals.jsonl"),
+        logs.join("66666666-6666-4666-8666-666666666666.jsonl"),
+    )
+    .unwrap();
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(
+        &[LogSource {
+            agent: Agent::ClaudeCode,
+            path: dir.join("logs"),
+            exists: true,
+        }],
+        false,
+    )
+    .unwrap();
+    let turns =
+        agentcam_core::turns::session_turns(idx.conn(), "66666666-6666-4666-8666-666666666666")
+            .unwrap();
+    assert_eq!(turns.len(), 2);
+    assert_eq!(
+        turns[0].duration_ms,
+        Some(40_000),
+        "prompt to the last reply"
+    );
+    assert_eq!(turns[0].thinking_ms, 1500);
+    assert_eq!(turns[1].wait_ms, Some(260_000));
+    let f = agentcam_core::query::Filter::default();
+    let ap = agentcam_core::approvals::approvals(idx.conn(), &f).unwrap();
+    assert_eq!(ap.counts.get("rejected"), Some(&1));
+    assert_eq!(ap.stopped.len(), 1);
+    let stats = agentcam_core::turns::turn_stats(idx.conn(), &f).unwrap();
+    assert_eq!(stats.turns, 2);
+    assert_eq!(
+        agentcam_core::turns::prs(idx.conn(), &f, None, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+    let src = agentcam_core::turns::sources(idx.conn(), &f).unwrap();
+    assert!(src.iter().any(|x| x.kind == "skill" && x.name == "dataviz"));
+    let th = agentcam_core::approvals::thinking(idx.conn(), &f, "longest", 5).unwrap();
+    assert_eq!((th.blocks, th.total_ms), (1, 1500));
+    drop(idx);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn codex_turn_settings_and_tier() {
+    let x = codex::parse(&fixtures().join(
+        "codex/sessions/2026/11/01/rollout-2026-11-01T12-00-00-22222222-2222-4222-8222-222222222222.jsonl",
+    ))
+    .unwrap();
+    assert_eq!(x.session.service_tier.as_deref(), Some("priority"));
+    assert_eq!(x.session.reasoning_tokens, 5);
+    let t = &x.turns[0];
+    assert_eq!(t.effort.as_deref(), Some("medium"));
+    assert_eq!(t.approval_policy.as_deref(), Some("on-request"));
+    assert_eq!(t.sandbox.as_deref(), Some("workspace-write"));
+    assert_eq!(t.mode.as_deref(), Some("default"));
+    assert!(t.ended_at.is_some(), "task_complete ends the turn");
+}

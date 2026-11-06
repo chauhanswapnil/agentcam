@@ -32,6 +32,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Observability.** Estimated cost per step, session, project and day from an editable price table. A context window chart with compactions marked. Stuck detection for retry loops, failure streaks and reverts, with the time they cost. The commits each session made. A trace view of every session, and `agentcam export otlp` to send sessions to Jaeger, Grafana Tempo or Honeycomb.
 
+**Turns and approvals.** Every prompt and the work it led to: how long it ran, its steps and cost, and the model, effort and mode. See which tool calls you approved, which a rule or auto mode allowed, and which were stopped, with allow rules ready to copy so agents ask you less. Browse and search the agents' thinking on its own page.
+
 **Also:** a tool calls page (use, failures and time per tool), a files page (the most changed files and each file's history), shareable report cards (PNG) for a session or your week, and live updates as agents write.
 
 ## Install

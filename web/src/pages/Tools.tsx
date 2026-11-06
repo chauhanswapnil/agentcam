@@ -1,7 +1,7 @@
-import { TriangleAlert, Wrench } from 'lucide-react'
+import { Puzzle, TriangleAlert, Wrench } from 'lucide-react'
 import { useLocation, useSearch } from 'wouter'
 import { AGENTS } from '../lib/agents'
-import { query, useApi, useIndexStatus, type StepRef, type ToolStat } from '../lib/api'
+import { query, useApi, useIndexStatus, type Source, type StepRef, type ToolStat } from '../lib/api'
 import { formatAgo, formatDuration, formatHours, formatNumber, oneLine } from '../lib/format'
 import { EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
@@ -27,6 +27,7 @@ export function Tools() {
   const set = (patch: Partial<typeof f>) => navigate(`/tools${query({ ...f, ...patch })}`, { replace: true })
   const gen = useIndexStatus().status?.generation ?? 0
   const { data } = useApi<ToolStat[]>(`/api/tools${query({ range: f.range, agent: f.agent })}`, gen)
+  const sources = useApi<Source[]>(`/api/sources${query({ range: f.range, agent: f.agent })}`, gen)
   const calls = useApi<StepRef[]>(f.tool ? `/api/tool-calls${query({ tool: f.tool, range: f.range, agent: f.agent, limit: 100 })}` : null, gen)
   const max = Math.max(1, ...(data ?? []).map((t) => t.calls))
 
@@ -118,6 +119,38 @@ export function Tools() {
           </div>
         </div>
       )}
+      {sources.data && sources.data.length > 0 && (
+        <Panel title="Skills, plugins and MCP servers" icon={<Puzzle />} flush>
+          <div className={s.tableWrap}>
+            <table className={s.table}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Kind</th>
+                  <th className={s.num}>Steps</th>
+                  <th className={s.num}>Errored</th>
+                  <th className={s.num}>Sessions</th>
+                  <th>Last used</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sources.data.map((x) => (
+                  <tr key={`${x.kind}:${x.name}`}>
+                    <td className={s.mono}>{x.name}</td>
+                    <td>{SOURCE_KIND[x.kind] ?? x.kind}</td>
+                    <td className={s.num}>{formatNumber(x.steps)}</td>
+                    <td className={s.num}>{x.errors ? formatNumber(x.errors) : '–'}</td>
+                    <td className={s.num}>{formatNumber(x.sessions)}</td>
+                    <td>{x.last_ts ? formatAgo(x.last_ts) : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
     </div>
   )
 }
+
+const SOURCE_KIND: Record<string, string> = { skill: 'Skill', plugin: 'Plugin', app: 'App (MCP)', mcp: 'MCP server' }

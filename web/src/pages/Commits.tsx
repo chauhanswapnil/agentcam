@@ -1,7 +1,7 @@
-import { GitCommitHorizontal } from 'lucide-react'
-import { useLocation, useSearch } from 'wouter'
+import { GitCommitHorizontal, GitPullRequest } from 'lucide-react'
+import { Link, useLocation, useSearch } from 'wouter'
 import { AGENTS } from '../lib/agents'
-import { query, useApi, useIndexStatus, type CommitRow } from '../lib/api'
+import { query, useApi, useIndexStatus, type CommitRow, type PrRow } from '../lib/api'
 import { baseName, formatAgo, oneLine } from '../lib/format'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
@@ -26,6 +26,7 @@ export function Commits() {
   const f = { range: p.get('range') ?? '30d', agent: p.get('agent') ?? '' }
   const set = (patch: Partial<typeof f>) => navigate(`/commits${query({ ...f, ...patch })}`, { replace: true })
   const gen = useIndexStatus().status?.generation ?? 0
+  const prs = useApi<PrRow[]>(`/api/prs${query({ range: f.range, agent: f.agent })}`, gen)
   const { data } = useApi<CommitRow[]>(`/api/commits${query({ range: f.range, agent: f.agent })}`, gen)
 
   return (
@@ -81,6 +82,41 @@ export function Commits() {
                       <span className="sr-only">{AGENTS[c.agent]?.label}</span>
                     </td>
                     <td>{c.ts ? formatAgo(c.ts) : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+      {prs.data && prs.data.length > 0 && (
+        <Panel title={`${prs.data.length} pull request${prs.data.length === 1 ? '' : 's'}`} icon={<GitPullRequest />} flush>
+          <div className={s.tableWrap}>
+            <table className={s.table}>
+              <thead>
+                <tr>
+                  <th>Pull request</th>
+                  <th>Session</th>
+                  <th>Agent</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prs.data.map((p) => (
+                  <tr key={p.url}>
+                    <td>
+                      <a href={p.url} target="_blank" rel="noreferrer" className={s.name}>
+                        {p.repo ?? 'PR'}
+                        {p.number != null ? ` #${p.number}` : ''}
+                      </a>
+                    </td>
+                    <td>
+                      <Link href={`/sessions/${p.session_id}?step=${p.seq}`}>{oneLine(p.title ?? 'Untitled session')}</Link>
+                    </td>
+                    <td>
+                      <AgentLabel agent={p.agent} hideName />
+                    </td>
+                    <td>{p.ts ? formatAgo(p.ts) : ''}</td>
                   </tr>
                 ))}
               </tbody>

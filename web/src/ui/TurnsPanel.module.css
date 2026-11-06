@@ -1,0 +1,121 @@
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-6);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat span {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.stat b {
+  color: var(--text-1);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.lengths {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  height: 92px;
+  margin-top: var(--s-5);
+}
+.lengths > span {
+  display: flex;
+  min-width: 0;
+}
+.col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--s-1);
+  min-width: 0;
+  height: 100%;
+}
+.colBar {
+  display: block;
+  width: 100%;
+  border-radius: var(--r-1) var(--r-1) 0 0;
+  background: var(--heat-3);
+}
+.colLabel {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin: var(--s-5) 0 var(--s-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.table th {
+  padding: var(--s-1) 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-align: left;
+}
+.table td {
+  padding: 5px 0;
+  border-top: 1px solid var(--line-1);
+  color: var(--text-1);
+}
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+.muted {
+  color: var(--text-3) !important;
+}
+.longest {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.long {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: 5px 0;
+  border-top: 1px solid var(--line-1);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.long:hover .longText {
+  text-decoration: underline;
+}
+.longText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.longMeta {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}

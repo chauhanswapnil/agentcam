@@ -68,6 +68,8 @@ export type SessionRow = {
   pattern_count: number
   commit_count: number
   entrypoint: string | null
+  reasoning_tokens?: number
+  service_tier?: string | null
 }
 
 export type SessionPage = { total: number; items: SessionRow[] }
@@ -87,6 +89,8 @@ export type EventRow = {
   tokens_out: number
   cost_usd: number | null
   wasted: boolean
+  approval: string | null
+  via: string | null
 }
 
 export type Pattern = {
@@ -125,6 +129,8 @@ export type SessionDetail = {
   commits: CommitRow[]
   subagents: SessionRow[]
   lasted: Lasted | null
+  turns: TurnRow[]
+  prs: PrRow[]
 }
 
 export type RuleSummary = { rule_id: string; title: string; severity: Severity; count: number; sessions: number; last_ts: string | null }
@@ -377,4 +383,80 @@ export type LastedReport = {
   by_agent: { agent: AgentId; model: string | null; sessions: number; counts: Lasted }[]
   by_project: { project: string | null; sessions: number; counts: Lasted }[]
   files: { path: string; project: string | null; edits: number; counts: Lasted }[]
+}
+
+/** Mirrors `turns.rs`: one prompt you typed and the work until the next. */
+export type TurnRow = {
+  n: number
+  seq: number
+  end_seq: number
+  prompt: string
+  started_at: string | null
+  ended_at: string | null
+  duration_ms: number | null
+  wait_ms: number | null
+  steps: number
+  tool_calls: number
+  errors: number
+  cost_usd: number | null
+  thinking_ms: number
+  model: string | null
+  effort: string | null
+  mode: string | null
+  approval_policy: string | null
+  sandbox: string | null
+}
+
+export type TurnGroup = { key: string | null; turns: number; median_ms: number; median_steps: number; avg_cost_usd: number | null }
+
+export type TurnStats = {
+  turns: number
+  median_ms: number
+  p90_ms: number
+  median_steps: number
+  median_wait_ms: number | null
+  lengths: number[]
+  by_model: TurnGroup[]
+  by_effort: TurnGroup[]
+  by_mode: TurnGroup[]
+  longest: { session_id: string; agent: AgentId; title: string | null; turn: TurnRow }[]
+}
+
+export type PrRow = {
+  session_id: string
+  seq: number
+  ts: string | null
+  number: number | null
+  url: string
+  repo: string | null
+  agent: AgentId
+  title: string | null
+}
+
+export type Source = { kind: 'skill' | 'plugin' | 'app' | 'mcp'; name: string; steps: number; errors: number; sessions: number; last_ts: string | null }
+
+export type Approvals = {
+  counts: Record<string, number>
+  tools: { tool_name: string; counts: Record<string, number> }[]
+  stopped: { session_id: string; seq: number; ts: string | null; tool_name: string | null; title: string; approval: string; agent: AgentId }[]
+  suggestions: { rule: string; by_you: number; by_auto: number; last_ts: string | null }[]
+}
+
+export type Thought = {
+  session_id: string
+  seq: number
+  ts: string | null
+  text: string
+  duration_ms: number | null
+  agent: AgentId
+  model: string | null
+  title: string | null
+  project_root: string | null
+}
+
+export type Thinking = {
+  blocks: number
+  total_ms: number
+  by_model: { model: string | null; blocks: number; total_ms: number; timed: number }[]
+  items: Thought[]
 }

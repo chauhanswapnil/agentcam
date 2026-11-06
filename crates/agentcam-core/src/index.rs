@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -69,7 +69,10 @@ CREATE TABLE sessions (
     project_remote      TEXT,
     version             TEXT NOT NULL DEFAULT '',
     indexed_at          TEXT,
-    entrypoint          TEXT
+    entrypoint          TEXT,
+    reasoning_tokens    INTEGER NOT NULL DEFAULT 0,
+    service_tier        TEXT,
+    turn_count          INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX sessions_root ON sessions(project_root);
 CREATE INDEX sessions_parent ON sessions(parent_id);
@@ -100,6 +103,9 @@ CREATE TABLE events (
     context_tokens  INTEGER,
     cost_usd      REAL,
     wasted        INTEGER NOT NULL DEFAULT 0,
+    tok_reasoning INTEGER NOT NULL DEFAULT 0,
+    approval      TEXT,
+    via           TEXT,
     UNIQUE(session_id, seq)
 );
 CREATE INDEX events_ts ON events(ts);
@@ -177,6 +183,32 @@ CREATE INDEX survival_path ON survival(path);
 CREATE INDEX survival_ts ON survival(ts);
 
 CREATE TABLE survival_files (path TEXT PRIMARY KEY, sig TEXT NOT NULL);
+
+CREATE TABLE turns (
+    session_id      TEXT NOT NULL,
+    n               INTEGER NOT NULL,
+    seq             INTEGER NOT NULL,
+    end_seq         INTEGER NOT NULL,
+    started_at      TEXT,
+    ended_at        TEXT,
+    model           TEXT,
+    effort          TEXT,
+    mode            TEXT,
+    approval_policy TEXT,
+    sandbox         TEXT
+);
+CREATE INDEX turns_session ON turns(session_id, n);
+CREATE INDEX turns_started ON turns(started_at);
+
+CREATE TABLE prs (
+    session_id  TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    ts          TEXT,
+    number      INTEGER,
+    url         TEXT NOT NULL,
+    repo        TEXT
+);
+CREATE INDEX prs_session ON prs(session_id);
 
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -492,7 +524,7 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
         &format!("DELETE FROM file_touches WHERE session_id IN ({ids})"),
         [key],
     )?;
-    for table in ["findings", "patterns", "commits", "limits"] {
+    for table in ["findings", "patterns", "commits", "limits", "turns", "prs"] {
         tx.execute(
             &format!("DELETE FROM {table} WHERE session_id IN ({ids})"),
             [key],
@@ -587,9 +619,10 @@ fn write_session(
             cache_read_tokens, cache_write_tokens, cost_usd, event_count, tool_call_count,
             error_count, file_count, project_root, active_ms, finding_count, max_severity,
             est_cost_usd, cost_unpriced, peak_context, wasted_ms, pattern_count, commit_count,
-            machine_id, os_user, project_remote, version, indexed_at, entrypoint)
+            machine_id, os_user, project_remote, version, indexed_at, entrypoint,
+            reasoning_tokens, service_tier, turn_count)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25,
-                 ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37)",
+                 ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)",
         params![
             s.id,
             s.agent.map(Agent::as_str).unwrap_or("unknown"),
@@ -628,14 +661,18 @@ fn write_session(
             ctx.version,
             ctx.indexed_at,
             s.entrypoint,
+            s.reasoning_tokens as i64,
+            s.service_tier,
+            p.turns.len() as i64,
         ],
     )?;
 
     let mut ev = tx.prepare_cached(
         "INSERT INTO events (session_id, seq, ts, kind, tool_name, category, title, body, input,
             is_error, duration_ms, source_offset, gap_ms, model, tok_in, tok_out, tok_cache_read,
-            tok_cache_write, context_tokens, cost_usd, wasted)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            tok_cache_write, context_tokens, cost_usd, wasted, tok_reasoning, approval, via)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+                 ?22, ?23, ?24)",
     )?;
     let mut fts =
         tx.prepare_cached("INSERT INTO events_fts (rowid, title, body) VALUES (?, ?, ?)")?;
@@ -666,6 +703,9 @@ fn write_session(
             e.usage.as_ref().map(|u| u.context() as i64),
             cost,
             wasted_steps.contains(&e.seq),
+            e.usage.as_ref().map_or(0, |u| u.reasoning as i64),
+            e.approval,
+            e.via,
         ])?;
         fts.execute(params![tx.last_insert_rowid(), e.title, e.body])?;
     }
@@ -697,6 +737,39 @@ fn write_session(
     )?;
     for c in &commits {
         cm.execute(params![s.id, c.seq, c.hash, c.branch, c.message])?;
+    }
+
+    let mut tn = tx.prepare_cached(
+        "INSERT INTO turns (session_id, n, seq, end_seq, started_at, ended_at, model, effort, mode,
+            approval_policy, sandbox) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )?;
+    for (n, t) in p.turns.iter().enumerate() {
+        // A turn runs up to the step before the next one starts.
+        let end = p
+            .turns
+            .get(n + 1)
+            .map_or(p.events.len() as u32, |x| x.seq)
+            .saturating_sub(1)
+            .max(t.seq);
+        tn.execute(params![
+            s.id,
+            n as i64,
+            t.seq,
+            end,
+            t.started_at,
+            t.ended_at,
+            t.model,
+            t.effort,
+            t.mode,
+            t.approval_policy,
+            t.sandbox
+        ])?;
+    }
+    let mut pr = tx.prepare_cached(
+        "INSERT INTO prs (session_id, seq, ts, number, url, repo) VALUES (?, ?, ?, ?, ?, ?)",
+    )?;
+    for x in &p.prs {
+        pr.execute(params![s.id, x.seq, x.timestamp, x.number, x.url, x.repo])?;
     }
 
     let mut lm = tx.prepare_cached(
@@ -744,7 +817,7 @@ fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
     )?;
     tx.execute("DELETE FROM events WHERE session_id = ?1", [id])?;
     tx.execute("DELETE FROM file_touches WHERE session_id = ?1", [id])?;
-    for table in ["findings", "patterns", "commits", "limits"] {
+    for table in ["findings", "patterns", "commits", "limits", "turns", "prs"] {
         tx.execute(&format!("DELETE FROM {table} WHERE session_id = ?1"), [id])?;
     }
     tx.execute("DELETE FROM sessions WHERE id = ?1", [id])?;

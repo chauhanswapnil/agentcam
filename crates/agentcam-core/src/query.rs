@@ -388,6 +388,10 @@ pub struct EventRow {
     pub tokens_out: i64,
     pub cost_usd: Option<f64>,
     pub wasted: bool,
+    /// How a tool call was allowed or stopped (see `Event::approval`).
+    pub approval: Option<String>,
+    /// Skill, plugin or app that produced the step.
+    pub via: Option<String>,
 }
 
 /// A file a step touched.
@@ -409,6 +413,8 @@ pub struct SessionDetail {
     pub subagents: Vec<SessionRow>,
     /// Lines this session and its subagents added, and where they are now.
     pub lasted: Option<crate::survival::Counts>,
+    pub turns: Vec<crate::turns::TurnRow>,
+    pub prs: Vec<crate::turns::PrRow>,
 }
 
 /// A commit a session made.
@@ -505,7 +511,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT seq, ts, kind, tool_name, category, title, is_error, duration_ms,
                 CASE WHEN kind != 'tool_call' THEN substr(body, 1, {TRANSCRIPT_TEXT}) END,
-                context_tokens, tok_out, cost_usd, wasted
+                context_tokens, tok_out, cost_usd, wasted, approval, via
          FROM events WHERE session_id = ? ORDER BY seq"
     ))?;
     let events = stmt
@@ -524,6 +530,8 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
                 tokens_out: r.get(10)?,
                 cost_usd: r.get(11)?,
                 wasted: r.get(12)?,
+                approval: r.get(13)?,
+                via: r.get(14)?,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
@@ -588,6 +596,8 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
         .query_map([id], commit_row)?
         .collect::<std::result::Result<_, _>>()?;
     let lasted = crate::survival::session_counts(conn, id)?;
+    let turns = crate::turns::session_turns(conn, id)?;
+    let prs = crate::turns::prs(conn, &Filter::default(), Some(id), 50)?;
     Ok(Some(SessionDetail {
         session,
         events,
@@ -597,6 +607,8 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
         commits,
         subagents,
         lasted,
+        turns,
+        prs,
     }))
 }
 

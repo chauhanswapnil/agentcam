@@ -32,9 +32,44 @@ pub struct Session {
     pub cache_write_tokens: u64,
     /// Only set when the agent itself recorded a cost.
     pub cost_usd: Option<f64>,
+    /// Reasoning tokens over the session, when the log says (Codex).
+    pub reasoning_tokens: u64,
+    /// Codex `service_tier` (`priority`, `flex`, ...).
+    pub service_tier: Option<String>,
     /// Where the session was started from, as the agent names it
     /// (`cli`, `claude-desktop`, `vscode`, `Codex Desktop`, ...).
     pub entrypoint: Option<String>,
+}
+
+/// One turn: a prompt you typed and the work until the next one. Only the
+/// start and settings are parsed; counts come from the steps in between.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct Turn {
+    /// Index of the prompt step that starts it.
+    pub seq: u32,
+    pub started_at: Option<String>,
+    /// When the agent said the turn was over (Codex `task_complete`).
+    pub ended_at: Option<String>,
+    pub model: Option<String>,
+    /// Reasoning effort: `low` ... `max`.
+    pub effort: Option<String>,
+    /// Claude Code permission mode (`default`, `acceptEdits`, `plan`,
+    /// `auto`, ...) or Codex collaboration mode (`default`, `plan`).
+    pub mode: Option<String>,
+    /// Codex approval policy (`on-request`, `never`, ...).
+    pub approval_policy: Option<String>,
+    /// Codex sandbox (`workspace-write`, `read-only`, ...).
+    pub sandbox: Option<String>,
+}
+
+/// A pull request a session linked to.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct PrLink {
+    pub seq: u32,
+    pub timestamp: Option<String>,
+    pub number: Option<i64>,
+    pub url: String,
+    pub repo: Option<String>,
 }
 
 /// A usage-window reading, or a limit the agent reported reaching.
@@ -120,6 +155,8 @@ pub struct TokenUsage {
     pub output: u64,
     pub cache_read: u64,
     pub cache_write: u64,
+    /// Part of `output` spent on reasoning, when the log says (Codex).
+    pub reasoning: u64,
 }
 
 impl TokenUsage {
@@ -152,6 +189,12 @@ pub struct Event {
     pub call_id: Option<String>,
     /// Model tokens spent producing this step, when the log says.
     pub usage: Option<TokenUsage>,
+    /// How a tool call was allowed or stopped: `rule`, `auto`, `mode`,
+    /// `you`, `rejected`, `blocked-auto`, `blocked-rule`, `blocked-safety`.
+    pub approval: Option<String>,
+    /// What produced the step, when the agent says: `skill:name`,
+    /// `plugin:name`, `app:name` (an MCP app).
+    pub via: Option<String>,
 }
 
 impl Event {
@@ -170,6 +213,8 @@ impl Event {
             source_offset,
             call_id: None,
             usage: None,
+            approval: None,
+            via: None,
         }
     }
 }
@@ -212,6 +257,10 @@ pub struct ParsedSession {
     pub events: Vec<Event>,
     pub touches: Vec<FileTouch>,
     pub limits: Vec<LimitSample>,
+    /// One per prompt you typed, with the settings the agent ran with.
+    pub turns: Vec<Turn>,
+    /// Pull requests the session opened or linked.
+    pub prs: Vec<PrLink>,
     /// Lines that weren't valid JSON.
     pub bad_lines: u32,
 }

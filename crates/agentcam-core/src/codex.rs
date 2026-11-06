@@ -25,6 +25,10 @@ struct State {
     legacy: Vec<Event>,
     legacy_touches: Vec<(usize, FileTouch)>,
     pending: HashMap<String, usize>,
+    /// Settings from each `turn_context`, in order, with their time.
+    contexts: Vec<(String, Turn)>,
+    /// Times Codex marked a turn complete.
+    completes: Vec<String>,
 }
 
 /// Parse one Codex rollout file.
@@ -42,6 +46,7 @@ pub fn parse(path: &Path) -> io::Result<ParsedSession> {
         (st.items, st.item_touches)
     };
     out.events = events;
+    out.turns = turns_from(&out.events, &st.contexts, &st.completes);
     out.touches = touches
         .into_iter()
         .map(|(idx, mut t)| {
@@ -70,6 +75,40 @@ impl State {
             ("turn_context", _) => {
                 if let Some(m) = str_of(p, "model") {
                     self.out.session.model = Some(m.to_string());
+                }
+                if let Some(ts) = ts {
+                    let sandbox = p.get("sandbox_policy").and_then(|s| {
+                        s.as_str()
+                            .map(String::from)
+                            .or_else(|| str_of(s, "type").map(String::from))
+                    });
+                    self.contexts.push((
+                        ts,
+                        Turn {
+                            model: str_of(p, "model").map(String::from),
+                            effort: str_of(p, "effort").map(String::from),
+                            mode: p
+                                .get("collaboration_mode")
+                                .and_then(|c| str_of(c, "mode"))
+                                .map(String::from),
+                            approval_policy: str_of(p, "approval_policy").map(String::from),
+                            sandbox,
+                            ..Default::default()
+                        },
+                    ));
+                }
+            }
+            ("event_msg", "task_complete") => {
+                if let Some(ts) = ts {
+                    self.completes.push(ts);
+                }
+            }
+            ("event_msg", "thread_settings_applied") => {
+                if let Some(t) = p
+                    .get("thread_settings")
+                    .and_then(|t| str_of(t, "service_tier"))
+                {
+                    self.out.session.service_tier = Some(t.to_string());
                 }
             }
             ("event_msg", "token_count") => {
@@ -145,6 +184,7 @@ impl State {
                 u.cache_read += cached;
                 u.cache_write += n("cache_write_input_tokens");
                 u.output += n("output_tokens");
+                u.reasoning += n("reasoning_output_tokens");
             }
         }
         let Some(u) = p.get("info").and_then(|i| i.get("total_token_usage")) else {
@@ -157,6 +197,7 @@ impl State {
         s.cache_read_tokens = cached;
         s.cache_write_tokens = n("cache_write_input_tokens");
         s.output_tokens = n("output_tokens");
+        s.reasoning_tokens = n("reasoning_output_tokens");
     }
 
     /// `rate_limits` on token counts: how full each usage window is.
@@ -286,6 +327,9 @@ impl State {
                 e.is_error = failed(item);
                 e.duration_ms = rust_duration(item.get("duration"));
                 e.input = item.get("arguments").cloned();
+                e.via = str_of(item, "appName")
+                    .or_else(|| str_of(item, "server"))
+                    .map(|a| format!("app:{a}"));
                 self.items.push(e);
             }
             "Extension" => {
@@ -498,6 +542,39 @@ fn patch_files(patch: &str) -> Vec<(String, FileAction)> {
                 l.strip_prefix("*** Delete File: ")
                     .map(|p| (p.to_string(), FileAction::Delete))
             }
+        })
+        .collect()
+}
+
+/// A turn per prompt, with the settings of the last `turn_context` before
+/// the next prompt and the last completion inside it.
+fn turns_from(events: &[Event], contexts: &[(String, Turn)], completes: &[String]) -> Vec<Turn> {
+    let starts: Vec<(usize, &str)> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.kind == EventKind::Prompt)
+        .map(|(i, e)| (i, e.timestamp.as_deref().unwrap_or("")))
+        .collect();
+    starts
+        .iter()
+        .enumerate()
+        .map(|(k, &(idx, start))| {
+            let next = starts.get(k + 1).map(|s| s.1);
+            let before_next = |t: &str| next.is_none_or(|n| t < n);
+            let mut turn = contexts
+                .iter()
+                .rev()
+                .find(|(t, _)| before_next(t))
+                .map(|(_, c)| c.clone())
+                .unwrap_or_default();
+            turn.seq = idx as u32;
+            turn.started_at = (!start.is_empty()).then(|| start.to_string());
+            turn.ended_at = completes
+                .iter()
+                .filter(|t| t.as_str() >= start && before_next(t))
+                .max()
+                .cloned();
+            turn
         })
         .collect()
 }

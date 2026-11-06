@@ -1,6 +1,7 @@
 //! Core of agentcam: finding agent logs, parsing them into one event
 //! model, and indexing them in SQLite.
 
+pub mod approvals;
 pub mod audit;
 pub mod claude;
 pub mod codex;
@@ -17,6 +18,7 @@ pub mod query;
 pub mod share;
 pub mod shell;
 pub mod survival;
+pub mod turns;
 pub mod util;
 
 use std::path::{Path, PathBuf};

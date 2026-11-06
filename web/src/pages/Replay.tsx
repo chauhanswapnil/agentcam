@@ -13,6 +13,9 @@ import {
   FolderGit2,
   GitBranch,
   Keyboard,
+  MessagesSquare,
+  GitPullRequest,
+  Puzzle,
   MonitorSmartphone,
   Pause,
   Play,
@@ -24,12 +27,13 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, createElement, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { query, useApi, useIndexStatus, type EventRow, type Lasted, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { query, useApi, useIndexStatus, type EventRow, type Lasted, type TurnRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
 import { baseName, formatCompact, formatCost, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { entrypointLabel } from '../lib/live'
+import { approvalInfo, modeLabel, viaLabel } from '../lib/turns'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { DiffView } from '../ui/DiffView'
@@ -93,8 +97,8 @@ export function Replay() {
 }
 
 function Player({ id, data }: { id: string; data: SessionDetail }) {
-  const { session: x, events, files, findings, patterns, commits, subagents, lasted } = data
-  const [view, setView] = useState<'transcript' | 'trace'>('transcript')
+  const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs } = data
+  const [view, setView] = useState<'transcript' | 'turns' | 'trace'>('transcript')
   const [, navigate] = useLocation()
   // Read once: the URL follows the playhead, not the other way round.
   const [search] = useState(() => window.location.search)
@@ -222,6 +226,16 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
             {x.model && (
               <span className={s.mono}>
                 <Sparkles aria-hidden /> {x.model}
+              </span>
+            )}
+            {prs.map((p) => (
+              <a key={p.url} href={p.url} target="_blank" rel="noreferrer" title={p.repo ?? p.url}>
+                <GitPullRequest aria-hidden /> {p.number != null ? `PR #${p.number}` : 'Pull request'}
+              </a>
+            ))}
+            {x.service_tier && (
+              <span title="Codex service tier">
+                <Gauge aria-hidden /> {x.service_tier} tier
               </span>
             )}
             {entrypointLabel(x.entrypoint) && (
@@ -367,8 +381,8 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
 
           <div className={s.body}>
             <Panel
-              title={view === 'trace' ? 'Trace' : 'Transcript'}
-              icon={view === 'trace' ? <ChartNoAxesGantt /> : <Rows3 />}
+              title={view === 'trace' ? 'Trace' : view === 'turns' ? `${turns.length} turns` : 'Transcript'}
+              icon={view === 'trace' ? <ChartNoAxesGantt /> : view === 'turns' ? <MessagesSquare /> : <Rows3 />}
               flush
               actions={
                 <Segmented
@@ -377,6 +391,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                   onChange={setView}
                   options={[
                     { value: 'transcript', label: 'Transcript' },
+                    { value: 'turns', label: 'Turns' },
                     { value: 'trace', label: 'Trace' },
                   ]}
                 />
@@ -384,8 +399,10 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
             >
               {view === 'trace' ? (
                 <TraceView events={events} subagents={subagents} current={step} onSeek={jump} />
+              ) : view === 'turns' ? (
+                <TurnList turns={turns} events={events} current={step} onSeek={jump} />
               ) : (
-                <Transcript events={events} current={step} onSeek={jump} />
+                <Transcript events={events} turns={turns} current={step} onSeek={jump} />
               )}
             </Panel>
             <div className={`${s.column} ${s.stickyCol}`}>
@@ -484,7 +501,18 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
 }
 
 /** Every step as a readable list that follows the playhead. */
-function Transcript({ events, current, onSeek }: { events: EventRow[]; current: number; onSeek: (i: number) => void }) {
+function Transcript({
+  events,
+  turns,
+  current,
+  onSeek,
+}: {
+  events: EventRow[]
+  turns: TurnRow[]
+  current: number
+  onSeek: (i: number) => void
+}) {
+  const turnAt = useMemo(() => new Map(turns.map((t) => [t.seq, t])), [turns])
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = box.current?.querySelector<HTMLElement>(`[data-i="${current}"]`)
@@ -500,9 +528,15 @@ function Transcript({ events, current, onSeek }: { events: EventRow[]; current: 
 
   return (
     <div className={s.scroll} ref={box} style={{ position: 'relative' }}>
-      {events.map((e, i) => (
-        <Row key={e.seq} e={e} i={i} state={i === current ? 'on' : i > current ? 'future' : 'past'} onSeek={onSeek} />
-      ))}
+      {events.map((e, i) => {
+        const t = turnAt.get(e.seq)
+        return (
+          <Fragment key={e.seq}>
+            {t && <TurnHeader t={t} />}
+            <Row e={e} i={i} state={i === current ? 'on' : i > current ? 'future' : 'past'} onSeek={onSeek} />
+          </Fragment>
+        )
+      })}
     </div>
   )
 }
@@ -554,7 +588,7 @@ function TranscriptItem({ e }: { e: EventRow }) {
     return (
       <span className={s.itemBody}>
         <span className={s.thinking} style={{ display: 'block' }}>
-          Thinking · {e.title}
+          Thinking{e.duration_ms ? ` ${formatDuration(e.duration_ms)}` : ''} · {e.title}
         </span>
       </span>
     )
@@ -563,8 +597,90 @@ function TranscriptItem({ e }: { e: EventRow }) {
     <span className={`${s.itemBody} ${s.toolLine}`}>
       <KindIcon kind={e.kind} category={e.category} isError={e.is_error} />
       <span className={s.toolTitle}>{e.title}</span>
+      {e.approval && approvalInfo(e.approval).stopped && (
+        <span className={s.toolDur} title={approvalInfo(e.approval).label}>
+          {createElement(approvalInfo(e.approval).icon, { 'aria-hidden': true, style: { width: 12, height: 12, color: approvalInfo(e.approval).color, verticalAlign: -2 } })}{' '}
+          {approvalInfo(e.approval).short}
+        </span>
+      )}
       {e.duration_ms != null && e.duration_ms > 500 && <span className={s.toolDur}>{formatDuration(e.duration_ms)}</span>}
     </span>
+  )
+}
+
+/** A line above each prompt: which turn, how long it ran, and with what. */
+const TurnHeader = memo(function TurnHeader({ t }: { t: TurnRow }) {
+  const bits = [
+    t.duration_ms != null ? formatDuration(t.duration_ms).replace(/ \d+s$/, '') : null,
+    `${t.steps} step${t.steps === 1 ? '' : 's'}`,
+    t.cost_usd != null ? formatCost(t.cost_usd) : null,
+    t.model,
+    t.effort ? `${t.effort} effort` : null,
+    modeLabel(t.mode) ? `${modeLabel(t.mode)} mode` : null,
+  ].filter(Boolean)
+  return (
+    <div className={s.turnHead}>
+      <span className={s.turnN}>Turn {t.n + 1}</span>
+      <span>{bits.join(' · ')}</span>
+      {t.wait_ms != null && t.wait_ms > 60_000 && t.wait_ms < 8 * 3_600_000 && (
+        <span className={s.turnWait}>you replied after {formatHours(t.wait_ms)}</span>
+      )}
+    </div>
+  )
+})
+
+/** Every turn as a row; click one to jump to its prompt. */
+function TurnList({
+  turns,
+  events,
+  current,
+  onSeek,
+}: {
+  turns: TurnRow[]
+  events: EventRow[]
+  current: number
+  onSeek: (i: number) => void
+}) {
+  const index = useMemo(() => new Map(events.map((e, i) => [e.seq, i])), [events])
+  const cur = events[current]?.seq ?? 0
+  if (!turns.length) return <p className={s.note} style={{ padding: 16 }}>No prompts in this session.</p>
+  const longest = Math.max(1, ...turns.map((t) => t.duration_ms ?? 0))
+  return (
+    <div className={s.scroll}>
+      {turns.map((t) => {
+        const on = cur >= t.seq && cur <= t.end_seq
+        return (
+          <button
+            type="button"
+            key={t.n}
+            className={`${s.turnRow} ${on ? s.itemOn : ''}`}
+            onClick={() => onSeek(index.get(t.seq) ?? 0)}
+          >
+            <span className={s.turnN}>{t.n + 1}</span>
+            <span className={s.turnMain}>
+              <span className={s.turnPrompt}>{t.prompt || 'Prompt'}</span>
+              <span className={s.turnMeta}>
+                {[
+                  `${t.steps} steps`,
+                  t.errors ? `${t.errors} errored` : null,
+                  t.cost_usd != null ? formatCost(t.cost_usd) : null,
+                  t.thinking_ms ? `${formatDuration(t.thinking_ms)} thinking` : null,
+                  t.model,
+                  t.effort,
+                  modeLabel(t.mode),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </span>
+            <span className={s.turnLen}>
+              <span className={s.turnBar} style={{ width: `${Math.max(4, ((t.duration_ms ?? 0) / longest) * 100)}%` }} />
+              <span>{t.duration_ms != null ? formatDuration(t.duration_ms).replace(/ \d+s$/, '') : '–'}</span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -633,6 +749,12 @@ function StepDetail({
         </span>
         {event.ts && <span>· {formatTime(event.ts)}</span>}
         {event.duration_ms != null && <span>· took {formatDuration(event.duration_ms)}</span>}
+        {event.approval && (
+          <Badge icon={createElement(approvalInfo(event.approval).icon)} color={approvalInfo(event.approval).color}>
+            {approvalInfo(event.approval).label}
+          </Badge>
+        )}
+        {event.via && <Badge icon={<Puzzle />}>{viaLabel(event.via)}</Badge>}
         {event.is_error && (
           <Badge icon={<TriangleAlert />} color="var(--status-critical)">
             Failed

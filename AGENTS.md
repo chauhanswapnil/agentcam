@@ -111,6 +111,11 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context |
 | `GET /api/limits` | Usage windows (latest reading, last 7 days) and limits reached |
 | `GET /api/lasted` | Which agent-written lines are still in the code: by age, week, agent and model, project, file |
+| `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
+| `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
+| `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model |
+| `GET /api/prs` | Pull requests sessions linked |
+| `GET /api/sources` | Skills, plugins, MCP servers and apps behind steps |
 | `GET /api/outbox` | The metadata a team server would receive (`share.rs`); nothing is sent |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
@@ -146,6 +151,15 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Usage windows come from the logs, never from an API. Codex writes `rate_limits` on token counts (5-hour and weekly `used_percent`, `resets_at`, plan); the parser keeps only changed readings. Claude Code only logs when a limit is reached ("You've hit your session limit · resets 3pm (...)", `error: rate_limit`); it becomes a `System` step, not a reply, plus a hit. Repeats of one hit are merged in the query.
 - `sessions.entrypoint` records where a session started (`cli`, `claude-desktop`, Codex `originator`); the UI maps it to plain words in `web/src/lib/live.ts`.
 - The watcher re-indexes at least every 3 s while an agent keeps writing, so the Live page keeps up.
+
+### Turns, approvals and what the logs add
+
+- A **turn** is a prompt you typed and every step until the next one (`ParsedSession.turns`, table `turns` with `seq`..`end_seq`). Claude Code turns take the permission mode from the prompt record and the model and effort from the first reply; Codex turns take the last `turn_context` before the next prompt and end at `task_complete`. Counts and lengths are computed from the steps in `turns.rs`.
+- **Approvals** come from Claude Code's `permissionDecision` and `toolDenialKind` on tool results (`Event::approval`: `rule`, `auto`, `mode`, `config`, `you`, `rejected`, `blocked-*`). A rejected or blocked call never ran: it records no file changes and isn't counted as an error.
+- **Allow rule suggestions** (`approvals.rs`) group calls you approved by hand or that auto mode had to check. Broad commands (interpreters, shells, `rm`, `sed`, `git push`, ...) are never suggested; MCP tools are grouped per server. The UI starts with nothing picked and only shows JSON to copy: agentcam never edits settings.
+- `Event::via` records the skill or plugin (Claude Code `attributionSkill`, `attributionPlugin`) or MCP app (Codex `appName`) behind a step. Thinking steps carry `thinkingDurationMs` as their duration.
+- Claude Code `edited_text_file` attachments become `System` steps (`tool_name = external_edit`): a file changed outside the session. They are not file touches.
+- `pr-link` records go to the `prs` table. Codex `reasoning_output_tokens` and `service_tier` are kept per step and session.
 
 ### What lasted (code survival)
 

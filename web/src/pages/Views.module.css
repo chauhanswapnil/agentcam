@@ -47,6 +47,9 @@
   color: var(--text-3);
 }
 .tableWrap {
+  /* Positioned, so screen-reader-only labels inside stay inside the
+   * scroll box instead of widening the page on phones. */
+  position: relative;
   overflow-x: auto;
 }
 .table {

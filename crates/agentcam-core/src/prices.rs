@@ -89,6 +89,7 @@ mod tests {
             output,
             cache_read,
             cache_write: 0,
+            reasoning: 0,
         }
     }
 

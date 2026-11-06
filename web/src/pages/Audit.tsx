@@ -1,13 +1,14 @@
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useLocation, useSearch } from 'wouter'
 import { AGENTS } from '../lib/agents'
-import { query, useApi, useIndexStatus, type Audit as AuditData } from '../lib/api'
+import { query, useApi, useIndexStatus, type Audit as AuditData, type Approvals } from '../lib/api'
 import { baseName, formatAgo, formatNumber, oneLine } from '../lib/format'
 import { EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import { SEVERITY_COLOR } from '../lib/severity'
 import { GuardPanel } from '../ui/GuardPanel'
+import { ApprovalsPanel } from '../ui/ApprovalsPanel'
 import { RuleEditor } from '../ui/RuleEditor'
 import { SeverityBadge } from '../ui/Severity'
 import s from './Views.module.css'
@@ -30,6 +31,7 @@ export function Audit() {
   const f = { range: p.get('range') ?? 'all', rule: p.get('rule') ?? '', severity: p.get('severity') ?? 'medium' }
   const set = (patch: Partial<typeof f>) => navigate(`/audit${query({ ...f, ...patch })}`, { replace: true })
   const { status } = useIndexStatus()
+  const approvals = useApi<Approvals>(`/api/approvals${query({ range: f.range })}`, status?.generation ?? 0)
   const { data } = useApi<AuditData>(
     `/api/audit${query({ range: f.range, rule: f.rule, severity: f.severity, limit: 300 })}`,
     status?.generation ?? 0,
@@ -52,6 +54,7 @@ export function Audit() {
       </header>
 
       <GuardPanel />
+      {approvals.data && <ApprovalsPanel data={approvals.data} />}
 
       {!data ? (
         <Skeleton height={240} />

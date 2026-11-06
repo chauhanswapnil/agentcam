@@ -40,6 +40,8 @@ import { Segmented } from '../ui/Segmented'
 import { Sparkline } from '../ui/Sparkline'
 import { Stat } from '../ui/Stat'
 import { Tooltip } from '../ui/Tooltip'
+import { TurnsPanel } from '../ui/TurnsPanel'
+import type { TurnStats } from '../lib/api'
 import s from './Overview.module.css'
 
 const RANGES = [
@@ -261,6 +263,7 @@ export function Overview() {
 
   // The weekly card always covers the last 7 days, whatever the range.
   const week = useApi<OverviewData>(`/api/overview${query({ range: '7d', agent: f.agent })}`, gen)
+  const turns = useApi<TurnStats>(`/api/turns${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const weekAudit = useApi<import('../lib/api').Audit>(`/api/audit${query({ range: '7d', agent: f.agent, severity: 'medium', limit: 1 })}`, gen)
   const indexing = status?.indexing
   const firstRun = indexing && !status?.last_report
@@ -389,6 +392,7 @@ export function Overview() {
               <AgentSplit filterAgent={f.agent as AgentId | ''} onSelect={(agent) => setF({ agent })} range={f.range} project={f.project} day={f.day} gen={gen} />
             </Panel>
           )}
+          {turns.data && turns.data.turns > 0 && <TurnsPanel data={turns.data} />}
         </div>
       </div>
     </div>

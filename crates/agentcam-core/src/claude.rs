@@ -32,6 +32,8 @@ struct State {
     custom_title: Option<String>,
     ai_title: Option<String>,
     summary: Option<String>,
+    /// Permission mode on the record being read, for the turn it starts.
+    mode: Option<String>,
 }
 
 /// Parse one Claude Code log file.
@@ -76,6 +78,7 @@ pub fn parse(path: &Path) -> io::Result<ParsedSession> {
                 output: u.output,
                 cache_read: u.cache_read,
                 cache_write: u.cache_write,
+                reasoning: 0,
             });
         }
     }
@@ -128,6 +131,18 @@ impl State {
             "custom-title" => self.custom_title = str_of(rec, "customTitle").map(String::from),
             "ai-title" => self.ai_title = str_of(rec, "aiTitle").map(String::from),
             "summary" => self.summary = str_of(rec, "summary").map(String::from),
+            "pr-link" => {
+                if let Some(url) = str_of(rec, "prUrl") {
+                    self.out.prs.push(PrLink {
+                        seq: self.out.events.len().saturating_sub(1) as u32,
+                        timestamp: ts,
+                        number: rec.get("prNumber").and_then(Value::as_i64),
+                        url: url.to_string(),
+                        repo: str_of(rec, "prRepository").map(String::from),
+                    });
+                }
+            }
+            "attachment" => self.attachment(rec, offset, ts),
             "cost-state" => {
                 if let Some(c) = rec.get("totalCostUSD").and_then(Value::as_f64) {
                     self.out.session.cost_usd = Some(c);
@@ -149,6 +164,7 @@ impl State {
         let Some(content) = rec.get("message").and_then(|m| m.get("content")) else {
             return;
         };
+        self.mode = str_of(rec, "permissionMode").map(String::from);
 
         if let Value::String(text) = content {
             self.prompt_text(text, offset, ts);
@@ -161,7 +177,7 @@ impl State {
         let mut prompt = Vec::new();
         for b in blocks {
             match str_of(b, "type") {
-                Some("tool_result") => self.tool_result(b, rec.get("toolUseResult"), ts.as_deref()),
+                Some("tool_result") => self.tool_result(b, rec, ts.as_deref()),
                 Some("text") => prompt.push(text_of(&Value::Array(vec![b.clone()]))),
                 Some("image") => prompt.push("[image]".to_string()),
                 _ => {}
@@ -196,10 +212,20 @@ impl State {
             None => first_line(t, 200),
         };
         e.body = truncate(text, MAX_TEXT);
-        self.push(e);
+        let started_at = e.timestamp.clone();
+        let idx = self.push(e);
+        if !system_like {
+            self.out.turns.push(Turn {
+                seq: idx as u32,
+                started_at,
+                mode: self.mode.clone(),
+                ..Default::default()
+            });
+        }
     }
 
-    fn tool_result(&mut self, block: &Value, structured: Option<&Value>, ts: Option<&str>) {
+    fn tool_result(&mut self, block: &Value, rec: &Value, ts: Option<&str>) {
+        let structured = rec.get("toolUseResult");
         let Some(id) = str_of(block, "tool_use_id") else {
             return;
         };
@@ -215,7 +241,19 @@ impl State {
         ev.body = truncate(&body, MAX_TEXT);
         ev.is_error = block.get("is_error").and_then(Value::as_bool) == Some(true);
         ev.duration_ms = duration_ms(ev.timestamp.as_deref(), ts);
+        ev.approval = approval(rec);
         let seq = idx as u32;
+        // A call that was rejected or blocked never ran: it changed no
+        // files, and the refusal isn't the agent's error.
+        if ev
+            .approval
+            .as_deref()
+            .is_some_and(|a| a == "rejected" || a.starts_with("blocked"))
+        {
+            ev.is_error = false;
+            self.out.touches.retain(|t| t.seq != seq);
+            return;
+        }
 
         let Some(r) = structured.filter(|r| r.is_object()) else {
             return;
@@ -272,8 +310,30 @@ impl State {
             }
             return;
         }
+        if let Some(turn) = self.out.turns.last_mut() {
+            if turn.model.is_none() {
+                turn.model = str_of(msg, "model")
+                    .filter(|m| !m.starts_with('<'))
+                    .map(String::from);
+            }
+            if turn.effort.is_none() {
+                turn.effort = str_of(rec, "effort").map(String::from);
+            }
+        }
         let before = self.out.events.len();
         self.assistant_blocks(blocks, offset, ts, rec);
+        let via = str_of(rec, "attributionSkill")
+            .map(|s| format!("skill:{s}"))
+            .or_else(|| str_of(rec, "attributionPlugin").map(|s| format!("plugin:{s}")));
+        let thinking_ms = rec.get("thinkingDurationMs").and_then(Value::as_u64);
+        for e in &mut self.out.events[before..] {
+            if e.via.is_none() {
+                e.via.clone_from(&via);
+            }
+            if e.kind == EventKind::Thinking && e.duration_ms.is_none() {
+                e.duration_ms = thinking_ms;
+            }
+        }
         if let Some(id) = str_of(msg, "id")
             && self.out.events.len() > before
             && !self.msg_first.contains_key(id)
@@ -373,6 +433,26 @@ impl State {
         }
     }
 
+    /// Attachments are context Claude Code adds to the conversation. One
+    /// kind matters here: a file changed outside the session while it ran.
+    fn attachment(&mut self, rec: &Value, offset: u64, ts: Option<String>) {
+        let Some(a) = rec.get("attachment") else {
+            return;
+        };
+        if str_of(a, "type") != Some("edited_text_file") {
+            return;
+        }
+        let Some(path) = str_of(a, "filename") else {
+            return;
+        };
+        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        let mut e = Event::new(EventKind::System, offset, ts);
+        e.tool_name = Some("external_edit".into());
+        e.title = format!("{name} changed outside the session");
+        e.body = path.to_string();
+        self.push(e);
+    }
+
     fn system(&mut self, rec: &Value, offset: u64, ts: Option<String>) {
         if str_of(rec, "subtype") == Some("compact_boundary") {
             let mut e = Event::new(EventKind::System, offset, ts);
@@ -441,6 +521,35 @@ fn hunks_to_diff(hunks: &[Value]) -> String {
         }
     }
     out
+}
+
+/// How Claude Code let a tool call run or stopped it, from
+/// `permissionDecision` and `toolDenialKind` on the tool result.
+fn approval(rec: &Value) -> Option<String> {
+    let label = match str_of(rec, "toolDenialKind") {
+        Some("user-rejected") => "rejected",
+        Some("automode-blocked" | "automode-unavailable") => "blocked-auto",
+        Some("permission-rule") => "blocked-rule",
+        Some(_) => "blocked-rule",
+        None => {
+            let d = rec.get("permissionDecision")?;
+            let source = str_of(d, "source").unwrap_or("");
+            let reason = str_of(d, "reasonType").unwrap_or("");
+            match (str_of(d, "decision")?, source, reason) {
+                ("accept", s, _) if s.starts_with("user") => "you",
+                ("accept", _, "classifier") => "auto",
+                ("accept", _, "rule" | "subcommandResults") => "rule",
+                ("accept", _, "mode") => "mode",
+                ("accept", _, _) => "config",
+                (_, "user_abort", _) => "rejected",
+                (_, s, _) if s.starts_with("user") => "rejected",
+                (_, _, "classifier") => "blocked-auto",
+                (_, _, "safetyCheck") => "blocked-safety",
+                _ => "blocked-rule",
+            }
+        }
+    };
+    Some(label.to_string())
 }
 
 /// Read "You've hit your weekly limit · resets Nov 9, 3pm (Europe/London)".
