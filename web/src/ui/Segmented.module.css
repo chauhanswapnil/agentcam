@@ -1,5 +1,9 @@
 .group {
   display: inline-flex;
+  /* Long option lists scroll inside the control on narrow screens. */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 2px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-2);
@@ -7,6 +11,8 @@
 }
 .option {
   position: relative;
+  flex: none;
+  white-space: nowrap;
   height: 22px;
   padding: 0 var(--s-2);
   border: 0;

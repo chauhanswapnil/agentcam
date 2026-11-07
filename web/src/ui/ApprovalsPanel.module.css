@@ -17,7 +17,7 @@
 .counts li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-1-5);
 }
 .counts svg {
   width: 14px;
@@ -52,7 +52,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--s-1) var(--s-2);
-  padding: 4px 0;
+  padding: var(--s-1) 0;
   color: var(--text-1);
   font-size: var(--fs-sm);
   cursor: pointer;
@@ -89,7 +89,7 @@
   align-items: center;
   gap: var(--s-2);
   min-width: 0;
-  padding: 5px 0;
+  padding: var(--s-1-5) 0;
   border-top: 1px solid var(--line-1);
   color: var(--text-2);
   font-size: var(--fs-sm);

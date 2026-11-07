@@ -117,7 +117,7 @@ function StatsStrip({ stats, prev, range }: { stats: Stats; prev?: Stats | null;
         <Stat
           label="Agent time"
           value={formatHours(stats.active_ms)}
-          sub={stats.wasted_ms > 0 ? formatHours(stats.wasted_ms) + ' stuck in loops and retries' : (delta(stats.active_ms, p?.active_ms, range) ?? 'idle gaps over 5 min left out')}
+          sub={stats.wasted_ms > 0 ? formatHours(stats.wasted_ms) + ' on retries and reverts' : (delta(stats.active_ms, p?.active_ms, range) ?? 'idle gaps over 5 min left out')}
         />
       </div>
       <div className={s.stat}>
@@ -134,7 +134,7 @@ function StatsStrip({ stats, prev, range }: { stats: Stats; prev?: Stats | null;
         <Stat label="Tool calls" value={formatCompact(stats.tool_calls)} sub={`${formatNumber(stats.commands)} commands`} />
       </div>
       <div className={s.stat}>
-        <Stat label="Files changed" value={formatNumber(stats.files_changed)} sub={`${formatNumber(stats.files_created)} new · ${formatNumber(stats.errors)} failed steps`} />
+        <Stat label="Files changed" value={formatNumber(stats.files_changed)} sub={`${formatNumber(stats.files_created)} new · ${formatNumber(stats.errors)} steps errored`} />
       </div>
     </div>
   )
@@ -236,14 +236,14 @@ function SessionList({ rows, onOpen }: { rows: SessionRow[]; onOpen: (id: string
                       </Tooltip>
                     )}
                     {r.wasted_ms > 0 && (
-                      <Tooltip content={formatHours(r.wasted_ms) + ' stuck in loops and retries'}>
+                      <Tooltip content={formatHours(r.wasted_ms) + ' on retries and reverts'}>
                         <Badge icon={<RotateCcw />} color="var(--status-serious)">
                           {formatHours(r.wasted_ms)}
                         </Badge>
                       </Tooltip>
                     )}
                     {r.error_count > 0 && (
-                      <Tooltip content={`${r.error_count} failed ${r.error_count === 1 ? 'step' : 'steps'}`}>
+                      <Tooltip content={`${r.error_count} ${r.error_count === 1 ? 'step' : 'steps'} errored`}>
                         <Badge icon={<TriangleAlert />} color="var(--status-critical)">
                           {r.error_count}
                         </Badge>

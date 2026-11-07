@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Who wrote this: each line of a file with the agent session, model and prompt that wrote it, from the Files page, `agentcam blame <file>` and `/api/blame`.
+- `agentcam mcp`: a read-only MCP server so agents can search past sessions, read a session or step, see a file's history and blame, a repo's instruction rules and how they were followed, and what lasted.
+- Setup page: settings files, instruction and memory files, MCP servers (with calls in 30 days), hooks (with runs and errors) and skills, plus checks worth a look such as approvals skipped by default, broad allow rules, an instruction that an allow rule overrides, hooks pointing at missing files, large memory files and heavy skill listings. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are honored.
+- Replay: the agent's task list as of each step and the plans it proposed (TodoWrite, TaskCreate/TaskUpdate, Codex update_plan, ExitPlanMode), hooks that ran as their own steps, and a subagent tree with each branch's cost.
+- Prompts page: search everything you typed, and see the prompts you keep typing across sessions.
+- Team server admin commands: `agentcam team machines`, `team remove <machine>` (drops the machine and what it sent; its token stops working), `team viewers` and `team revoke <id>` (never the last admin).
+- Docs: [running a team server](docs/team-server.md) (proxy, tokens, backups, upgrades) and [agentcam as an MCP server](docs/mcp.md) (setup and every tool).
+
 - Team server (`agentcam team serve`): a self-hosted server that laptops push session metadata to after `agentcam team join`. Pages for Insights (time, cost, what lasted and rules followed by week, team, repo and model), Value (cost per commit and PR, lines kept per dollar, seats against API-priced use, machines active per week, models and agent versions side by side), Governance (findings across the team) and Fleet (agent versions, MCP servers, plugins, skills, hooks and settings worth a look on each machine). Invites, device and viewer tokens, an audit log, and names hidden unless an admin turns them on.
 - `agentcam team join|sync|status|pause|resume|leave` on the laptop; the Outbox page shows the team link and the setup inventory that's sent.
 - Share contract v2: turn count, lines still in the code, instruction rules followed and pull request numbers (counts only).
@@ -21,7 +29,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - `agentcam index` and `agentcam search` commands.
 - Cost: per-step token usage and an estimated cost from a model price table (`prices.yaml`, editable); cost in the overview, projects, sessions, heatmap and replay.
 - Context window chart per session, with compactions marked.
-- Stuck detection: retry loops, failure streaks and reverts, with time lost shown on sessions, the overview and the replay timeline.
+- Retry detection: retry loops, error streaks and reverts, with time on retries shown on sessions, the overview and the replay timeline.
 - Commits: which commits each session made, a Commits page, and commits in the replay.
 - Trace view in the replay: steps on an agent-time axis with subagents nested inside their calls.
 - `agentcam export otlp`: sessions as OpenTelemetry traces, to a file or an OTLP endpoint.
@@ -59,3 +67,21 @@ All notable changes to this project are documented here. The format follows [Kee
 - JSON API over the index; `agentcam serve` indexes in the background on start.
 - The server refuses requests that don't use a loopback Host header (blocks DNS rebinding).
 - Design system: dark tokens, a color-blind-checked palette for event kinds, bundled Inter and JetBrains Mono, base components, a ⌘K command palette and a `/styleguide` page.
+
+### Changed
+
+- MCP answers mask secrets the same way exports do, and the MCP server picks up new logs while it runs (at most every 30 seconds, before a tool call).
+- Blame reads a file only when an agent session edited it, so the local API never serves other files.
+- Pages other than the overview and replay load on first visit, and the team pages load only on the team server: the first download is a third smaller.
+- Wording follows the voice guide everywhere: "errored" instead of "failed", "Retried 3 times" for retry loops, "on retries and reverts" instead of "stuck".
+- Unknown addresses show "No page here" instead of the overview.
+
+### Fixed
+
+- Hook runs on the Setup page now count hooks started through `bunx`, `uvx`, `deno` or `uv run`; one helper now names a command's program for step titles, Setup and the fleet inventory.
+- Codex `sandbox_mode` shows beside the approval mode on the Setup page instead of as an "ask" rule.
+- `get_session` in MCP listed a file once per edit; now once per path and action.
+- The MCP server echoed any protocol version a client sent; it now answers with one it speaks.
+- Segmented controls (such as the Search filters) scroll inside themselves on phones instead of widening the page.
+- The terminal search and the Compare page no longer panic on a timestamp shorter than a date.
+- `agentcam index` folds worktrees into their repo in its project summary and says "no date" instead of "?".

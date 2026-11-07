@@ -14,7 +14,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Overview.** Agent time, sessions, prompts, tool calls and files changed, compared with the previous period. A year-long activity heatmap, projects with weekly sparklines, every session grouped by day, and how long turns take. Agent worktrees count toward their repo, and subagents toward their parent session.
 
-**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, split into turns: each prompt with how long it ran, its steps, cost, model, effort and mode. Each step shows its command and output, or a line-numbered diff, how it was approved, and the skill behind it. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next error, `R` for the next risk. Every step has its own link. Copy the command that resumes the session in its folder (`claude --resume` or `codex resume`), and open any changed file at its line in VS Code, Cursor or Zed.
+**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, split into turns: each prompt with how long it ran, its steps, cost, model, effort and mode. Each step shows its command and output, or a line-numbered diff, how it was approved, and the skill behind it. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next error, `R` for the next risk. Every step has its own link. Side panels show the agent's own task list as it stood at that step, plans it proposed, hooks that ran, and each subagent's share of the cost. Copy the command that resumes the session in its folder (`claude --resume` or `codex resume`), and open any changed file at its line in VS Code, Cursor or Zed.
 
 ![Replay: timeline, transcript, and a diff for the current step](docs/screenshots/replay.png)
 
@@ -28,11 +28,19 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Search results with highlighted matches](docs/screenshots/search.png)
 
+**Prompts.** Everything you typed to an agent, searchable, with the prompts you keep typing grouped together. A prompt you type in many sessions might belong in a slash command, a skill or AGENTS.md.
+
+![Prompts: your prompts and the ones you keep asking](docs/screenshots/prompts.png)
+
 ### Did it work?
 
 **What lasted.** Of the lines your agents wrote, how many are still in the code today, how many later agent edits rewrote, and how many changed since. By age, week, agent and model, project and file, and on every change in the replay. It works on your past sessions too, with nothing to install.
 
 ![What lasted: share of agent lines still in the code, by age, model and week](docs/screenshots/lasted.png)
+
+**Who wrote this.** Open any file and see which session, model and prompt wrote each line that's still there, with a link to that step. Also `agentcam blame <file>` in the terminal. It works on past sessions, not just ones after you install.
+
+![Who wrote this: each line of a file with the agent edit that wrote it](docs/screenshots/blame.png)
 
 **Compare.** Put two groups of turns side by side: two models, agent versions, efforts, modes or skills, or before and after a date. agentcam finds comparisons worth a look, such as before and after you changed a project's AGENTS.md. It describes the changes ("24% shorter", "4 points more lines kept") and doesn't score them.
 
@@ -65,6 +73,12 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 **Skills.** Which skills exist, which the agents or you ran, which sit unused, and how much context each one and the skill listing take.
 
 ![Skills: runs, steps under each skill, size when loaded](docs/screenshots/skills.png)
+
+**Setup.** Your agents' settings files, instruction and memory files, MCP servers, hooks and skills on this machine, with things worth a look: approvals skipped by default, allow rules that cover every command, an instruction that a setting overrides, a hook pointing at a missing file, a CLAUDE.md that takes thousands of tokens, MCP servers nobody calls. Reads `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when they're set. agentcam never changes these files.
+
+![Setup: settings worth a look, settings files, MCP servers and hooks](docs/screenshots/setup.png)
+
+**Ask your history (MCP).** `agentcam mcp` is a read-only MCP server, so your agents can look up past work: how a bug was fixed before, what a repo's AGENTS.md asks and what tends to get missed, which edits to a file lasted, who wrote a line. Add it with `claude mcp add agentcam -- agentcam mcp`, or in Codex's `config.toml` as `[mcp_servers.agentcam]` with `command = "agentcam"` and `args = ["mcp"]`. Answers have secrets masked. [Every tool](docs/mcp.md).
 
 **Tools and files.** Use, errors and time per tool; skills, plugins and MCP servers behind steps; the most changed files and each file's history.
 
@@ -106,6 +120,8 @@ agentcam team invite Platform               # or make invites on the Settings pa
 agentcam team join https://agentcam.example.com ac_inv_...
 ```
 
+[Running a team server](docs/team-server.md) covers the proxy, tokens, removing a machine, backups and upgrades.
+
 ## Install
 
 Not published yet. You need Rust (stable) and Node 20+.
@@ -130,8 +146,12 @@ agentcam
 | `agentcam scan [--min high] [--range 30d]` | Print what the risk rules found |
 | `agentcam export otlp [--range 7d] [--out f] [--endpoint url]` | Sessions as OpenTelemetry traces (OTLP/JSON); sends data only with `--endpoint` |
 | `agentcam guard` | The hook command: reads a tool call on stdin, exits 2 to block it |
+| `agentcam blame <file>` | Which agent session wrote each line of a file today |
+| `agentcam mcp` | Read-only MCP server over stdio for your agents |
 | `agentcam team serve [--data dir] [--bind addr]` | Run a team server |
 | `agentcam team invite <team>` / `team token` | Make an invite code or a viewer token on the server machine |
+| `agentcam team machines` / `team remove <machine>` | List machines, or remove one and what it sent |
+| `agentcam team viewers` / `team revoke <id>` | List viewer tokens, or revoke one |
 | `agentcam team join <server> <invite>` | Join a team; then `team sync`, `status`, `pause`, `resume`, `leave` |
 
 All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By default the index lives in your data folder (`~/Library/Application Support/agentcam/` on macOS), next to `rules.yaml` (your rules) and `guard.yaml` (your guard rules).
@@ -150,7 +170,7 @@ For both agents agentcam reads what the logs record: turns and their settings, a
 - agentcam only reads agent logs. It never edits, moves or uploads them, and never edits agent settings; the Audit page shows the hook config for you to add.
 - The server listens on `127.0.0.1` only, refuses requests addressed to any other host name, and refuses cross-site writes.
 - Nothing leaves the machine unless you run `agentcam team join`. Then it sends metadata to a server your company runs, over https; `agentcam team pause` stops it.
-- Secrets that the rules find are masked before they reach the index, and again in session exports. Report cards hide titles, projects and file names by default.
+- Secrets that the rules find are masked before they reach the index, and again in session exports and MCP answers. Report cards hide titles, projects and file names by default.
 - To show what lasted and check instructions, agentcam reads project files, AGENTS.md and CLAUDE.md on this machine. It stores counts, never file contents. It reads skill folders for names, descriptions and sizes only.
 - Agent logs can hold secrets and private code. Treat agentcam's index, and any screenshot of it, with the same care as the logs.
 

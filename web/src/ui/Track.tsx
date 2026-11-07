@@ -73,7 +73,7 @@ export function Track({ events, current, onSeek, zoom, flags }: Props) {
       </div>
       {h && hover && (
         <div className={s.tip} style={{ left: hover.x }} role="tooltip">
-          <KindIcon kind={h.kind} category={h.category} isError={h.is_error} />
+          <KindIcon kind={h.kind} category={h.category} isError={h.is_error} tool={h.tool_name} />
           <span className={s.tipTitle}>{h.title}</span>
           {h.duration_ms != null && <span className={s.tipMeta}>{formatDuration(h.duration_ms)}</span>}
         </div>
@@ -116,7 +116,7 @@ const Mark = memo(function Mark({
       onClick={() => onSeek(i)}
     >
       {state === 'on' && <span className={s.playhead} aria-hidden />}
-      {e.wasted && <span className={s.waste} aria-label="stuck" />}
+      {e.wasted && <span className={s.waste} aria-label="retry" />}
       {flag && <span className={s.flag} style={{ background: SEVERITY_COLOR[flag] }} aria-label={`${flag} risk`} />}
     </button>
   )

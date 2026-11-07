@@ -129,10 +129,11 @@ fn find_skills(dir: &Path, depth: usize, out: &mut Vec<PathBuf>, budget: &mut us
 /// Skills installed for Claude Code (user, plugins, the given projects)
 /// and Codex, read from their folders under `home`.
 pub fn installed(home: &Path, projects: &[String]) -> Vec<Installed> {
+    let d = crate::ConfigDirs::new(home);
     let mut roots: Vec<(PathBuf, &str, usize)> = vec![
-        (home.join(".claude/skills"), "claude-user", 3),
-        (home.join(".claude/plugins"), "claude-plugin", 8),
-        (home.join(".codex/skills"), "codex", 3),
+        (d.claude.join("skills"), "claude-user", 3),
+        (d.claude.join("plugins"), "claude-plugin", 8),
+        (d.codex.join("skills"), "codex", 3),
     ];
     for p in projects {
         roots.push((Path::new(p).join(".claude/skills"), "claude-project", 3));

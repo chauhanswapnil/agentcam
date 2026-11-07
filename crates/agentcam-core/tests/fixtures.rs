@@ -852,6 +852,21 @@ fn survival_checks_agent_lines_against_files() {
         .unwrap();
     assert_eq!(step.touches[0].lasted.unwrap().kept, 1);
 
+    // Blame: each line today belongs to the latest edit that wrote it.
+    let path = dir.join("project/src/app.rs").to_string_lossy().to_string();
+    let b = agentcam_core::survival::blame(idx.conn(), &path).unwrap();
+    assert!(b.found);
+    assert_eq!(b.agent_lines, 3);
+    assert_eq!(b.edits.len(), 2, "the file's creation and the beta2 edit");
+    assert_eq!(b.lines[0].edit, Some(0));
+    assert_eq!(b.lines[1].edit, Some(1), "beta2 came from the later edit");
+    assert_eq!(b.lines[2].edit, Some(0));
+    // A file no session edited is never read.
+    let other = dir.join("project/src/untouched.rs");
+    std::fs::write(&other, "fn private() {}\n").unwrap();
+    let b = agentcam_core::survival::blame(idx.conn(), &other.to_string_lossy()).unwrap();
+    assert!(b.found && b.lines.is_empty() && b.edits.is_empty());
+
     // Someone edits the file: the next run sees it without the logs changing.
     std::fs::write(
         dir.join("project/src/app.rs"),
@@ -1153,6 +1168,90 @@ fn follow_through_and_compare_on_an_index() {
     .unwrap();
     assert_eq!((c.a.turns, c.b.turns), (1, 0));
     assert_eq!(c.a.median_steps, 4.0);
+    drop(idx);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn hooks_plans_prompts_and_mcp() {
+    let id = "77777777-7777-4777-8777-777777777777";
+    let p = claude::parse(&fixtures().join("claude-code/plans-and-hooks.jsonl")).unwrap();
+    let hooks: Vec<_> = p
+        .events
+        .iter()
+        .filter(|e| e.tool_name.as_deref() == Some("hook"))
+        .collect();
+    assert_eq!(hooks.len(), 2);
+    assert_eq!(hooks[0].title, "SessionStart hook (notify.sh) exited 127");
+    assert!(hooks[0].is_error);
+    assert!(hooks[0].body.contains("command not found"));
+    assert_eq!(hooks[1].title, "PostToolUse hook (prettier) ran");
+    assert!(!hooks[1].is_error);
+
+    let dir = std::env::temp_dir().join(format!("agentcam-plans-{}", std::process::id()));
+    let logs = dir.join("logs/-demo");
+    std::fs::create_dir_all(&logs).unwrap();
+    std::fs::copy(
+        fixtures().join("claude-code/plans-and-hooks.jsonl"),
+        logs.join(format!("{id}.jsonl")),
+    )
+    .unwrap();
+    let mut idx = Index::open_in_memory().unwrap();
+    idx.update(
+        &[LogSource {
+            agent: Agent::ClaudeCode,
+            path: dir.join("logs"),
+            exists: true,
+        }],
+        false,
+    )
+    .unwrap();
+    let plan = agentcam_core::plans::session_plan(idx.conn(), id).unwrap();
+    assert_eq!(plan.snapshots.len(), 3, "TodoWrite, TaskCreate, TaskUpdate");
+    assert_eq!(plan.snapshots[0].tasks.len(), 2);
+    assert_eq!(plan.snapshots[2].tasks[0].status, "completed");
+    assert!(plan.plans[0].text.starts_with("# Plan"));
+
+    let f = agentcam_core::query::Filter::default();
+    let pr = agentcam_core::prompts::report(idx.conn(), &f, None, 50).unwrap();
+    assert_eq!(pr.total, 2);
+    assert!(
+        pr.repeated.is_empty(),
+        "both in one session: not a habit yet"
+    );
+    let found = agentcam_core::prompts::report(idx.conn(), &f, Some("PUSH"), 50).unwrap();
+    assert_eq!(found.prompts.len(), 2);
+
+    // MCP tools answer from the same index.
+    use serde_json::json;
+    let call = |name: &str, args: serde_json::Value| {
+        agentcam_core::mcp::handle(
+            idx.conn(),
+            idx.rules(),
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}),
+        )
+        .unwrap()
+    };
+    let r = call("get_session", json!({"session_id": id}));
+    let text = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Commit and push"), "{text}");
+    let r = call("search_sessions", json!({"query": "prettier"}));
+    assert!(
+        r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains(id)
+    );
+    let hook_seq = hooks[0].seq;
+    let r = call("get_step", json!({"session_id": id, "seq": hook_seq}));
+    let text = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("command not found"), "{text}");
+    assert!(
+        !text.contains("sk-ant-test-0000"),
+        "secrets are masked: {text}"
+    );
+    let r = call("get_step", json!({"session_id": id, "seq": 99}));
+    assert_eq!(r["result"]["isError"], true);
     drop(idx);
     let _ = std::fs::remove_dir_all(&dir);
 }

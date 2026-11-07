@@ -132,6 +132,14 @@ export type SessionDetail = {
   turns: TurnRow[]
   prs: PrRow[]
   follow: SessionFollow | null
+  plan?: SessionPlan | null
+}
+
+/** Mirrors `plans.rs` in agentcam-core. */
+export type PlanTask = { text: string; status: 'pending' | 'in_progress' | 'completed' }
+export type SessionPlan = {
+  snapshots: { seq: number; tasks: PlanTask[] }[]
+  plans: { seq: number; text: string }[]
 }
 
 export type RuleSummary = { rule_id: string; title: string; severity: Severity; count: number; sessions: number; last_ts: string | null }

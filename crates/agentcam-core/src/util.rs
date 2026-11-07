@@ -104,6 +104,32 @@ pub fn format_ts_ms(ms: i64) -> String {
 }
 
 /// Milliseconds since the epoch, now.
+/// The script or program a hook or MCP command runs, skipping `X=Y`
+/// assignments, flags, `env` and launchers, so `bunx prettier --write` is
+/// `prettier` and `python3 /x/hooks/check.py` is `/x/hooks/check.py`.
+/// Quotes are trimmed; the path is kept.
+pub fn command_program(cmd: &str) -> Option<&str> {
+    const LAUNCHERS: &[&str] = &[
+        "bash", "sh", "zsh", "env", "node", "python", "python3", "ruby", "npx", "uv", "uvx", "bun",
+        "bunx", "deno",
+    ];
+    cmd.split_whitespace()
+        .map(|w| w.trim_matches(|c| c == '"' || c == '\''))
+        .find(|w| {
+            !w.is_empty()
+                && !w.contains('=')
+                && !w.starts_with('-')
+                && !LAUNCHERS.contains(&file_name(w))
+                // `uv run x`, `bun run x`
+                && *w != "run"
+        })
+}
+
+/// The last part of a `/` or `\\` path.
+pub fn file_name(p: &str) -> &str {
+    p.rsplit(['/', '\\']).next().unwrap_or(p)
+}
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -155,5 +181,22 @@ mod tests {
             duration_ms(Some("2026-01-01T00:00:02Z"), Some("2026-01-01T00:00:00Z")),
             None
         );
+    }
+
+    #[test]
+    fn command_programs() {
+        assert_eq!(
+            command_program("bash /opt/hooks/check.sh --x"),
+            Some("/opt/hooks/check.sh")
+        );
+        assert_eq!(command_program("FOO=1 node x.js"), Some("x.js"));
+        assert_eq!(command_program("bunx prettier --write"), Some("prettier"));
+        assert_eq!(command_program("uv run hook.py"), Some("hook.py"));
+        assert_eq!(
+            command_program("/usr/bin/env python3 -u a.py"),
+            Some("a.py")
+        );
+        assert_eq!(command_program("'my hook.sh'"), Some("my"));
+        assert_eq!(command_program("env"), None);
     }
 }

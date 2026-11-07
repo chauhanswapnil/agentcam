@@ -423,6 +423,22 @@ impl State {
             "WebFetch" => (ToolCategory::Web, arg("url"), None),
             "WebSearch" => (ToolCategory::Web, arg("query"), None),
             "Task" | "Agent" => (ToolCategory::Subagent, arg("description"), None),
+            "TodoWrite" => (ToolCategory::Other, Some(todo_title(&input)), None),
+            "TaskCreate" => (
+                ToolCategory::Other,
+                Some(format!("Add task: {}", arg("subject").unwrap_or_default())),
+                None,
+            ),
+            "TaskUpdate" => (
+                ToolCategory::Other,
+                Some(format!(
+                    "Task {}: {}",
+                    arg("taskId").unwrap_or_default(),
+                    arg("status").map_or("updated".to_string(), |s| s.replace('_', " "))
+                )),
+                None,
+            ),
+            "ExitPlanMode" => (ToolCategory::Other, Some("Proposed a plan".into()), None),
             n if n.starts_with("mcp__") => (ToolCategory::Mcp, None, None),
             _ => (ToolCategory::Other, None, None),
         };
@@ -511,6 +527,10 @@ impl State {
                 return;
             }
             Some("edited_text_file") => {}
+            Some(t) if t.starts_with("hook_") => {
+                self.hook(a, t, offset, ts);
+                return;
+            }
             _ => return,
         }
         let Some(path) = str_of(a, "filename") else {
@@ -521,6 +541,59 @@ impl State {
         e.tool_name = Some("external_edit".into());
         e.title = format!("{name} changed outside the session");
         e.body = path.to_string();
+        self.push(e);
+    }
+
+    /// A hook that ran: `hook_success`, `hook_non_blocking_error`,
+    /// `hook_blocking_error`, `hook_additional_context`, ... A `System`
+    /// step with `tool_name = hook`.
+    fn hook(&mut self, a: &Value, kind: &str, offset: u64, ts: Option<String>) {
+        let mut e = Event::new(EventKind::System, offset, ts);
+        e.tool_name = Some("hook".into());
+        let event = str_of(a, "hookEvent")
+            .or_else(|| str_of(a, "hookName").and_then(|n| n.split(':').next()))
+            .unwrap_or("Hook");
+        let program = str_of(a, "command")
+            .and_then(crate::util::command_program)
+            .map(crate::util::file_name);
+        let what = program.map(|p| format!(" ({p})")).unwrap_or_default();
+        let outcome = match kind {
+            "hook_success" => "ran".to_string(),
+            "hook_additional_context" => "added context".to_string(),
+            "hook_blocking_error" => "stopped the step".to_string(),
+            "hook_non_blocking_error" => match a.get("exitCode").and_then(Value::as_i64) {
+                Some(c) => format!("exited {c}"),
+                None => "errored".to_string(),
+            },
+            "hook_stopped_continuation" => "stopped the turn".to_string(),
+            other => other.trim_start_matches("hook_").replace('_', " "),
+        };
+        e.title = format!("{event} hook{what} {outcome}");
+        e.is_error = kind.ends_with("_error");
+        e.duration_ms = a.get("durationMs").and_then(Value::as_u64);
+        let mut body = Vec::new();
+        if let Some(c) = str_of(a, "command") {
+            body.push(format!("$ {c}"));
+        }
+        let content = match a.get("content") {
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Some(v) => v.as_str().unwrap_or_default().to_string(),
+            None => String::new(),
+        };
+        for part in [
+            str_of(a, "stderr").unwrap_or(""),
+            str_of(a, "stdout").unwrap_or(""),
+            &content,
+        ] {
+            if !part.trim().is_empty() {
+                body.push(part.trim().to_string());
+            }
+        }
+        e.body = truncate(&body.join("\n\n"), MAX_TEXT);
         self.push(e);
     }
 
@@ -558,6 +631,26 @@ impl State {
         e.body = truncate(&detail, MAX_TEXT);
         e.is_error = level == "error";
         self.push(e);
+    }
+}
+
+/// "Plan: 2 of 5 done, now: Run the checks" from a TodoWrite input.
+fn todo_title(input: &Value) -> String {
+    let todos = input.get("todos").and_then(Value::as_array);
+    let all = todos.map_or(0, Vec::len);
+    let done = todos.map_or(0, |t| {
+        t.iter()
+            .filter(|x| str_of(x, "status") == Some("completed"))
+            .count()
+    });
+    let now = todos.and_then(|t| {
+        t.iter()
+            .find(|x| str_of(x, "status") == Some("in_progress"))
+            .and_then(|x| str_of(x, "content"))
+    });
+    match now {
+        Some(n) => format!("Plan: {done} of {all} done, now: {n}"),
+        None => format!("Plan: {done} of {all} done"),
     }
 }
 

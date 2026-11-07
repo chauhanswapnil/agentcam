@@ -41,6 +41,7 @@ web/                 React + Vite + TypeScript UI; builds into crates/agentcam-s
   src/lib/           event kinds, agents, formatting
   src/team/          the team server's pages, under /team (same build)
 fixtures/            synthetic agent logs for tests (never real ones, see below)
+docs/                user guides (team server, MCP) and README screenshots
 ```
 
 Dependencies flow one way: `agentcam` → `agentcam-team` → `agentcam-server` → `agentcam-core`. Core must not depend on the server, the team crate or the CLI. Team code stays in `agentcam-team` so it can be licensed apart later.
@@ -66,6 +67,8 @@ cargo run -- serve --no-open      # API only, for `npm run dev`
 cargo run -- index                # index new/changed logs, print a summary
 cargo run -- index --full         # re-parse every log
 cargo run -- search "some words"  # full-text search from the terminal
+cargo run -- blame path/to/file   # which agent session wrote each line
+cargo run -- mcp                  # MCP server on stdio (JSON-RPC, one message per line)
 ```
 
 The index lives in the user data folder (`~/Library/Application Support/agentcam/index.db` on macOS). Use `--db <file>` or `AGENTCAM_DB` to point at a scratch index while developing.
@@ -122,6 +125,9 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/skills` | Skills installed, listed and used, with sizes and latest runs |
 | `GET /api/compare/options`, `GET /api/compare?dim=&a=&b=&at=` | Values to compare by, comparisons found in the data, and two groups of turns side by side |
 | `GET /api/follow` | Each project's AGENTS.md / CLAUDE.md rules and how sessions followed them |
+| `GET /api/blame?path=` | Each line of a file today and the agent edit that wrote it (`survival::blame`) |
+| `GET /api/setup` | Settings, memory files, MCP servers, hooks and skills on this machine, with checks (`setup.rs`) |
+| `GET /api/prompts?q=` | Prompts you typed, newest first, and the ones repeated across sessions (`prompts.rs`) |
 | `GET /api/outbox` | The metadata a team server receives (`share.rs`), the setup inventory (`fleet.rs`) and the team link, if any |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
 
@@ -191,6 +197,16 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Files in agent worktrees are looked up in the main repo once the worktree is gone. If a file's project folder no longer exists, the edit is left out rather than counted as gone.
 - It reads project files but stores only counts. Never store or log file contents here.
 - The session detail carries `lasted` (session plus subagents) and each step touch carries its own counts.
+- `blame(path)` reads the file on demand and gives each line to the latest agent edit that added the same trimmed text; blank lines and braces between two lines of one edit go with it. Worktree edits count for the main repo's path. Nothing is stored. A file no agent edited is never read (returns no lines), so the API can't be used to read arbitrary files. Used by `/api/blame`, `agentcam blame` and the MCP `blame` tool.
+
+### Plans, hooks, prompts, setup and MCP
+
+- `plans.rs` rebuilds the agent's task list per step from tool inputs: Claude Code `TodoWrite` (whole list), `TaskCreate` / `TaskUpdate` (ids given in creation order, `deleted` removes), Codex `update_plan`, and `ExitPlanMode` plans. The session detail carries `plan`; the replay shows the list as of the playhead.
+- `util::command_program` names the script or program a hook or MCP command runs (skipping `X=Y`, flags and launchers such as `bunx`, `uv run`, `python3`). Step titles, Setup and the fleet inventory all use it, so they agree.
+- Claude Code `hook_*` attachments become `System` steps with `tool_name = hook` (title like "PostToolUse hook (prettier) ran"; `_error` kinds are errored). The UI gives them their own icon.
+- `prompts.rs`: prompts on top-level sessions; repeats are grouped by a normalized text (case, spacing, punctuation) and need two or more sessions.
+- `setup.rs` reads the agents' config locally: settings files (user, local, managed, each recent project's), `~/.claude.json` and `.mcp.json` MCP servers, Codex `config.toml`, hooks, memory and instruction files, skills. Environment variables are listed by name only. Checks say "worth a look", never "violation". `ConfigDirs` in `lib.rs` honors `CLAUDE_CONFIG_DIR` and `CODEX_HOME` everywhere (log folders, skills, fleet).
+- `mcp.rs` answers JSON-RPC for `agentcam mcp`: `initialize`, `tools/list`, `tools/call` (search_sessions, recent_sessions, get_session, get_step, file_history, blame, project_rules, what_lasted). Read only; stdout carries only protocol messages, so log to stderr. Every tool answer goes through `Rules::mask_secrets`. The binary indexes at start and again before a `tools/call` when 30 s have passed. User docs: `docs/mcp.md`; keep its tool table in step with `tools()`.
 
 ### Identity and the share contract (team prep)
 
@@ -204,7 +220,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 
 - `crates/agentcam-team`: `store.rs` (SQLite, numbered `MIGRATIONS`, plain SQL that Postgres also runs: `ON CONFLICT ... DO UPDATE`, no SQLite-only functions in queries), `server.rs` (axum), `views.rs` (Insights, Value, Governance, Fleet), `client.rs` (laptop side).
 - `agentcam team serve --data <dir> --bind 127.0.0.1:4850` prints the first admin token once. It serves the same embedded UI; `web/src/main.tsx` renders the team app for paths under `/team`.
-- Auth is by token, not Host: laptops use device tokens (`ac_dev_`), the UI uses viewer tokens (`ac_view_`, roles `admin` and `viewer`, kept in the browser's localStorage and sent as `Authorization: Bearer`). Invites (`ac_inv_`) are traded for a device token. Only SHA-256 hashes of tokens are stored. Admin changes go to `audit_log`.
+- Auth is by token, not Host: laptops use device tokens (`ac_dev_`), the UI uses viewer tokens (`ac_view_`, roles `admin` and `viewer`, kept in the browser's localStorage and sent as `Authorization: Bearer`). Invites (`ac_inv_`) are traded for a device token. Only SHA-256 hashes of tokens are stored. Admin changes go to `audit_log`. On the server machine, `agentcam team machines|remove|viewers|revoke` manage machines and viewer tokens; the last admin can't be revoked. Operator docs: `docs/team-server.md`.
 - `POST /api/team/join` and `POST /api/team/sync` (device token; at most 1000 sessions per request, unchanged versions skipped, a laptop may only send its own machine id). UI routes: `GET /api/team/me|insights|value|governance|fleet|settings` (`range`, `team`), `POST /api/team/settings|invites|viewers` (admin).
 - The laptop keeps `team.json` (link and token, mode 600) and `team-sync.json` (versions sent, last sync, last error) next to the index. `agentcam serve` syncs every 5 minutes when linked; `agentcam team sync|status|pause|resume|leave` do the rest. `https://` is required unless the server is on loopback or `--allow-http` is passed.
 - Views describe, never rank people. Machines show as `Machine abc123` unless an admin turns on `show_people` (logged). Cost is at API list prices; seats compare a monthly seat price with that.
@@ -220,6 +236,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 
 ### Performance rules
 
+- Pages other than Overview and Replay are `React.lazy` chunks (`web/src/App.tsx`), and the team app loads only under `/team`. Add new pages the same way.
 - Long lists (transcript rows, timeline marks) are memoized rows with stable callbacks, and rows use `content-visibility: auto`. Moving the playhead must only re-render rows whose state changed.
 - Don't push per-frame state through the router; the replay writes `?step=` with `history.replaceState` after the playhead rests.
 - Check big sessions (1,500+ steps): stepping should stay under ~10 ms.

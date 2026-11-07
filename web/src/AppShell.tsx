@@ -30,6 +30,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     { href: '/audit', label: 'Audit' },
   ]
   const more = [
+    { href: '/setup', label: 'Setup' },
+    { href: '/prompts', label: 'Prompts' },
     { href: '/instructions', label: 'Instructions' },
     { href: '/thinking', label: 'Thinking' },
     { href: '/tools', label: 'Tools' },

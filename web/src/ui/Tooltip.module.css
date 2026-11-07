@@ -11,7 +11,7 @@
   align-items: center;
   gap: var(--s-2);
   max-width: 280px;
-  padding: 5px var(--s-2);
+  padding: var(--s-1-5) var(--s-2);
   border-radius: var(--r-2);
   background: var(--bg-3);
   box-shadow: var(--shadow-overlay);

@@ -52,15 +52,15 @@
   color: var(--text-inverse);
 }
 .primary:hover {
-  background: #fff;
-  border-color: #fff;
+  background: var(--text-max);
+  border-color: var(--text-max);
 }
 
 .sm {
   height: 24px;
   padding: 0 var(--s-2);
   font-size: var(--fs-sm);
-  gap: 6px;
+  gap: var(--s-1-5);
 }
 .icon {
   width: 28px;

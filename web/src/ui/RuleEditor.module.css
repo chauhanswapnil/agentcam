@@ -36,7 +36,7 @@
   font-size: var(--fs-sm);
 }
 .error {
-  color: var(--status-critical);
+  color: var(--text-1);
   font-size: var(--fs-sm);
   white-space: pre-wrap;
 }
@@ -61,7 +61,7 @@
   font-size: var(--fs-sm);
 }
 .table td {
-  padding: 6px var(--s-2);
+  padding: var(--s-1-5) var(--s-2);
   border-bottom: 1px solid var(--line-1);
   color: var(--text-2);
   white-space: nowrap;
@@ -81,14 +81,25 @@
   display: inline-block;
   width: 7px;
   height: 7px;
-  margin-right: 6px;
+  margin-right: var(--s-1-5);
   border-radius: 2px;
 }
 .yours {
   margin-left: var(--s-2);
-  padding: 0 5px;
+  padding: 0 var(--s-1-5);
   border-radius: var(--r-1);
   background: var(--bg-3);
   color: var(--text-2);
   font-size: var(--fs-xs);
+}
+/* Text stays in text colors; the status color goes on a mark beside it. */
+.error::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--s-1-5);
+  border-radius: var(--r-full);
+  background: var(--status-critical);
+  content: '';
+  vertical-align: middle;
 }

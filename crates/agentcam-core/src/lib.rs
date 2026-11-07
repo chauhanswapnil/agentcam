@@ -14,12 +14,16 @@ pub mod guard;
 pub mod identity;
 pub mod index;
 pub mod live;
+pub mod mcp;
 pub mod model;
 pub mod otel;
 pub mod patterns;
+pub mod plans;
 pub mod prices;
+pub mod prompts;
 pub mod query;
 pub mod quota;
+pub mod setup;
 pub mod share;
 pub mod shell;
 pub mod skills;
@@ -45,11 +49,13 @@ pub enum Agent {
 impl Agent {
     pub const ALL: [Agent; 2] = [Agent::ClaudeCode, Agent::Codex];
 
-    /// Where this agent writes its session logs, relative to `home`.
+    /// Where this agent writes its session logs, for the user at `home`
+    /// (`CLAUDE_CONFIG_DIR` and `CODEX_HOME` move them).
     pub fn log_dir(self, home: &Path) -> PathBuf {
+        let d = ConfigDirs::new(home);
         match self {
-            Agent::ClaudeCode => home.join(".claude").join("projects"),
-            Agent::Codex => home.join(".codex").join("sessions"),
+            Agent::ClaudeCode => d.claude.join("projects"),
+            Agent::Codex => d.codex.join("sessions"),
         }
     }
 
@@ -57,6 +63,44 @@ impl Agent {
         match self {
             Agent::ClaudeCode => "claude-code",
             Agent::Codex => "codex",
+        }
+    }
+}
+
+/// The agents' config folders. Claude Code reads `CLAUDE_CONFIG_DIR` and
+/// Codex `CODEX_HOME`; otherwise they live in the home folder.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigDirs {
+    pub home: PathBuf,
+    pub claude: PathBuf,
+    pub codex: PathBuf,
+    /// Claude Code's `.claude.json` (MCP servers, per-project state).
+    pub claude_json: PathBuf,
+    /// Set from the environment rather than the defaults.
+    pub claude_from_env: bool,
+    pub codex_from_env: bool,
+}
+
+impl ConfigDirs {
+    pub fn new(home: &Path) -> Self {
+        let env = |k: &str| {
+            std::env::var_os(k)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
+        let claude_env = env("CLAUDE_CONFIG_DIR");
+        let codex_env = env("CODEX_HOME");
+        let claude = claude_env.clone().unwrap_or_else(|| home.join(".claude"));
+        ConfigDirs {
+            home: home.to_path_buf(),
+            claude_json: match &claude_env {
+                Some(d) => d.join(".claude.json"),
+                None => home.join(".claude.json"),
+            },
+            claude,
+            codex: codex_env.clone().unwrap_or_else(|| home.join(".codex")),
+            claude_from_env: claude_env.is_some(),
+            codex_from_env: codex_env.is_some(),
         }
     }
 }

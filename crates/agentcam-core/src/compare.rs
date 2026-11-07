@@ -398,7 +398,7 @@ pub fn options(conn: &Connection, f: &Filter, now_ms: i64) -> Result<Options> {
                 title: format!(
                     "{}: before and after {file} changed on {}",
                     crate::query_basename(&project),
-                    &at[..10]
+                    at.get(..10).unwrap_or(&at)
                 ),
                 dim: Dim::Date,
                 a: "before".into(),

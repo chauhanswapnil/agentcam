@@ -35,20 +35,23 @@ export function KindIcon({
   kind,
   category,
   isError,
+  tool,
 }: {
   kind: EventKind
   category?: ToolCategory | null
   isError?: boolean
+  /** The step's tool name; tells hook notices apart. */
+  tool?: string | null
 }) {
   const g = GROUPS[groupOf(kind, category, isError)]
   return (
     <span
       className={s.kind}
       style={{ color: g.color, background: `color-mix(in oklab, ${g.color} 16%, transparent)` }}
-      title={kindLabel(kind, category)}
+      title={kindLabel(kind, category, tool)}
     >
-      {createElement(iconFor(kind, category), { 'aria-hidden': true })}
-      <span className="sr-only">{kindLabel(kind, category)}</span>
+      {createElement(iconFor(kind, category, tool), { 'aria-hidden': true })}
+      <span className="sr-only">{kindLabel(kind, category, tool)}</span>
     </span>
   )
 }

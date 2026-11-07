@@ -61,6 +61,11 @@ enum Command {
         #[command(subcommand)]
         command: TeamCommand,
     },
+    /// Which agent session wrote each line of a file, as it is today.
+    Blame { file: PathBuf },
+    /// Read-only MCP server over stdio, so agents can look up past sessions.
+    /// Add it with: claude mcp add agentcam -- agentcam mcp
+    Mcp,
     /// Full-text search across all indexed sessions.
     Search {
         /// Words to look for (SQLite FTS5 syntax).
@@ -104,6 +109,29 @@ enum TeamCommand {
         /// Days until it expires.
         #[arg(long, default_value_t = 7)]
         days: i64,
+    },
+    /// List joined machines (on the server machine).
+    Machines {
+        #[arg(long)]
+        data: Option<PathBuf>,
+    },
+    /// Remove a machine and everything it sent; its token stops working (on the server machine).
+    Remove {
+        /// The start of the machine id, as the UI shows it (`Machine abc123`).
+        machine: String,
+        #[arg(long)]
+        data: Option<PathBuf>,
+    },
+    /// List viewer tokens by id, name and role (on the server machine).
+    Viewers {
+        #[arg(long)]
+        data: Option<PathBuf>,
+    },
+    /// Revoke a viewer token by id (on the server machine).
+    Revoke {
+        id: i64,
+        #[arg(long)]
+        data: Option<PathBuf>,
     },
     /// Join a team server with an invite code.
     Join {
@@ -152,6 +180,14 @@ enum ExportFormat {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    // The MCP server speaks JSON-RPC on stdout; nothing else may print there.
+    if matches!(cli.command, Some(Command::Mcp)) {
+        let db = cli
+            .db
+            .or_else(agentcam_core::default_db_path)
+            .context("no data folder; pass --db")?;
+        return mcp(&db);
+    }
     // The guard hook must print nothing but its verdict, and be fast.
     if matches!(cli.command, Some(Command::Guard)) {
         let db = cli.db.or_else(agentcam_core::default_db_path);
@@ -189,7 +225,91 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Search { query, limit } => search(&db, &query.join(" "), limit),
         Command::Team { command } => team(&db, command).await,
+        Command::Blame { file } => blame(&db, &file),
+        Command::Mcp => unreachable!("handled before startup"),
     }
+}
+
+fn blame(db: &std::path::Path, file: &std::path::Path) -> anyhow::Result<()> {
+    let abs =
+        std::fs::canonicalize(file).with_context(|| format!("can't find {}", file.display()))?;
+    let mut idx = open_index(db)?;
+    idx.update(&agentcam_core::default_log_sources(), false)?;
+    let b = agentcam_core::survival::blame(idx.conn(), &abs.to_string_lossy())?;
+    if b.too_big {
+        anyhow::bail!("{} is too big to check", file.display());
+    }
+    for (i, e) in b.edits.iter().enumerate() {
+        println!(
+            "[{i}] {} #{:<4} {} {:<11} {:<18} {}",
+            &e.session_id[..e.session_id.len().min(8)],
+            e.seq,
+            &e.ts[..e.ts.len().min(10)],
+            e.agent,
+            e.model.as_deref().unwrap_or("?"),
+            e.prompt
+                .as_deref()
+                .unwrap_or("")
+                .replace('\n', " ")
+                .chars()
+                .take(60)
+                .collect::<String>()
+        );
+    }
+    if !b.edits.is_empty() {
+        println!();
+    }
+    for l in &b.lines {
+        let tag = l.edit.map_or("    ".to_string(), |e| format!("[{e}] "));
+        println!("{:>5} {tag}{}", l.n, l.text);
+    }
+    println!(
+        "\n{} of {} lines written by agent sessions. Open a step: agentcam, then /sessions/<id>?step=<n>",
+        b.agent_lines,
+        b.lines.len()
+    );
+    Ok(())
+}
+
+/// Serve MCP over stdio until stdin closes. Picks up new logs once at the
+/// start (a few milliseconds when little changed); answers read the index.
+fn mcp(db: &std::path::Path) -> anyhow::Result<()> {
+    use std::io::{BufRead, Write};
+    let mut idx = open_index(db)?;
+    let sources = agentcam_core::default_log_sources();
+    idx.update(&sources, false)?;
+    // The server lives as long as the agent session, so pick up new logs
+    // before a tool call, at most every 30 seconds. Only changed files are read.
+    let mut indexed = std::time::Instant::now();
+    let stdin = std::io::stdin();
+    let mut out = std::io::stdout().lock();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let reply = match serde_json::from_str::<serde_json::Value>(&line) {
+            Ok(msg) => {
+                if msg.get("method").and_then(|m| m.as_str()) == Some("tools/call")
+                    && indexed.elapsed() > std::time::Duration::from_secs(30)
+                {
+                    // A failed refresh still answers from what's indexed.
+                    let _ = idx.update(&sources, false);
+                    indexed = std::time::Instant::now();
+                }
+                agentcam_core::mcp::handle(idx.conn(), idx.rules(), &msg)
+            }
+            Err(e) => Some(serde_json::json!({
+                "jsonrpc": "2.0", "id": null,
+                "error": {"code": -32700, "message": format!("parse error: {e}")}
+            })),
+        };
+        if let Some(r) = reply {
+            writeln!(out, "{r}")?;
+            out.flush()?;
+        }
+    }
+    Ok(())
 }
 
 fn team_data(data: Option<PathBuf>, db: &std::path::Path) -> PathBuf {
@@ -247,6 +367,58 @@ async fn team(db: &std::path::Path, cmd: TeamCommand) -> anyhow::Result<()> {
             println!(
                 "Invite for {team} ({uses} machines, {days} days):\n\n  agentcam team join <server> {code}"
             );
+        }
+        TeamCommand::Machines { data } => {
+            let store = Store::open(&team_data(data, db).join("team.db"))?;
+            let ms = store.machines()?;
+            if ms.is_empty() {
+                println!("No machines have joined yet.");
+            }
+            for m in ms {
+                println!(
+                    "{:<14} {:<16} {:<12} joined {}  last sync {}",
+                    agentcam_team::store::short(&m.machine_id),
+                    m.team,
+                    m.os_user.as_deref().unwrap_or("-"),
+                    m.joined_at.get(..10).unwrap_or(&m.joined_at),
+                    m.last_sync
+                        .as_deref()
+                        .map_or("never", |t| t.get(..16).unwrap_or(t)),
+                );
+            }
+        }
+        TeamCommand::Remove { machine, data } => {
+            let mut store = Store::open(&team_data(data, db).join("team.db"))?;
+            let id = store.find_machine(&machine)?;
+            store.remove_device(&id)?;
+            let name = agentcam_team::store::short(&id);
+            store.log("cli", "removed machine", Some(&name))?;
+            println!("Removed {name} and everything it sent. It can join again with a new invite.");
+        }
+        TeamCommand::Viewers { data } => {
+            let store = Store::open(&team_data(data, db).join("team.db"))?;
+            for v in store.viewers()? {
+                println!(
+                    "{:>4}  {:<20} {:<7} created {}  last seen {}",
+                    v.id,
+                    v.name,
+                    v.role,
+                    v.created_at.get(..10).unwrap_or(&v.created_at),
+                    v.last_seen
+                        .as_deref()
+                        .map_or("never", |t| t.get(..10).unwrap_or(t)),
+                );
+            }
+        }
+        TeamCommand::Revoke { id, data } => {
+            let store = Store::open(&team_data(data, db).join("team.db"))?;
+            let v = store.revoke_viewer(id)?;
+            store.log(
+                "cli",
+                "revoked viewer",
+                Some(&format!("{} ({})", v.name, v.role)),
+            )?;
+            println!("Revoked {} ({}).", v.name, v.role);
         }
         TeamCommand::Join {
             server,
@@ -488,7 +660,10 @@ fn scan(db: &std::path::Path, min: &str, range: &str, all: bool) -> anyhow::Resu
         );
         let shown = if all { 500 } else { 3 };
         for h in query::findings(c, &f, Some(&rule.rule_id), None, shown)? {
-            let when = h.ts.as_deref().map(|t| &t[..10]).unwrap_or("?");
+            let when =
+                h.ts.as_deref()
+                    .map(|t| t.get(..10).unwrap_or(t))
+                    .unwrap_or("?");
             println!("    {when}  {}  {}#{}", h.excerpt, h.session_id, h.seq);
         }
     }
@@ -500,7 +675,7 @@ fn index(db: &std::path::Path, full: bool) -> anyhow::Result<()> {
     let mut idx = open_index(db)?;
     let r = idx.update(&agentcam_core::default_log_sources(), full)?;
     println!(
-        "Indexed {} of {} log files in {:.1}s ({} events, {} failed, {} bad lines)",
+        "Indexed {} of {} log files in {:.1}s ({} events, {} unreadable, {} bad lines)",
         r.files_parsed,
         r.files_seen,
         r.elapsed_ms as f64 / 1000.0,
@@ -534,12 +709,12 @@ fn index(db: &std::path::Path, full: bool) -> anyhow::Result<()> {
     )?;
     table(
         "By month",
-        "SELECT coalesce(substr(started_at, 1, 7), '?'), count(*), sum(event_count)
+        "SELECT coalesce(substr(started_at, 1, 7), 'no date'), count(*), sum(event_count)
          FROM sessions GROUP BY 1 ORDER BY 1 DESC LIMIT 12",
     )?;
     table(
         "Top projects",
-        "SELECT coalesce(project_path, '?'), count(*), sum(event_count)
+        "SELECT coalesce(project_root, project_path, 'no folder'), count(*), sum(event_count)
          FROM sessions GROUP BY 1 ORDER BY 3 DESC LIMIT 10",
     )?;
     Ok(())

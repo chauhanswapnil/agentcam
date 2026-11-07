@@ -5,7 +5,6 @@ import {
   Gauge,
   GitCommitHorizontal,
   RotateCcw,
-  Bot,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -49,7 +48,8 @@ import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/Ses
 import { firstLine } from '../lib/session'
 import { BlockDialog } from '../ui/BlockDialog'
 import { sessionCard } from '../lib/reportCard'
-import { ListRow } from '../ui/ListRow'
+import { PlanPanel } from '../ui/PlanPanel'
+import { SubagentTree } from '../ui/SubagentTree'
 import { LastedBar } from '../ui/LastedBar'
 import { AgentLabel, EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
@@ -104,7 +104,7 @@ export function Replay() {
 }
 
 function Player({ id, data }: { id: string; data: SessionDetail }) {
-  const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs, follow } = data
+  const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs, follow, plan } = data
   const [view, setView] = useState<'transcript' | 'turns' | 'trace'>('transcript')
   const [, navigate] = useLocation()
   // Read once: the URL follows the playhead, not the other way round.
@@ -270,7 +270,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
             <b>{formatNumber(x.file_count)}</b>files changed
           </span>
           <span>
-            <b>{formatNumber(x.error_count)}</b>failed
+            <b>{formatNumber(x.error_count)}</b>errored
           </span>
           <span title={x.cost_unpriced ? 'Some calls use a model with no price; add it to prices.yaml' : 'Estimated from the price table'}>
             <b>{x.est_cost_usd != null ? formatCost(x.est_cost_usd) + (x.cost_unpriced ? '+' : '') : x.cost_usd != null ? formatCost(x.cost_usd) : '–'}</b>
@@ -288,8 +288,8 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
             </Link>
           )}
           {x.wasted_ms > 0 && (
-            <span title="Agent time on stuck loops, failure streaks and reverts">
-              <b style={{ color: 'var(--status-serious)' }}>{formatHours(x.wasted_ms)}</b>stuck
+            <span title="Agent time on retry loops, error streaks and reverts">
+              <b>{formatHours(x.wasted_ms)}</b>in retries
             </span>
           )}
         </div>
@@ -333,8 +333,8 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                 </Button>
               </Tooltip>
               {x.error_count > 0 && (
-                <Tooltip content={<>Next failed step <Kbd keys={['e']} /></>}>
-                  <Button icon variant="ghost" aria-label="Next failed step" onClick={() => nextWhere((e) => e.is_error)}>
+                <Tooltip content={<>Next step that errored <Kbd keys={['e']} /></>}>
+                  <Button icon variant="ghost" aria-label="Next step that errored" onClick={() => nextWhere((e) => e.is_error)}>
                     <TriangleAlert aria-hidden style={{ color: 'var(--status-critical)' }} />
                   </Button>
                 </Tooltip>
@@ -369,7 +369,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                       <Kbd keys={['shift', 'j']} /> next file change
                     </span>
                     <span>
-                      <Kbd keys={['e']} /> next failure
+                      <Kbd keys={['e']} /> next error
                     </span>
                     <span>
                       <Kbd keys={['r']} /> next risk
@@ -434,7 +434,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                 </Panel>
               )}
               {patterns.length > 0 && (
-                <Panel title={`Stuck · ${patterns.length}`} icon={<RotateCcw />} flush>
+                <Panel title={`Retries and reverts · ${patterns.length}`} icon={<RotateCcw />} flush>
                   <div className={s.scroll} style={{ maxHeight: 220 }}>
                     {patterns.map((p, i) => (
                       <button
@@ -520,24 +520,13 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                   </div>
                 </Panel>
               )}
+              {plan && <PlanPanel plan={plan} step={step} onSeek={jump} />}
               {files.length > 0 && (
                 <Panel title="Files" icon={<FileStack />} actions={<EditorPicker />} flush>
                   <Files files={files} root={x.project_root} current={step} onSeek={jump} />
                 </Panel>
               )}
-              {subagents.length > 0 && (
-                <Panel title={`Subagents · ${subagents.length}`} icon={<Bot />} flush>
-                  {subagents.map((sub) => (
-                    <ListRow
-                      key={sub.id}
-                      onClick={() => navigate(`/sessions/${sub.id}`)}
-                      title={oneLine(sub.title ?? sub.first_prompt ?? sub.id)}
-                      meta={`${formatNumber(sub.event_count)} steps`}
-                      trailing={formatHours(sub.active_ms)}
-                    />
-                  ))}
-                </Panel>
-              )}
+              {subagents.length > 0 && <SubagentTree parent={x} subagents={subagents} onOpen={(sid) => navigate(`/sessions/${sid}`)} />}
             </div>
           </div>
         </>
@@ -641,7 +630,7 @@ function TranscriptItem({ e }: { e: EventRow }) {
   }
   return (
     <span className={`${s.itemBody} ${s.toolLine}`}>
-      <KindIcon kind={e.kind} category={e.category} isError={e.is_error} />
+      <KindIcon kind={e.kind} category={e.category} isError={e.is_error} tool={e.tool_name} />
       <span className={s.toolTitle}>{e.title}</span>
       {e.approval && approvalInfo(e.approval).stopped && (
         <span className={s.toolDur} title={approvalInfo(e.approval).label}>
@@ -787,7 +776,7 @@ function StepDetail({
     <div>
       <div className={s.detailHead}>
         <KindIcon kind={event.kind} category={event.category} isError={event.is_error} />
-        <span style={{ color: 'var(--text-1)', fontWeight: 520 }}>{kindLabel(event.kind, event.category)}</span>
+        <span style={{ color: 'var(--text-1)', fontWeight: 520 }}>{kindLabel(event.kind, event.category, event.tool_name)}</span>
         {event.tool_name && <span className={s.mono}>{event.tool_name}</span>}
         <span>·</span>
         <span>
@@ -803,7 +792,7 @@ function StepDetail({
         {event.via && <Badge icon={<Puzzle />}>{viaLabel(event.via)}</Badge>}
         {event.is_error && (
           <Badge icon={<TriangleAlert />} color="var(--status-critical)">
-            Failed
+            Errored
           </Badge>
         )}
         <span className="sr-only">{g.label}</span>

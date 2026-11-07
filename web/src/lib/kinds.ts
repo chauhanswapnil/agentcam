@@ -11,6 +11,7 @@ import {
   SquareTerminal,
   TriangleAlert,
   User,
+  Webhook,
   Wrench,
   type LucideIcon,
 } from 'lucide-react'
@@ -42,7 +43,7 @@ export const GROUPS: Record<KindGroup, { label: string; color: string; hint: str
   change: { label: 'Changes', color: 'var(--kind-change)', hint: 'Commands, edits and new files' },
   look: { label: 'Looks', color: 'var(--kind-look)', hint: 'Reads, searches, web and MCP calls' },
   agent: { label: 'Agent', color: 'var(--kind-agent)', hint: 'Agent replies and thinking' },
-  error: { label: 'Error', color: 'var(--status-critical)', hint: 'Failed steps' },
+  error: { label: 'Error', color: 'var(--status-critical)', hint: 'Steps that errored' },
 }
 
 export const GROUP_ORDER: KindGroup[] = ['you', 'change', 'look', 'agent', 'error']
@@ -62,7 +63,9 @@ export function groupOf(kind: EventKind, category?: ToolCategory | null, isError
   }
 }
 
-export function iconFor(kind: EventKind, category?: ToolCategory | null): LucideIcon {
+/** `tool` tells notices apart: `hook` steps get their own icon. */
+export function iconFor(kind: EventKind, category?: ToolCategory | null, tool?: string | null): LucideIcon {
+  if (kind === 'system' && tool === 'hook') return Webhook
   switch (kind) {
     case 'prompt':
       return User
@@ -97,7 +100,8 @@ export function iconFor(kind: EventKind, category?: ToolCategory | null): Lucide
   }
 }
 
-export function kindLabel(kind: EventKind, category?: ToolCategory | null): string {
+export function kindLabel(kind: EventKind, category?: ToolCategory | null, tool?: string | null): string {
+  if (kind === 'system' && tool === 'hook') return 'Hook'
   if (kind !== 'tool_call') {
     return { prompt: 'Prompt', response: 'Response', thinking: 'Thinking', system: 'Notice' }[kind]
   }

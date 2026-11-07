@@ -121,14 +121,14 @@
 .footer span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-1-5);
 }
 
 .hit {
   height: auto;
   min-height: 44px;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  padding-top: var(--s-1-5);
+  padding-bottom: var(--s-1-5);
 }
 .hitText {
   display: flex;

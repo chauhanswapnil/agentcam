@@ -233,3 +233,12 @@
     margin-bottom: var(--s-2);
   }
 }
+
+.panelLink {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.panelLink:hover {
+  color: var(--text-1);
+}

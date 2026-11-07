@@ -40,7 +40,7 @@ TASKS = {
     "infra": ["Move staging to the new VPC", "Add a deploy preview workflow", "Rotate the database credentials", "Cut CI time in half"],
     "docs-site": ["Rewrite the install guide", "Add a search box to the docs", "Fix broken links after the move"],
 }
-FOLLOW_UPS = ["Also add a test for the empty case", "Looks good. Can you tidy the naming?", "Run the checks again and commit", "Explain the change in two lines"]
+FOLLOW_UPS = ["Also add a test for the empty case", "Looks good. Can you tidy the naming?", "Run the checks again and commit", "Explain the change in two lines", "Commit and push", "commit and push"]
 COMMANDS = {
     "acme-web": ["npm test -- cart", "npm run lint", "npm run build", "git status", "git diff --stat", "npx playwright test checkout"],
     "payments-api": ["cargo test refunds", "cargo clippy -- -D warnings", "cargo build --release", "git status", "sqlx migrate run"],
@@ -50,7 +50,7 @@ COMMANDS = {
 }
 # What each project's AGENTS.md asks for, so Instructions has rules to check.
 AGENTS_MD = {
-    "acme-web": "# acme-web\n\nUse `npm ci` to install.\n\n## Before you finish\n\n1. `npm test` and `npm run lint` pass.\n\nNever edit `src/generated/` by hand.\n",
+    "acme-web": "# acme-web\n\nUse `npm ci` to install.\n\n## Before you finish\n\n1. `npm test` and `npm run lint` pass.\n\nNever edit `src/generated/` by hand. Never run `git push --force`.\n",
     "payments-api": "# payments-api\n\n## Before you finish\n\n1. `cargo test` passes.\n2. `cargo clippy -- -D warnings` is clean.\n\nNever run `sqlx migrate revert` against shared databases.\n",
     "infra": "# infra\n\n## Checklist\n\n- `terraform fmt -check` and `terraform plan` pass.\n",
 }
@@ -65,6 +65,9 @@ RISKY = [
     "export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE && terraform apply",
 ]
 SKILLS = ["changelog-writer", "release-notes", "dataviz", "pdf", "frontend-design", "code-review", "sql-review", "docx"]
+
+
+EMPTY_GUARD = "  if (!items.length) return 0 // empty cart"
 
 
 def ts(t):
@@ -92,7 +95,14 @@ def write_projects():
             body = ["// demo file", f"export function {Path(f).stem}(items) {{"]
             r = random.random()
             if r < 0.7:
-                body += added_lines(f)  # the agent's lines lasted
+                lines = added_lines(f)  # the agent's lines lasted
+                # Some keep a later follow-up's lines too: an empty-cart
+                # guard, or the rewritten return.
+                if random.random() < 0.5:
+                    lines = [EMPTY_GUARD] + lines
+                if random.random() < 0.5:
+                    lines[-1] = lines[-1].replace("/ 100", "/ 100.0")
+                body += lines
             elif r < 0.85:
                 body += [added_lines(f)[0], "  return Math.round(total) / 100 // tidied by hand"]
             else:
@@ -168,7 +178,42 @@ def claude_session(project, task, start, risky, live=False, tail=None):
     def prompt(text):
         rec("user", permissionMode=mode, turnOrigin="human", message={"role": "user", "content": text})
 
+    def hook(kind, event, command, **kw):
+        rec("attachment", attachment=dict({"type": kind, "hookName": f"{event}:x", "hookEvent": event, "command": command,
+            "durationMs": random.randint(20, 900)}, **kw))
+
+    todos = [f"Find where {task.lower()} happens", "Make the change", "Run the checks"]
+
+    def todo_write(done):
+        tool("TodoWrite", {"todos": [{"content": c, "status": "completed" if i < done else ("in_progress" if i == done else "pending"),
+            "activeForm": c} for i, c in enumerate(todos)]}, "Todos have been modified successfully.")
+
+    def subagent(description):
+        aid = uuid.UUID(int=random.getrandbits(128)).hex[:16]
+        sub = folder / sid / "subagents"
+        sub.mkdir(parents=True, exist_ok=True)
+        (sub / f"agent-{aid}.meta.json").write_text(json.dumps({"agentType": "Explore", "description": description}))
+        st = t
+        lines = []
+        for i in range(random.randint(4, 9)):
+            st += timedelta(seconds=random.uniform(2, 20))
+            tid = f"toolu_sub{aid}{i}"
+            f = random.choice(PROJECTS[project])
+            lines.append(dict(base, type="assistant", isSidechain=True, agentId=aid, timestamp=ts(st), uuid=str(uuid.UUID(int=random.getrandbits(128))),
+                message={"id": f"msg_sub_{aid}_{i}", "model": "claude-haiku-5-5", "role": "assistant", "content": [{"type": "tool_use", "id": tid, "name": "Read", "input": {"file_path": f"{cwd}/{f}"}}],
+                         "usage": {"input_tokens": 20, "output_tokens": random.randint(50, 300), "cache_read_input_tokens": random.randint(5000, 30000), "cache_creation_input_tokens": 0}}))
+            lines.append(dict(base, type="user", isSidechain=True, agentId=aid, timestamp=ts(st), uuid=str(uuid.UUID(int=random.getrandbits(128))),
+                message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": tid, "content": f"// {f}"}]}))
+        with open(sub / f"agent-{aid}.jsonl", "w") as fh:
+            fh.write("\n".join(json.dumps(x) for x in lines) + "\n")
+
     out.append({"type": "custom-title", "customTitle": task, "sessionId": sid})
+    if random.random() < 0.5:
+        if random.random() < 0.06:
+            hook("hook_non_blocking_error", "SessionStart", f"bash {HOME}/.claude/hooks/notify.sh", stderr="notify-send: command not found", stdout="", exitCode=127)
+        else:
+            hook("hook_success", "SessionStart", f"bash {HOME}/.claude/hooks/notify.sh", stdout="", exitCode=0)
+    plans = live or random.random() < 0.5
     rec("attachment", attachment={"type": "skill_listing", "names": SKILLS, "skillCount": len(SKILLS),
         "content": "\n".join(f"- {s}: does {s.replace('-', ' ')} work" * 6 for s in SKILLS)})
     files = PROJECTS[project]
@@ -180,6 +225,14 @@ def claude_session(project, task, start, risky, live=False, tail=None):
         assistant([{"type": "thinking", "thinking": f"Start by finding where {task.lower()} lives in {project}, then check the tests that cover it.", "signature": "x"}], 120, thinkingDurationMs=thinking)
         step(thinking / 1000)
         assistant([{"type": "text", "text": f"I'll look at how {project} handles this first."}], 30)
+        if turn == 0 and plans:
+            todo_write(0)
+        if turn == 0 and random.random() < 0.12:
+            tool("ExitPlanMode", {"plan": f"# Plan: {task}\n\n1. Find where it happens in {project}\n2. Make the smallest change that works\n3. Add a test for the edge case\n4. Run the checks"}, "User has approved your plan.")
+        if turn == 0 and random.random() < 0.2:
+            desc = random.choice(["Explore the test setup", "Find every caller", "Check how errors are handled"])
+            tool("Task", {"description": desc, "prompt": desc, "subagent_type": "Explore"}, "Found 3 places worth changing.", took=random.uniform(20, 90))
+            subagent(desc)
         if turn == 0:
             tool("Grep", {"pattern": task.split()[-1].lower()}, "\n".join(f"{f}:{random.randint(3, 200)}" for f in files[:3]))
             for f in random.sample(files, k=min(3, len(files))):
@@ -196,13 +249,20 @@ def claude_session(project, task, start, risky, live=False, tail=None):
                 # A follow-up rewrites a line the first turn added.
                 old = added_lines(f)[1]
                 patch = [{"oldStart": 13, "oldLines": 1, "newStart": 13, "newLines": 1, "lines": ["-" + old, "+" + old.replace("/ 100", "/ 100.0")]}]
+            elif turn > 0 and random.random() < 0.5:
+                # Or adds a guard for the empty case.
+                patch = [{"oldStart": 12, "oldLines": 1, "newStart": 12, "newLines": 2, "lines": [" export function x(items) {", "+" + EMPTY_GUARD]}]
             tool("Edit", {"file_path": f"{cwd}/{f}", "old_string": "a", "new_string": "b"}, "The file has been updated.",
                  structured={"filePath": f"{cwd}/{f}", "oldString": "a", "newString": "b", "structuredPatch": patch})
+            if project in ("acme-web", "payments-api") and random.random() < 0.7:
+                hook("hook_success", "PostToolUse", "npx prettier --write", stdout="formatted 1 file", exitCode=0)
             if random.random() < 0.5:
                 c = random.choice(COMMANDS[project])
                 fail = random.random() < 0.2
                 tool("Bash", {"command": c, "description": "check"}, "1 failing\n  expected 19.99, got 19.989999" if fail else "ok: all checks passed", error=fail, took=random.uniform(2, 40))
         skill_now[0] = None
+        if turn == 0 and plans:
+            todo_write(2)
         if risky and turn == 0:
             tool("Bash", {"command": risky}, "done", took=random.uniform(1, 6), rejected=random.random() < 0.4)
         if project == "payments-api" and abs((start - AGENTS_CHANGE).days) < 1 and turn == 0:
@@ -224,6 +284,8 @@ def claude_session(project, task, start, risky, live=False, tail=None):
         if random.random() < (0.85 if newer else 0.5):
             for c in COMMANDS[project][:2]:
                 tool("Bash", {"command": c}, "ok: all checks passed", took=random.uniform(3, 30))
+        if turn == 0 and plans:
+            todo_write(3)
         assistant([{"type": "text", "text": f"## Done\n\n{task} is in. I changed **{random.randint(1, 5)} files** and the tests pass.\n\n- Kept the public API the same\n- Added a test for the edge case\n\nRun `git diff` to review."}], 260)
         step(random.uniform(40, 600))
     if not live and random.random() < 0.15:
@@ -339,8 +401,28 @@ def main():
     # A guard rule and hook configs, so the Audit page shows the guard
     # working (the configs only need to mention `agentcam guard`).
     hook = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "agentcam guard"}]}]}}
-    (HOME / ".claude" / "settings.json").write_text(json.dumps(hook, indent=2))
+    settings = {
+        "permissions": {"allow": ["Bash(npm test:*)", "Bash(cargo test:*)", "Bash(git status)", "Read"], "deny": ["Read(./.env)"], "defaultMode": "acceptEdits"},
+        "env": {"DEMO_API_TOKEN": "sk-test-0000"},
+        "hooks": {
+            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "agentcam guard"}]}],
+            "SessionStart": [{"hooks": [{"type": "command", "command": f"bash {HOME}/.claude/hooks/notify.sh"}]}],
+            "Stop": [{"hooks": [{"type": "command", "command": f"{HOME}/.claude/hooks/old-sound.sh"}]}],
+        },
+    }
+    (HOME / ".claude" / "settings.json").write_text(json.dumps(settings, indent=2))
+    (HOME / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+    (HOME / ".claude" / "hooks" / "notify.sh").write_text("#!/bin/sh\necho done\n")
+    (HOME / ".claude" / "CLAUDE.md").write_text("# My preferences\n\n- Keep changes small.\n- Explain before big refactors.\n" + "- Prefer plain names over clever ones.\n" * 30)
     (HOME / ".codex" / "hooks.json").write_text(json.dumps(hook, indent=2))
+    (HOME / ".codex" / "config.toml").write_text('model = "gpt-5.5-codex"\napproval_policy = "on-request"\nsandbox_mode = "workspace-write"\n\n[mcp_servers.docs]\nurl = "https://docs.example.dev/mcp"\n')
+    (HOME / ".claude.json").write_text(json.dumps({"mcpServers": {"linear": {"type": "http", "url": "https://mcp.linear.example/sse"}, "sentry": {"type": "http", "url": "https://mcp.sentry.example/mcp"}},
+        "projects": {str(CODE / "acme-web"): {"mcpServers": {"playwright": {"command": "npx", "args": ["@playwright/mcp"]}}}}}, indent=2))
+    # A project that lets every shell command run, and says never to push.
+    web = CODE / "acme-web" / ".claude"
+    web.mkdir(parents=True, exist_ok=True)
+    (web / "settings.local.json").write_text(json.dumps({"permissions": {"allow": ["Bash(*)", "Bash(git push:*)"], "defaultMode": "bypassPermissions"}}, indent=2))
+    (CODE / "acme-web" / ".mcp.json").write_text(json.dumps({"mcpServers": {"figma": {"type": "http", "url": "https://mcp.figma.example/mcp"}}}, indent=2))
     (HOME / "guard.yaml").write_text(
         "- id: no-force-push\n"
         "  tool: Bash\n"

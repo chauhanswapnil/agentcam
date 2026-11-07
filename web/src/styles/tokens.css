@@ -29,6 +29,7 @@
   --text-2: #a1a1aa; /* secondary */
   --text-3: #8b8b95; /* muted, hints, axis labels */
   --text-inverse: #0a0a0c;
+  --text-max: #ffffff; /* hover on primary buttons */
 
   /* Event kinds: what a step is. Validated all-pairs, dark, on --bg-1. */
   --kind-you: #3987e5; /* prompts you typed */
@@ -70,6 +71,7 @@
   /* Type */
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --fs-2xs: 10px; /* tiny marks: counts on dots, axis ticks */
   --fs-xs: 11px;
   --fs-sm: 12px;
   --fs-md: 13px; /* UI default */
@@ -88,6 +90,7 @@
 
   /* Space (4px grid) */
   --s-1: 4px;
+  --s-1-5: 6px; /* tight gaps: icon and label, compact rows */
   --s-2: 8px;
   --s-3: 12px;
   --s-4: 16px;

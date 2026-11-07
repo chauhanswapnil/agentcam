@@ -71,7 +71,7 @@ pub fn detect(p: &ParsedSession, gaps: &[i64]) -> Vec<Pattern> {
             start_seq: idx[0] as u32,
             end_seq: *idx.last().unwrap() as u32,
             title: format!(
-                "Failed {} times: {}",
+                "Retried {} times: {}",
                 idx.len(),
                 crate::model::first_line(&ev[idx[0]].title, 120)
             ),
@@ -93,7 +93,7 @@ pub fn detect(p: &ParsedSession, gaps: &[i64]) -> Vec<Pattern> {
                 kind: "error_streak",
                 start_seq: run[0] as u32,
                 end_seq: *run.last().unwrap() as u32,
-                title: format!("{} failed tool calls in a row", run.len()),
+                title: format!("{} tool calls in a row errored", run.len()),
                 wasted_ms: ms,
                 wasted_tokens: t,
             });
@@ -244,7 +244,7 @@ mod tests {
         let pats = detect(&p, &[0; 6]);
         let kinds: Vec<_> = pats.iter().map(|p| p.kind).collect();
         assert_eq!(kinds, ["retry_loop", "error_streak"]);
-        assert_eq!(pats[0].title, "Failed 3 times: npm test");
+        assert_eq!(pats[0].title, "Retried 3 times: npm test");
         assert_eq!(
             (pats[0].start_seq, pats[0].end_seq, pats[0].wasted_ms),
             (0, 3, 3000)

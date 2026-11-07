@@ -163,6 +163,7 @@ export function Styleguide() {
               ['--fs-md', '13 / regular', 'Default interface text, list rows, buttons.'],
               ['--fs-sm', '12 / regular', 'Meta lines, timestamps, secondary labels.'],
               ['--fs-xs', '11 / medium', 'BADGES, KEY HINTS, SECTION LABELS'],
+              ['--fs-2xs', '10 / medium', 'Counts on marks, axis ticks'],
             ].map(([t, meta, sample]) => (
               <div key={t} className={s.typeRow}>
                 <span className={s.typeMeta}>
@@ -195,9 +196,9 @@ export function Styleguide() {
 
         <section id="space" className={s.section}>
           <h2>Space and shape</h2>
-          <p className={s.rule}>A 4px grid. Corners stay small; only overlays get the 12px radius.</p>
+          <p className={s.rule}>A 4px grid, with a 6px step (--s-1-5) for tight gaps. Corners stay small; only overlays get the 12px radius.</p>
           <div className={s.spaceRow}>
-            {[1, 2, 3, 4, 6, 8, 12, 16].map((n) => (
+            {['1', '1-5', '2', '3', '4', '6', '8', '12', '16'].map((n) => (
               <div key={n} className={s.spaceItem}>
                 <span className={s.spaceBox} style={{ width: `var(--s-${n})`, height: `var(--s-${n})` }} />
                 s-{n}

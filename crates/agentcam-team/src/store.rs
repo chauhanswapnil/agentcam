@@ -149,6 +149,26 @@ pub struct Viewer {
     pub role: String,
 }
 
+/// A joined machine, for `agentcam team machines`.
+#[derive(Debug, Clone, Serialize)]
+pub struct Machine {
+    pub machine_id: String,
+    pub team: String,
+    pub os_user: Option<String>,
+    pub joined_at: String,
+    pub last_sync: Option<String>,
+}
+
+/// A viewer token's record (never the token), for `agentcam team viewers`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ViewerRow {
+    pub id: i64,
+    pub name: String,
+    pub role: String,
+    pub created_at: String,
+    pub last_seen: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LogEntry {
     pub ts: String,
@@ -391,6 +411,83 @@ impl Store {
         Ok(n > 0)
     }
 
+    pub fn machines(&self) -> Result<Vec<Machine>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT d.machine_id, t.name, d.os_user, d.joined_at, d.last_sync
+             FROM devices d JOIN teams t ON t.id = d.team_id ORDER BY t.name, d.joined_at",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(Machine {
+                    machine_id: r.get(0)?,
+                    team: r.get(1)?,
+                    os_user: r.get(2)?,
+                    joined_at: r.get(3)?,
+                    last_sync: r.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// The one machine id starting with `prefix` (at least 6 characters,
+    /// as `Machine abc123` shows it).
+    pub fn find_machine(&self, prefix: &str) -> Result<String> {
+        if prefix.len() < 6 {
+            return Err(Error::Bad(
+                "give at least 6 characters of the machine id".into(),
+            ));
+        }
+        let ids: Vec<String> = self
+            .machines()?
+            .into_iter()
+            .map(|m| m.machine_id)
+            .filter(|id| id.starts_with(prefix))
+            .collect();
+        match ids.as_slice() {
+            [one] => Ok(one.clone()),
+            [] => Err(Error::Bad(format!("no machine starts with {prefix}"))),
+            _ => Err(Error::Bad(format!(
+                "more than one machine starts with {prefix}"
+            ))),
+        }
+    }
+
+    pub fn viewers(&self) -> Result<Vec<ViewerRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT rowid, name, role, created_at, last_seen FROM viewers ORDER BY rowid",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(ViewerRow {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    role: r.get(2)?,
+                    created_at: r.get(3)?,
+                    last_seen: r.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Revoke a viewer token by its id from [`Store::viewers`]. The last
+    /// admin can't be revoked, so the UI never locks everyone out.
+    pub fn revoke_viewer(&self, id: i64) -> Result<ViewerRow> {
+        let all = self.viewers()?;
+        let Some(v) = all.iter().find(|v| v.id == id).cloned() else {
+            return Err(Error::Bad(format!("no viewer with id {id}")));
+        };
+        if v.role == "admin" && all.iter().filter(|x| x.role == "admin").count() == 1 {
+            return Err(Error::Bad(
+                "that's the last admin; make another admin token first".into(),
+            ));
+        }
+        self.conn
+            .execute("DELETE FROM viewers WHERE rowid = ?1", [id])?;
+        Ok(v)
+    }
+
     /// A new token for the team UI.
     pub fn create_viewer(&self, name: &str, role: &str) -> Result<String> {
         if !matches!(role, "admin" | "viewer") {
@@ -610,4 +707,40 @@ impl Store {
 /// The first characters of a machine id, for labels.
 pub fn short(machine_id: &str) -> String {
     machine_id.chars().take(6).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove_machines_and_revoke_viewers() {
+        let mut s = Store::open_in_memory().unwrap();
+        let team = s.team("Platform").unwrap();
+        let invite = s.create_invite(team, 5, 7).unwrap();
+        let j = s
+            .redeem_invite(&invite, "abcdef0123456789abcdef", Some("dev"))
+            .unwrap();
+        s.redeem_invite(&invite, "abcd99aa23456789abcdef", None)
+            .unwrap();
+        assert!(s.find_machine("abcd").is_err(), "too short");
+        assert!(s.find_machine("abcdef").is_ok());
+        let id = s.find_machine("abcdef").unwrap();
+        assert!(s.remove_device(&id).unwrap());
+        assert!(
+            s.device(&j.device_token).unwrap().is_none(),
+            "token stops working"
+        );
+        assert_eq!(s.machines().unwrap().len(), 1);
+
+        let admin = s.create_viewer("Admin", "admin").unwrap();
+        s.create_viewer("Finance", "viewer").unwrap();
+        let rows = s.viewers().unwrap();
+        let first = rows.iter().find(|v| v.role == "admin").unwrap().id;
+        assert!(s.revoke_viewer(first).is_err(), "never the last admin");
+        let fin = rows.iter().find(|v| v.name == "Finance").unwrap().id;
+        s.revoke_viewer(fin).unwrap();
+        assert_eq!(s.viewers().unwrap().len(), 1);
+        assert!(s.viewer(&admin).unwrap().is_some());
+    }
 }

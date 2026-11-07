@@ -1,0 +1,136 @@
+.path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+.back {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.back:hover {
+  color: var(--text-1);
+}
+.layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--s-5);
+  align-items: start;
+}
+.edits {
+  max-height: 70vh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.edits li {
+  border-bottom: 1px solid var(--line-1);
+}
+.edit {
+  display: grid;
+  gap: var(--s-1);
+  width: 100%;
+  padding: var(--s-3) var(--s-4) var(--s-1);
+  border: 0;
+  background: none;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.edit:hover,
+.editOn {
+  background: var(--bg-2);
+}
+.editTop {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+}
+.model {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.when,
+.count {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.prompt {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.open {
+  display: block;
+  padding: 0 var(--s-4) var(--s-3);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.open:hover {
+  color: var(--text-1);
+}
+.codePanel {
+  min-width: 0;
+}
+.code {
+  max-height: 78vh;
+  overflow: auto;
+  padding: var(--s-2) 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+.line {
+  display: grid;
+  grid-template-columns: 190px 44px minmax(0, 1fr);
+  border-left: 2px solid transparent;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 19px;
+}
+.agentLine {
+  border-left-color: color-mix(in oklab, var(--kind-change) 70%, transparent);
+}
+.lineHi {
+  background: color-mix(in oklab, var(--kind-change) 12%, transparent);
+}
+.who {
+  padding: 0 var(--s-2);
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.whoLink {
+  color: var(--text-2);
+}
+.whoLink:hover {
+  color: var(--text-1);
+}
+.n {
+  padding-right: var(--s-3);
+  color: var(--text-3);
+  text-align: right;
+  user-select: none;
+}
+.text {
+  padding-right: var(--s-4);
+  color: var(--text-1);
+  white-space: pre;
+}
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .line {
+    grid-template-columns: 110px 36px minmax(0, 1fr);
+  }
+}

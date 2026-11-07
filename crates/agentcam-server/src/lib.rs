@@ -169,6 +169,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/compare", get(api::compare))
         .route("/compare/options", get(api::compare_options))
         .route("/follow", get(api::follow))
+        .route("/blame", get(api::blame))
+        .route("/setup", get(api::setup))
+        .route("/prompts", get(api::prompts))
         .fallback(api_not_found)
         .with_state(state);
 
@@ -395,6 +398,9 @@ mod tests {
         let a = json("/api/audit").await;
         assert!(a["rules"].is_array() && a["findings"].is_array());
         assert!(json("/api/live?minutes=5").await.is_array());
+        assert!(json("/api/prompts").await["prompts"].is_array());
+        assert!(json("/api/setup").await["checks"].is_array());
+        assert_eq!(json("/api/blame?path=/nope/x.rs").await["found"], false);
         let l = json("/api/limits").await;
         assert!(l["windows"].is_array() && l["hits"].is_array() && l["series"].is_array());
         let w = json("/api/lasted?range=all").await;

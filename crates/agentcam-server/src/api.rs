@@ -180,6 +180,8 @@ pub struct Params {
     a: Option<String>,
     b: Option<String>,
     at: Option<String>,
+    /// Prompts: words to look for.
+    q: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -1020,6 +1022,38 @@ pub async fn follow(
 ) -> Result<Json<Vec<agentcam_core::follow::ProjectFollow>>, ApiError> {
     let f = p.filter(now_ms());
     st.read(move |idx| agentcam_core::follow::report(idx.conn(), &f))
+        .await
+        .map(Json)
+}
+
+/// Which agent edit wrote each line of a file today.
+pub async fn blame(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::survival::Blame>, ApiError> {
+    let path = p.path.clone().unwrap_or_default();
+    st.read(move |idx| agentcam_core::survival::blame(idx.conn(), &path))
+        .await
+        .map(Json)
+}
+
+/// Settings, memory files, MCP servers, hooks and skills, with checks.
+pub async fn setup(State(st): Shared) -> Result<Json<agentcam_core::setup::Setup>, ApiError> {
+    let home = home_dir();
+    st.read(move |idx| agentcam_core::setup::report(idx.conn(), &home))
+        .await
+        .map(Json)
+}
+
+/// Prompts you typed, newest first, and the ones you repeat.
+pub async fn prompts(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::prompts::Report>, ApiError> {
+    let f = p.filter(now_ms());
+    let limit = p.limit.unwrap_or(200).min(1000);
+    let q = p.q.clone();
+    st.read(move |idx| agentcam_core::prompts::report(idx.conn(), &f, q.as_deref(), limit))
         .await
         .map(Json)
 }

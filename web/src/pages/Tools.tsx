@@ -48,7 +48,7 @@ export function Tools() {
       <header className={s.head}>
         <div>
           <h1>Tool calls</h1>
-          <p>Every tool your agents called, how often it failed and how long it took. Pick one to see its latest calls.</p>
+          <p>Every tool your agents called, how often it errored and how long it took. Pick one to see its latest calls.</p>
         </div>
         <div className={s.controls}>
           <Segmented label="Agent" value={f.agent} onChange={(agent) => set({ agent })} options={AGENT_OPTIONS} />
@@ -74,7 +74,7 @@ export function Tools() {
                   <tr>
                     <th>Tool</th>
                     <th>Calls</th>
-                    <th className={s.num}>Failed</th>
+                    <th className={s.num}>Errored</th>
                     <th className={s.num}>Time</th>
                     <th className={s.num}>Avg</th>
                     <th className={s.num}>Sessions</th>

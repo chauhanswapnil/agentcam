@@ -1,0 +1,73 @@
+.head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.tree {
+  margin: 0;
+  padding: var(--s-1) 0;
+  list-style: none;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 56px;
+  gap: var(--s-3);
+  align-items: center;
+  width: 100%;
+  padding: var(--s-2) var(--s-4);
+  border: 0;
+  background: none;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.child {
+  padding-left: var(--s-8);
+  cursor: pointer;
+  position: relative;
+}
+.child::before {
+  content: '';
+  position: absolute;
+  left: var(--s-5);
+  top: 0;
+  bottom: 50%;
+  width: var(--s-2);
+  border-left: 1px solid var(--line-3);
+  border-bottom: 1px solid var(--line-3);
+}
+.child:hover {
+  background: var(--bg-2);
+}
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta {
+  display: block;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.bar {
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--line-1);
+  overflow: hidden;
+}
+.bar span {
+  display: block;
+  height: 100%;
+  background: var(--text-3);
+}
+.num {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

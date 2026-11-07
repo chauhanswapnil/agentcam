@@ -194,7 +194,7 @@ pub fn export(conn: &Connection, f: &Filter) -> Result<(Value, usize)> {
                     "attributes": attrs,
                 });
                 if is_error {
-                    span["status"] = json!({ "code": 2, "message": "step failed" });
+                    span["status"] = json!({ "code": 2, "message": "step errored" });
                 }
                 spans.push(span);
             }

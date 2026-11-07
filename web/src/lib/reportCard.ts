@@ -61,7 +61,7 @@ export function sessionCard(d: SessionDetail, redact: boolean): CardData {
       { label: 'Steps', value: formatNumber(x.event_count) },
       { label: 'Tool calls', value: formatNumber(x.tool_call_count) },
       { label: 'Files changed', value: formatNumber(x.file_count) },
-      { label: 'Failed steps', value: formatNumber(x.error_count) },
+      { label: 'Steps that errored', value: formatNumber(x.error_count) },
     ],
     strip: d.events.map((e) => ({ color: GROUPS[groupOf(e.kind, e.category, e.is_error)].color, weight: weight(e.duration_ms) })),
     listTitle: 'Most changed files',

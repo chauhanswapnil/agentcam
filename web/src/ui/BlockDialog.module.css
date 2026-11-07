@@ -33,7 +33,7 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--s-1-5);
   color: var(--text-3);
   font-size: var(--fs-sm);
 }
@@ -71,7 +71,7 @@
   white-space: nowrap;
 }
 .error {
-  color: var(--status-critical);
+  color: var(--text-1);
 }
 .actions {
   display: flex;
@@ -83,4 +83,15 @@
   flex-direction: column;
   gap: var(--s-3);
   color: var(--text-2);
+}
+/* Text stays in text colors; the status color goes on a mark beside it. */
+.error::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--s-1-5);
+  border-radius: var(--r-full);
+  background: var(--status-critical);
+  content: '';
+  vertical-align: middle;
 }

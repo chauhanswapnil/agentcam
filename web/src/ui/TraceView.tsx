@@ -126,7 +126,7 @@ const Row = memo(function Row({
           ) : (
             <span className={s.toggleSpace} />
           )}
-          <KindIcon kind={e.kind} category={e.category} isError={e.is_error} />
+          <KindIcon kind={e.kind} category={e.category} isError={e.is_error} tool={e.tool_name} />
           <span className={s.title} title={e.title}>
             {e.kind === 'tool_call' ? e.title : kindLabel(e.kind, e.category)}
           </span>
@@ -164,7 +164,7 @@ function ChildRows({ id, left, width }: { id: string; left: number; width: numbe
             <span className={s.labelCol}>
               <span className={s.toggleSpace} />
               <span className={s.indent} />
-              <KindIcon kind={e.kind} category={e.category} isError={e.is_error} />
+              <KindIcon kind={e.kind} category={e.category} isError={e.is_error} tool={e.tool_name} />
               <span className={s.title} title={e.title}>
                 {e.kind === 'tool_call' ? e.title : kindLabel(e.kind, e.category)}
               </span>

@@ -482,6 +482,188 @@ pub fn report(conn: &Connection, f: &crate::query::Filter, now_ms: i64) -> Resul
     })
 }
 
+/// The path a worktree file has in its main repo, by name only:
+/// `repo/.claude/worktrees/x/src/a.ts` is `repo/src/a.ts`.
+fn main_path(path: &str) -> String {
+    match path.find("/.claude/worktrees/") {
+        Some(i) => {
+            let rest = &path[i + "/.claude/worktrees/".len()..];
+            match rest.split_once('/') {
+                Some((_, inner)) => format!("{}/{inner}", &path[..i]),
+                None => path.to_string(),
+            }
+        }
+        None => path.to_string(),
+    }
+}
+
+/// One agent edit that wrote lines still in the file.
+#[derive(Debug, Clone, Serialize)]
+pub struct BlameEdit {
+    pub session_id: String,
+    pub seq: i64,
+    pub ts: String,
+    pub agent: String,
+    pub model: Option<String>,
+    pub session_title: Option<String>,
+    /// The prompt of the turn the edit was made in (first 300 characters).
+    pub prompt: Option<String>,
+    /// Lines of today's file it wrote.
+    pub lines: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BlameLine {
+    pub n: usize,
+    pub text: String,
+    /// Index into `edits`; `None` when no agent edit wrote this line.
+    pub edit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Blame {
+    pub path: String,
+    /// The file could be read today.
+    pub found: bool,
+    pub too_big: bool,
+    pub lines: Vec<BlameLine>,
+    pub edits: Vec<BlameEdit>,
+    pub agent_lines: usize,
+}
+
+/// Which agent edit wrote each line of `path` as it is on disk today.
+/// A line belongs to the latest edit that added the same trimmed text.
+/// Read on demand; nothing is stored.
+pub fn blame(conn: &Connection, path: &str) -> Result<Blame> {
+    let root = crate::project_root(path);
+    let rel = path
+        .strip_prefix(&root)
+        .map(|r| r.trim_start_matches('/'))
+        .filter(|r| !r.is_empty())
+        .unwrap_or(path);
+    let mut stmt = conn.prepare(
+        "SELECT t.path, t.session_id, t.seq, e.ts, t.action, t.diff, s.agent, coalesce(e.model, s.model), s.title
+         FROM file_touches t
+         JOIN events e ON e.session_id = t.session_id AND e.seq = t.seq
+         JOIN sessions s ON s.id = t.session_id
+         WHERE e.ts IS NOT NULL AND t.diff IS NOT NULL AND t.action != 'read'
+           AND (t.path = ?1 OR (t.path LIKE '%/.claude/worktrees/%' AND t.path LIKE '%/' || ?2))
+         ORDER BY e.ts, t.seq",
+    )?;
+    struct Row {
+        edit: BlameEdit,
+        added: Vec<String>,
+    }
+    let mut rows: Vec<Row> = Vec::new();
+    let mut q = stmt.query(params![path, rel])?;
+    while let Some(r) = q.next()? {
+        let p: String = r.get(0)?;
+        if main_path(&p) != path {
+            continue;
+        }
+        let action: String = r.get(4)?;
+        let diff: String = r.get(5)?;
+        let (added, _) = added_removed(&diff, &action);
+        rows.push(Row {
+            edit: BlameEdit {
+                session_id: r.get(1)?,
+                seq: r.get(2)?,
+                ts: r.get(3)?,
+                agent: r.get(6)?,
+                model: r.get(7)?,
+                session_title: r.get(8)?,
+                prompt: None,
+                lines: 0,
+            },
+            added,
+        });
+    }
+    drop(q);
+    drop(stmt);
+
+    let file = resolve(path);
+    let meta = file.as_ref().and_then(|f| std::fs::metadata(f).ok());
+    let mut out = Blame {
+        path: path.to_string(),
+        found: meta.as_ref().is_some_and(|m| m.is_file()),
+        too_big: meta.as_ref().is_some_and(|m| m.len() > MAX_FILE),
+        lines: Vec::new(),
+        edits: Vec::new(),
+        agent_lines: 0,
+    };
+    // Only files an agent edited are read: the API never serves files
+    // that no session touched.
+    if !out.found || out.too_big || rows.is_empty() {
+        return Ok(out);
+    }
+    let text = file
+        .and_then(|f| std::fs::read(f).ok())
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .unwrap_or_default();
+
+    // Latest edit wins for each trimmed line.
+    let mut owner: HashMap<&str, usize> = HashMap::new();
+    for (i, r) in rows.iter().enumerate() {
+        for l in &r.added {
+            owner.insert(l.as_str(), i);
+        }
+    }
+    let mut lines: Vec<(String, Option<usize>)> = text
+        .lines()
+        .map(|l| (l.to_string(), norm(l).and_then(|n| owner.get(n).copied())))
+        .collect();
+    // Braces and blank lines between two lines of the same edit belong to it.
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].1.is_none() && norm(&lines[i].0).is_none() {
+            let start = i;
+            while i < lines.len() && lines[i].1.is_none() && norm(&lines[i].0).is_none() {
+                i += 1;
+            }
+            let before = start.checked_sub(1).and_then(|b| lines[b].1);
+            let after = lines.get(i).and_then(|l| l.1);
+            if before.is_some() && before == after {
+                for l in &mut lines[start..i] {
+                    l.1 = before;
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    // Keep only edits that still own lines, in time order.
+    let mut used: Vec<usize> = lines.iter().filter_map(|l| l.1).collect();
+    used.sort_unstable();
+    used.dedup();
+    let index: HashMap<usize, usize> = used.iter().enumerate().map(|(n, &o)| (o, n)).collect();
+    let mut prompt = conn.prepare(
+        "SELECT substr(p.body, 1, 300) FROM turns t
+         JOIN events p ON p.session_id = t.session_id AND p.seq = t.seq
+         WHERE t.session_id = ?1 AND t.seq <= ?2 AND t.end_seq >= ?2 LIMIT 1",
+    )?;
+    for &o in &used {
+        let mut e = rows[o].edit.clone();
+        e.prompt = prompt
+            .query_row(params![e.session_id, e.seq], |r| r.get(0))
+            .optional()?;
+        out.edits.push(e);
+    }
+    for (n, (text, o)) in lines.into_iter().enumerate() {
+        let edit = o.map(|o| index[&o]);
+        if let Some(e) = edit {
+            out.edits[e].lines += 1;
+            out.agent_lines += 1;
+        }
+        out.lines.push(BlameLine {
+            n: n + 1,
+            text,
+            edit,
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

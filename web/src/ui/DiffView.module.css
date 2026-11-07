@@ -5,7 +5,7 @@
   border-radius: var(--r-2);
   background: var(--bg-0);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
 }
 .table {
@@ -42,8 +42,8 @@
   color: var(--diff-del-mark);
 }
 .hunk td {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: var(--s-1);
+  padding-bottom: var(--s-1);
   color: var(--diff-hunk);
   background: var(--bg-1);
 }

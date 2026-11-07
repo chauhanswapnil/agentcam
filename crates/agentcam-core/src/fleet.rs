@@ -98,9 +98,10 @@ pub fn read_setup(home: &Path, projects: &[String]) -> (Vec<Item>, Vec<Flag>) {
     let mut items = BTreeSet::new();
     let mut flags = BTreeSet::new();
     let claude = "claude-code";
+    let dirs = crate::ConfigDirs::new(home);
 
     // Claude Code settings: user, then each project's shared and local file.
-    let mut settings = vec![(home.join(".claude/settings.json"), "user")];
+    let mut settings = vec![(dirs.claude.join("settings.json"), "user")];
     for p in projects {
         let p = Path::new(p);
         settings.push((p.join(".claude/settings.json"), "project"));
@@ -113,7 +114,7 @@ pub fn read_setup(home: &Path, projects: &[String]) -> (Vec<Item>, Vec<Flag>) {
     }
 
     // MCP servers: ~/.claude.json (user and per project) and .mcp.json files.
-    if let Some(v) = read_json(&home.join(".claude.json")) {
+    if let Some(v) = read_json(&dirs.claude_json) {
         mcp_servers(v.get("mcpServers"), claude, "user", &mut items);
         if let Some(ps) = v.get("projects").and_then(Value::as_object) {
             for p in ps.values() {
@@ -128,7 +129,7 @@ pub fn read_setup(home: &Path, projects: &[String]) -> (Vec<Item>, Vec<Flag>) {
     }
 
     // Plugins installed for Claude Code.
-    if let Some(v) = read_json(&home.join(".claude/plugins/installed_plugins.json"))
+    if let Some(v) = read_json(&dirs.claude.join("plugins/installed_plugins.json"))
         && let Some(ps) = v.get("plugins").and_then(Value::as_object)
     {
         for name in ps.keys() {
@@ -160,17 +161,17 @@ pub fn read_setup(home: &Path, projects: &[String]) -> (Vec<Item>, Vec<Flag>) {
     }
 
     // Codex: config.toml and hooks.json.
-    if let Ok(text) = std::fs::read_to_string(home.join(".codex/config.toml")) {
+    if let Ok(text) = std::fs::read_to_string(dirs.codex.join("config.toml")) {
         codex_config(&text, &mut items, &mut flags);
     }
-    if let Some(v) = read_json(&home.join(".codex/hooks.json")) {
+    if let Some(v) = read_json(&dirs.codex.join("hooks.json")) {
         hooks(&v, "codex", "user", &mut items, &mut flags);
     }
 
     (items.into_iter().collect(), flags.into_iter().collect())
 }
 
-fn read_json(path: &Path) -> Option<Value> {
+pub(crate) fn read_json(path: &Path) -> Option<Value> {
     let meta = std::fs::metadata(path).ok()?;
     // ~/.claude.json can grow large with history; don't read huge files.
     if meta.len() > 32 << 20 {
@@ -188,7 +189,7 @@ fn flag(flags: &mut BTreeSet<Flag>, id: &str, agent: &str, scope: &str) {
 }
 
 /// Allow rules that let every shell command run without asking.
-fn is_broad(rule: &str) -> bool {
+pub fn is_broad_rule(rule: &str) -> bool {
     let r = rule.trim();
     matches!(
         r,
@@ -209,7 +210,7 @@ fn claude_settings(v: &Value, scope: &str, items: &mut BTreeSet<Item>, flags: &m
     if perms
         .and_then(|p| p.get("allow"))
         .and_then(Value::as_array)
-        .is_some_and(|a| a.iter().filter_map(Value::as_str).any(is_broad))
+        .is_some_and(|a| a.iter().filter_map(Value::as_str).any(is_broad_rule))
     {
         flag(flags, "broad_allow_rule", agent, scope);
     }
@@ -270,35 +271,13 @@ fn hooks(
 /// The file name of a command's program, skipping `env X=Y` and
 /// interpreters, so `python3 /Users/x/hooks/check.py --a` is `check.py`.
 fn program(cmd: &str) -> Option<String> {
-    let mut words = cmd
-        .split_whitespace()
-        .map(|w| w.trim_matches(|c| c == '"' || c == '\''))
-        .filter(|w| *w != "env" && !w.contains('='));
-    let mut w = words.next()?;
-    let base = |w: &str| w.rsplit(['/', '\\']).next().unwrap_or(w).to_string();
-    if matches!(
-        base(w).as_str(),
-        "python"
-            | "python3"
-            | "node"
-            | "bash"
-            | "sh"
-            | "zsh"
-            | "bun"
-            | "deno"
-            | "npx"
-            | "uv"
-            | "ruby"
-    ) && let Some(next) = words.find(|w| !w.starts_with('-'))
-    {
-        w = next;
-    }
+    let w = crate::util::command_program(cmd)?;
     // A variable or something odd isn't a name worth sending.
     if w.contains('$') {
         return None;
     }
-    let name = base(w);
-    (!name.is_empty() && name.len() <= 64).then_some(name)
+    let name = crate::util::file_name(w);
+    (!name.is_empty() && name.len() <= 64).then(|| name.to_string())
 }
 
 fn mcp_servers(v: Option<&Value>, agent: &str, scope: &str, items: &mut BTreeSet<Item>) {

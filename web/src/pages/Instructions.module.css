@@ -68,7 +68,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
   gap: var(--s-3);
-  padding: 5px 0;
+  padding: var(--s-1-5) 0;
   border-top: 1px solid var(--line-1);
   font-size: var(--fs-sm);
 }

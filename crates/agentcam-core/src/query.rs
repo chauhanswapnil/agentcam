@@ -417,6 +417,8 @@ pub struct SessionDetail {
     pub prs: Vec<crate::turns::PrRow>,
     /// The project's AGENTS.md / CLAUDE.md rules, checked for this session.
     pub follow: Option<crate::follow::SessionFollow>,
+    /// Task lists and plans the agent kept, if any.
+    pub plan: Option<crate::plans::SessionPlan>,
 }
 
 /// A commit a session made.
@@ -601,6 +603,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
     let turns = crate::turns::session_turns(conn, id)?;
     let prs = crate::turns::prs(conn, &Filter::default(), Some(id), 50)?;
     let follow = crate::follow::session(conn, id)?;
+    let plan = Some(crate::plans::session_plan(conn, id)?).filter(|p| !p.is_empty());
     Ok(Some(SessionDetail {
         session,
         events,
@@ -613,6 +616,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
         turns,
         prs,
         follow,
+        plan,
     }))
 }
 

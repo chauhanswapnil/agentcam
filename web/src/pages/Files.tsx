@@ -1,6 +1,6 @@
 import { FileStack } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useLocation, useSearch } from 'wouter'
+import { Link, useLocation, useSearch } from 'wouter'
 import { AGENTS } from '../lib/agents'
 import { query, useApi, useIndexStatus, type FileStat, type Overview, type StepRef } from '../lib/api'
 import { baseName, formatAgo, formatNumber, oneLine } from '../lib/format'
@@ -136,7 +136,17 @@ export function Files() {
             )}
           </Panel>
           <div className={s.sticky}>
-            <Panel title={f.path ? baseName(f.path) : 'History'} flush>
+            <Panel
+              title={f.path ? baseName(f.path) : 'History'}
+              flush
+              actions={
+                f.path ? (
+                  <Link href={`/blame${query({ path: f.path })}`} className={s.panelLink}>
+                    Who wrote each line
+                  </Link>
+                ) : undefined
+              }
+            >
               {!f.path ? (
                 <EmptyState title="Pick a file">Each step that read or changed it shows here.</EmptyState>
               ) : (
