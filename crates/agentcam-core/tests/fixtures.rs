@@ -853,7 +853,11 @@ fn survival_checks_agent_lines_against_files() {
     assert_eq!(step.touches[0].lasted.unwrap().kept, 1);
 
     // Blame: each line today belongs to the latest edit that wrote it.
-    let path = dir.join("project/src/app.rs").to_string_lossy().to_string();
+    let path = dir
+        .join("project")
+        .join("src/app.rs")
+        .to_string_lossy()
+        .to_string();
     let b = agentcam_core::survival::blame(idx.conn(), &path).unwrap();
     assert!(b.found);
     assert_eq!(b.agent_lines, 3);
