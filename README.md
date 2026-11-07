@@ -91,6 +91,10 @@ People's names stay hidden unless an admin turns them on (logged), and no view r
 
 ![Team insights: time, cost and what lasted by week, team and repo](docs/screenshots/team-insights.png)
 
+![Value: cost per commit and PR, lines kept per dollar, seats, and models side by side](docs/screenshots/team-value.png)
+
+![Governance: findings across the team by severity and rule](docs/screenshots/team-governance.png)
+
 ![Fleet: settings worth a look, agent versions and what's installed across machines](docs/screenshots/team-fleet.png)
 
 ```sh
