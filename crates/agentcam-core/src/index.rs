@@ -16,7 +16,7 @@ use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
 /// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 14;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -129,7 +129,8 @@ CREATE TABLE findings (
     rule_id     TEXT NOT NULL,
     title       TEXT NOT NULL,
     severity    INTEGER NOT NULL,
-    excerpt     TEXT NOT NULL
+    excerpt     TEXT NOT NULL,
+    related_seq INTEGER
 );
 CREATE INDEX findings_session ON findings(session_id, seq);
 CREATE INDEX findings_rule ON findings(rule_id);
@@ -226,6 +227,19 @@ CREATE INDEX skill_uses_skill ON skill_uses(skill);
 
 CREATE TABLE session_skills (session_id TEXT NOT NULL, name TEXT NOT NULL);
 CREATE INDEX session_skills_session ON session_skills(session_id);
+
+-- MCP tool descriptions and server instructions each session was given.
+-- Texts are stored once; a tool whose hash changes over time was rewritten.
+CREATE TABLE tool_texts (hash TEXT PRIMARY KEY, text TEXT NOT NULL);
+CREATE TABLE session_tools (
+    session_id TEXT NOT NULL,
+    ts         TEXT,
+    server     TEXT NOT NULL,
+    tool       TEXT NOT NULL,
+    hash       TEXT NOT NULL
+);
+CREATE INDEX session_tools_session ON session_tools(session_id);
+CREATE INDEX session_tools_tool ON session_tools(server, tool);
 
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
@@ -550,6 +564,7 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
         "prs",
         "skill_uses",
         "session_skills",
+        "session_tools",
     ] {
         tx.execute(
             &format!("DELETE FROM {table} WHERE session_id IN ({ids})"),
@@ -817,6 +832,22 @@ fn write_session(
     for name in &p.skills_available {
         sk.execute(params![s.id, name])?;
     }
+    let mut tt =
+        tx.prepare_cached("INSERT OR IGNORE INTO tool_texts (hash, text) VALUES (?, ?)")?;
+    let mut st = tx.prepare_cached(
+        "INSERT INTO session_tools (session_id, ts, server, tool, hash) VALUES (?, ?, ?, ?, ?)",
+    )?;
+    for d in &p.tool_defs {
+        let hash = crate::toolcheck::text_hash(&d.text);
+        tt.execute(params![hash, d.text])?;
+        st.execute(params![
+            s.id,
+            d.timestamp.as_deref().or(s.started_at.as_deref()),
+            d.server,
+            d.tool,
+            hash
+        ])?;
+    }
     let mut pr = tx.prepare_cached(
         "INSERT INTO prs (session_id, seq, ts, number, url, repo) VALUES (?, ?, ?, ?, ?, ?)",
     )?;
@@ -845,7 +876,7 @@ fn write_session(
     }
 
     let mut fi = tx.prepare_cached(
-        "INSERT INTO findings (session_id, seq, rule_id, title, severity, excerpt) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO findings (session_id, seq, rule_id, title, severity, excerpt, related_seq) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )?;
     for f in findings {
         fi.execute(params![
@@ -854,7 +885,8 @@ fn write_session(
             f.rule_id,
             f.title,
             f.severity as i64,
-            f.excerpt
+            f.excerpt,
+            f.related_seq
         ])?;
     }
     Ok(())
@@ -878,6 +910,7 @@ fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
         "prs",
         "skill_uses",
         "session_skills",
+        "session_tools",
     ] {
         tx.execute(&format!("DELETE FROM {table} WHERE session_id = ?1"), [id])?;
     }

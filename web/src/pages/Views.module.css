@@ -242,3 +242,46 @@
 .panelLink:hover {
   color: var(--text-1);
 }
+/* Audit: evidence and SIEM exports. */
+.exports {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-6);
+}
+.exportTitle {
+  color: var(--text-1);
+  font-weight: var(--fw-medium);
+}
+.exportText {
+  margin: var(--s-1) 0 var(--s-3);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.exportText code {
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+.exportLinks {
+  display: flex;
+  gap: var(--s-2);
+}
+.exportLink {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+.exportLink:hover {
+  background: var(--bg-2);
+}
+@media (max-width: 900px) {
+  .exports {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

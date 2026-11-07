@@ -8,12 +8,26 @@ import s from './RuleEditor.module.css'
 
 const EXAMPLE = `# Your own rules. Same id as a built-in rule replaces it.
 # Fields: id, title, severity (low|medium|high|critical), pattern (regex),
-# field (title|body|input|path|any), categories, kinds, actions, secret.
+# field (title|body|input|path|any), categories, kinds, actions, secret,
+# unless (regex that cancels a match), tags (for sequences).
 - id: deploy
   title: Deployed to production
   severity: high
   categories: [command]
+  tags: [deploy]
   pattern: '\\b(fly deploy|vercel --prod|kubectl apply)\\b'
+  unless: '--dry-run'
+
+# A sequence: steps in order within a window, matched by tag or rule id.
+# Every step also has context tags: outside-content, guardrails-off,
+# denied, command, edit, web, mcp.
+- id: deploy-after-secret
+  title: Deployed after reading a secret
+  severity: high
+  sequence:
+    - tags: [secret-read]
+    - tags: [deploy]
+  within: 20
 `
 
 /** See every risk rule and edit your own in YAML. */
@@ -86,7 +100,7 @@ export function RuleEditor() {
                       {r.title}
                       {userIds.has(r.id) && <span className={s.yours}>yours</span>}
                     </td>
-                    <td className={s.mono}>{r.outside_project ? 'writes outside the project' : `${r.field}: ${r.pattern}`}</td>
+                    <td className={s.mono}>{describe(r)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -96,4 +110,16 @@ export function RuleEditor() {
       </div>
     </Panel>
   )
+}
+
+/** What a rule checks, in one line. */
+function describe(r: RulesInfo['rules'][number]): string {
+  if (r.outside_project) return 'writes outside the project'
+  if (r.sequence?.length) {
+    const links = r.sequence.map((l) => [...(l.tags ?? []), ...(l.rules ?? [])].join(' or ')).join(' → ')
+    return `${links} within ${r.within ?? 30} steps`
+  }
+  if (r.outside_content?.length) return `commands using a package or link from ${r.outside_content.join(', ')} content`
+  const on = r.when_tagged?.length ? `${r.when_tagged.join(', ')} · ` : ''
+  return `${on}${r.field}: ${r.pattern}${r.unless ? `  unless ${r.unless}` : ''}`
 }

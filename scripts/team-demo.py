@@ -31,6 +31,15 @@ def call(path, body, token=None):
         return json.loads(r.read())
 
 
+def mcp_tags(name):
+    tags = []
+    if name in ("sentry", "linear", "github", "slack", "playwright", "notion", "jira"):
+        tags.append("outside_content")
+    if random.random() < 0.3:
+        tags.append("unpinned")
+    return tags
+
+
 def ts(d):
     return d.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -155,9 +164,15 @@ for team, repos in TEAMS.items():
         if random.random() < 0.4:
             flags.append({"id": "guard_hook_installed", "agent": "claude-code", "scope": "user"})
         items = [
-            {"kind": "mcp_server", "agent": "claude-code", "name": m, "detail": t, "scope": "user"}
+            {"kind": "mcp_server", "agent": "claude-code", "name": m, "detail": t, "scope": "user", "tags": mcp_tags(m)}
             for m, t in random.sample(MCP, random.randint(1, 4))
         ]
+        if random.random() < 0.1:
+            flags.append({"id": "mcp_secret_in_config", "agent": "any", "scope": "user"})
+            for it in items[:1]:
+                it["tags"] = sorted(set(it["tags"]) | {"secret_in_config"})
+        if any("outside_content" in it["tags"] for it in items) and any(f["id"] in ("approvals_skipped_by_default", "broad_allow_rule") for f in flags):
+            flags.append({"id": "outside_content_open_shell", "agent": "any", "scope": "user"})
         items += [{"kind": "skill", "agent": "claude-code", "name": s, "detail": None, "scope": "user"} for s in random.sample(SKILLS, random.randint(0, 3))]
         items += [{"kind": "plugin", "agent": "claude-code", "name": p, "detail": None, "scope": "user"} for p in random.sample(["code-review@anthropic", "frontend@anthropic", "security@acme"], random.randint(0, 2))]
         items.append({"kind": "hook", "agent": "claude-code", "name": "prettier", "detail": "PostToolUse", "scope": "project"})
@@ -168,8 +183,24 @@ for team, repos in TEAMS.items():
         for i in range(0, max(1, len(sessions)), 400):
             call(
                 "/api/team/sync",
-                {"schema_version": 2, "agentcam_version": "0.1.0", "sessions": sessions[i : i + 400], "inventory": inv if i == 0 else None},
+                {"schema_version": 3, "agentcam_version": "0.1.0", "sessions": sessions[i : i + 400], "inventory": inv if i == 0 else None},
                 dev,
             )
+        # A few machines change their setup later, so Fleet has changes to list.
+        if random.random() < 0.3:
+            later = json.loads(json.dumps(inv))
+            if any(f["id"] == "guard_hook_installed" for f in later["flags"]):
+                later["flags"] = [f for f in later["flags"] if f["id"] != "guard_hook_installed"]
+            else:
+                later["flags"].append({"id": "guard_hook_installed", "agent": "claude-code", "scope": "user"})
+            call("/api/team/sync", {"schema_version": 3, "agentcam_version": "0.1.0", "sessions": [], "inventory": later}, dev)
         total += len(sessions)
+# A baseline, so Fleet shows which machines differ from it.
+call("/api/team/baseline", {
+    "require": ["guard_hook_installed"],
+    "forbid": ["approvals_skipped_by_default", "sandbox_off", "broad_allow_rule", "outside_content_open_shell", "mcp_secret_in_config"],
+    "forbid_tags": ["secret_in_config"],
+    "mcp_allowlist": None,
+    "min_versions": {"claude-code": "2.4.1"},
+}, ADMIN)
 print(f"Synced {total} sessions from {sum(SIZES.values())} machines in {len(TEAMS)} teams.")

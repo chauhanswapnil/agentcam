@@ -47,7 +47,7 @@ export function ResumeButton({
   )
 }
 
-/** Download the session as Markdown or JSON. */
+/** Download the session as Markdown, JSON or an evidence bundle. */
 export function ExportLinks({ id }: { id: string }) {
   return (
     <span className={s.group}>
@@ -56,6 +56,14 @@ export function ExportLinks({ id }: { id: string }) {
       </a>
       <a className={s.link} href={exportUrl(id, 'json')} download>
         JSON
+      </a>
+      <a
+        className={s.link}
+        href={`/api/evidence?session=${encodeURIComponent(id.split('/')[0])}`}
+        download
+        title="Who, when, prompts, steps and approvals, changes, findings and commits, with a SHA-256 checksum. Secrets masked."
+      >
+        Evidence
       </a>
     </span>
   )

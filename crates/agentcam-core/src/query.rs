@@ -474,6 +474,8 @@ pub struct FindingRow {
     pub title: String,
     pub severity: String,
     pub excerpt: String,
+    /// The earlier step a sequence or outside-content finding started from.
+    pub related_seq: Option<i64>,
 }
 
 pub fn severity_name(n: i64) -> Option<String> {
@@ -489,7 +491,7 @@ pub fn severity_name(n: i64) -> Option<String> {
     )
 }
 
-fn severity_num(name: &str) -> i64 {
+pub fn severity_num(name: &str) -> i64 {
     match name {
         "critical" => 4,
         "high" => 3,
@@ -551,7 +553,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
         })?
         .collect::<std::result::Result<_, _>>()?;
     let mut stmt = conn.prepare(
-        "SELECT seq, rule_id, title, severity, excerpt FROM findings WHERE session_id = ?
+        "SELECT seq, rule_id, title, severity, excerpt, related_seq FROM findings WHERE session_id = ?
          ORDER BY seq, severity DESC",
     )?;
     let findings = stmt
@@ -562,6 +564,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
                 title: r.get(2)?,
                 severity: severity_name(r.get(3)?).unwrap_or_default(),
                 excerpt: r.get(4)?,
+                related_seq: r.get(5)?,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
@@ -863,6 +866,7 @@ pub struct FindingHit {
     pub title: String,
     pub severity: String,
     pub excerpt: String,
+    pub related_seq: Option<i64>,
     pub step_title: String,
     pub agent: String,
     pub session_title: Option<String>,
@@ -887,7 +891,7 @@ pub fn findings(
     }
     let sql = format!(
         "SELECT fd.session_id, fd.seq, e.ts, fd.rule_id, fd.title, fd.severity, fd.excerpt, e.title,
-                s.agent, coalesce(r.title, r.first_prompt), s.project_root
+                s.agent, coalesce(r.title, r.first_prompt), s.project_root, fd.related_seq
          FROM findings fd
          JOIN events e ON e.session_id = fd.session_id AND e.seq = fd.seq
          JOIN sessions s ON s.id = e.session_id
@@ -909,6 +913,7 @@ pub fn findings(
             agent: r.get(8)?,
             session_title: r.get(9)?,
             project_root: r.get(10)?,
+            related_seq: r.get(11)?,
         })
     })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)

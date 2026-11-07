@@ -69,6 +69,8 @@ cargo run -- index --full         # re-parse every log
 cargo run -- search "some words"  # full-text search from the terminal
 cargo run -- blame path/to/file   # which agent session wrote each line
 cargo run -- mcp                  # MCP server on stdio (JSON-RPC, one message per line)
+cargo run -- evidence --range 7d  # evidence bundle; `evidence verify <file>` checks one
+cargo run -- export findings --format ocsf   # findings for a SIEM, one per line
 ```
 
 The index lives in the user data folder (`~/Library/Application Support/agentcam/index.db` on macOS). Use `--db <file>` or `AGENTCAM_DB` to point at a scratch index while developing.
@@ -130,6 +132,8 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/prompts?q=` | Prompts you typed, newest first, and the ones repeated across sessions (`prompts.rs`) |
 | `GET /api/outbox` | The metadata a team server receives (`share.rs`), the setup inventory (`fleet.rs`) and the team link, if any |
 | `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
+| `GET /api/evidence?session=` or `?range=` | An evidence bundle: JSON with a SHA-256 checksum, secrets masked (`evidence.rs`) |
+| `GET /api/findings/export?format=ndjson\|ocsf` | Findings one per line for a SIEM; takes `range`, `severity` (`siem.rs`) |
 
 List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a project root) and `day` (local `YYYY-MM-DD`).
 
@@ -143,11 +147,27 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 ### Risk audit
 
 - Rules live in `crates/agentcam-core/rules/default.yaml` (built in) and `rules.yaml` next to the index, which users edit on the Audit page (`GET/POST /api/rules`; saving re-checks every session) (the user's own; same id replaces a built-in rule). The file header documents every field.
-- Rules run at index time in `audit.rs`. A `RegexSet` per field prefilters, so adding rules stays cheap.
+- Rules run at index time in `audit.rs`. A `RegexSet` per field prefilters, so adding rules stays cheap. The prefilter uses ASCII word boundaries (`ascii_boundaries`): Unicode `\b` drops the regex engine onto its slow path for any text with a non-ASCII character. The rule's own regex confirms each candidate. Time it with `cargo run --release -p agentcam-core --example bench_audit` (reads your real logs, prints only timings and counts).
+- Command rules see the command with heredoc bodies that are data or another language's code removed (`shell::shell_text`); bodies a shell runs stay. Secrets in those bodies are still found through `input`.
+- Three kinds of rule. **Pattern rules** (`pattern`, optional `unless` to drop near misses, `when_tagged` to check only steps with a context tag). **Sequence rules** (`sequence` of links matched by `tags` or `rules`, within `within` steps, default 30); the finding sits on the last step with `related_seq` pointing at the first. **Outside-content rules** (`outside_content: [mcp, tracker, web]`) flag a command that runs a package, runs a download or sends data, when that package, URL or host showed up in that kind of tool output in the last `within` steps (default 15) and never in a prompt. Plain downloads and the source's own host don't count.
+- Pattern rules leave `tags` on steps (`secret-read`, `egress`, `bypass`, `injection`). Every step also gets context tags: `outside-content` (`outside-mcp`, `outside-web`, `outside-tracker`), `guardrails-off`, `denied`, and `command`, `edit`, `web`, `mcp`.
+- Check new rules against real logs before shipping them (`cargo run -- --db /tmp/x.db index`, then count `findings` by rule): a rule that fires on ordinary work is worse than no rule.
 - Matches marked `secret: true` are masked before they are stored. Never store or log a raw secret.
 - Changed rules re-check every session (fingerprint in the `meta` table). If you change how rules are checked in code, bump `ENGINE_VERSION` in `audit.rs`.
 - Every rule needs a test in `audit.rs` that shows a match and a near miss.
 - `agentcam scan` prints findings in the terminal.
+
+### Evidence and SIEM export
+
+- `evidence.rs`: one session (with subagents) or a range as a single JSON bundle: identity, prompts, steps with approvals, file changes, findings, commits, PRs, secrets masked. `integrity.content_sha256` is SHA-256 of the canonical JSON (keys sorted) without that field; `evidence::verify` recomputes it. `serde_json` is built with `float_roundtrip` so numbers read back exactly; keep it. `GET /api/evidence`, `agentcam evidence [--session|--range] [verify file]`.
+- `siem.rs`: findings as NDJSON or OCSF 1.3 Detection Finding (class 2004), oldest first. `GET /api/findings/export`, `agentcam export findings --format ocsf --since <ts>`. Never prompts, output or diffs.
+- Team server: `siem.rs` in `agentcam-team` builds the same records from synced metadata (OS user only when names are on). Pull: `GET /api/team/findings/export` (viewer token). Push: `POST /api/team/siem` sets a webhook (`ndjson`, `ocsf`, `splunk_hec`; https or loopback only); each sync sends the findings it brought, off the request path. The token is stored on the server and never returned.
+
+### What MCP servers and skills tell the agent
+
+- `toolcheck.rs`. Claude Code logs MCP tool descriptions (`deferred_tools_record`) and server instructions (`mcp_instructions_delta`); Codex logs `additional_tools` namespaces named `mcp__<server>`. Each session's are stored in `session_tools`, texts once in `tool_texts` by hash, so a changed description shows as a second hash.
+- `scan_text` checks any text the agent is given: hidden Unicode (tag characters decoded), "don't tell the user", "ignore previous instructions", requests to read secret files, downloads piped into a shell. Skill scripts also get `credentials_and_network` (credential files or the whole environment, plus a network call; one env var for an API token is normal).
+- Setup adds config checks per MCP server (`outside_content`, `unpinned`, `secret_keys` names only, `plain_http`) and the risky mix `outside_content_shell`. The fleet inventory carries these as `Item.tags` and machine flags (share schema 3). Calibrate against real config before adding a check; skills and docs mention keys and tokens all the time.
 
 ### Block next time (guard)
 
@@ -221,8 +241,9 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - `crates/agentcam-team`: `store.rs` (SQLite, numbered `MIGRATIONS`, plain SQL that Postgres also runs: `ON CONFLICT ... DO UPDATE`, no SQLite-only functions in queries), `server.rs` (axum), `views.rs` (Insights, Value, Governance, Fleet), `client.rs` (laptop side).
 - `agentcam team serve --data <dir> --bind 127.0.0.1:4850` prints the first admin token once. It serves the same embedded UI; `web/src/main.tsx` renders the team app for paths under `/team`.
 - Auth is by token, not Host: laptops use device tokens (`ac_dev_`), the UI uses viewer tokens (`ac_view_`, roles `admin` and `viewer`, kept in the browser's localStorage and sent as `Authorization: Bearer`). Invites (`ac_inv_`) are traded for a device token. Only SHA-256 hashes of tokens are stored. Admin changes go to `audit_log`. On the server machine, `agentcam team machines|remove|viewers|revoke` manage machines and viewer tokens; the last admin can't be revoked. Operator docs: `docs/team-server.md`.
-- `POST /api/team/join` and `POST /api/team/sync` (device token; at most 1000 sessions per request, unchanged versions skipped, a laptop may only send its own machine id). UI routes: `GET /api/team/me|insights|value|governance|fleet|settings` (`range`, `team`), `POST /api/team/settings|invites|viewers` (admin).
+- `POST /api/team/join` and `POST /api/team/sync` (device token; at most 1000 sessions per request, unchanged versions skipped, a laptop may only send its own machine id). UI routes: `GET /api/team/me|insights|value|governance|fleet|settings|baseline|findings/export` (`range`, `team`), `GET/POST /api/team/siem` and `POST /api/team/settings|invites|viewers|baseline` (admin).
 - The laptop keeps `team.json` (link and token, mode 600) and `team-sync.json` (versions sent, last sync, last error) next to the index. `agentcam serve` syncs every 5 minutes when linked; `agentcam team sync|status|pause|resume|leave` do the rest. `https://` is required unless the server is on loopback or `--allow-http` is passed.
+- Baseline (`baseline.rs`): an admin sets flags every machine should have or none should, tags no MCP server or skill should carry, an MCP allowlist and oldest agent versions (`GET/POST /api/team/baseline`). Each sync stores the machine's setup as fact strings in `machine_facts` (with `first_seen`) and logs added and removed facts in `fact_changes`, so each difference says since when. It never changes a machine.
 - Views describe, never rank people. Machines show as `Machine abc123` unless an admin turns on `show_people` (logged). Cost is at API list prices; seats compare a monthly seat price with that.
 - Demo: `agentcam team serve --data /tmp/agentcam-team-demo`, then `python3 scripts/team-demo.py http://127.0.0.1:4850 <admin token>` makes 24 fake machines in 4 teams over 90 days. Team screenshots come from it.
 

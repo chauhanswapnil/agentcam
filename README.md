@@ -60,7 +60,11 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ### Safety
 
-**Risk audit.** 28 built-in rules flag secrets in transcripts (masked before they're stored), sensitive files (`.env`, `~/.ssh`, cloud credentials, keychains), dangerous commands (`rm -rf`, `sudo`, `curl | sh`, force pushes, `git reset --hard`), package installs, domains contacted, and writes outside the project. Findings show on the replay timeline and the Audit page. Add your own rules in YAML from the Audit page.
+**Risk audit.** 73 built-in rules flag secrets in transcripts (masked before they're stored), sensitive files, dangerous commands, privilege and persistence changes (sudoers, shell startup files, cron, `authorized_keys`), data sent out, and writes outside the project. Findings show on the replay timeline and the Audit page. Add your own rules in YAML from the Audit page; [the rules guide](docs/audit-rules.md) covers every field.
+
+**Chains and outside content.** Some risks only show across steps: a secret read and then an upload, a stopped call followed by another way around it, a command run right after a web page or MCP result held instructions. agentcam also notices when a command runs a package or sends data to an address that came from a tool result, such as a fake Sentry error telling the agent to run a package, and decodes hidden characters in tool output. Each finding links back to the step the chain started from.
+
+![A command the agent ran because a Sentry result told it to, linked back to that result](docs/screenshots/chains.png)
 
 **Approvals.** How each Claude Code tool call was allowed (a rule, auto mode, the permission mode, you) or stopped. The Audit page lists calls that were stopped and allow rules you could add, so agents ask you less. Broad commands are never suggested, and agentcam never edits your settings: you copy what you want.
 
@@ -76,6 +80,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Setup.** Your agents' settings files, instruction and memory files, MCP servers, hooks and skills on this machine, with things worth a look: approvals skipped by default, allow rules that cover every command, an instruction that a setting overrides, a hook pointing at a missing file, a CLAUDE.md that takes thousands of tokens, MCP servers nobody calls. Reads `CLAUDE_CONFIG_DIR` and `CODEX_HOME` when they're set. agentcam never changes these files.
 
+**What MCP servers and skills tell the agent.** The tool descriptions and instructions each MCP server gave your agents, read from the logs, checked for hidden characters, orders for the agent ("don't tell the user", "read ~/.ssh first") and descriptions that changed after you started using them. Skills' text and scripts get the same check, plus scripts that read credentials and call out. MCP servers that bring in outside content, run the latest release on every start, keep a token in plain text or use plain http are marked. Nothing is uploaded or sent to a scanning service.
+
 ![Setup: settings worth a look, settings files, MCP servers and hooks](docs/screenshots/setup.png)
 
 **Ask your history (MCP).** `agentcam mcp` is a read-only MCP server, so your agents can look up past work: how a bug was fixed before, what a repo's AGENTS.md asks and what tends to get missed, which edits to a file lasted, who wrote a line. Add it with `claude mcp add agentcam -- agentcam mcp`, or in Codex's `config.toml` as `[mcp_servers.agentcam]` with `command = "agentcam"` and `args = ["mcp"]`. Answers have secrets masked. [Every tool](docs/mcp.md).
@@ -85,6 +91,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 ### Share and export
 
 **Session export.** Download a session as Markdown (prompts, replies, commands with the start of their output, diffs) or JSON, with secrets masked. Every table (sessions, tools, files, commits, findings) downloads as CSV.
+
+**Evidence bundles.** A session or a date range as one JSON file for an auditor or an incident review: who ran it and when, prompts, every step and how it was allowed, file changes, findings, commits. Secrets are masked, and a SHA-256 checksum shows whether the file changed later (`agentcam evidence verify`). Findings also export for a SIEM as NDJSON or OCSF. [Evidence and SIEM](docs/evidence-and-siem.md).
 
 **Report cards.** PNG cards for a session or your week, with titles, projects and file names hidden by default.
 
@@ -100,6 +108,8 @@ Run your own team server, and each laptop sends it metadata only. Vendor dashboa
 - **Value:** cost per commit and per pull request, lines kept per dollar, seats against use at API prices, machines active each week, and models and agent versions side by side.
 - **Governance:** what the risk rules found across the team, with secrets masked on each laptop before anything is sent.
 - **Fleet:** agent versions, MCP servers, plugins, skills and hooks on each machine, and settings worth a look, such as approvals skipped by default or the sandbox off.
+- **Baseline:** set the setup every machine should have (the guard hook, no secrets in MCP configs, approved MCP servers, a minimum agent version) and see which machines differ, since when, and what changed.
+- **SIEM:** findings from every machine to Splunk, Sentinel or anything that reads OCSF, by pull or webhook.
 
 People's names stay hidden unless an admin turns them on (logged), and no view ranks people.
 
@@ -146,6 +156,8 @@ agentcam
 | `agentcam scan [--min high] [--range 30d]` | Print what the risk rules found |
 | `agentcam export otlp [--range 7d] [--out f] [--endpoint url]` | Sessions as OpenTelemetry traces (OTLP/JSON); sends data only with `--endpoint` |
 | `agentcam guard` | The hook command: reads a tool call on stdin, exits 2 to block it |
+| `agentcam evidence [--session id] [--range 7d]` | An evidence bundle; `agentcam evidence verify <file>` checks one |
+| `agentcam export findings [--format ocsf] [--since ts]` | Findings one per line, for a SIEM |
 | `agentcam blame <file>` | Which agent session wrote each line of a file today |
 | `agentcam mcp` | Read-only MCP server over stdio for your agents |
 | `agentcam team serve [--data dir] [--bind addr]` | Run a team server |

@@ -56,6 +56,24 @@ enum Command {
         #[command(subcommand)]
         format: ExportFormat,
     },
+    /// Write an evidence bundle (one session or a date range) as JSON, with a
+    /// SHA-256 checksum. `agentcam evidence verify <file>` checks one.
+    Evidence {
+        #[command(subcommand)]
+        check: Option<EvidenceCommand>,
+        /// One session by id.
+        #[arg(long)]
+        session: Option<String>,
+        /// Time range when no session is given: 7d, 30d, 90d or all.
+        #[arg(long, default_value = "7d")]
+        range: String,
+        /// Only this project root.
+        #[arg(long)]
+        project: Option<String>,
+        /// File to write (default agentcam-evidence-<date>.json).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
     /// Team server and joining one (metadata only; see the Outbox page).
     Team {
         #[command(subcommand)]
@@ -155,7 +173,31 @@ enum TeamCommand {
 }
 
 #[derive(Subcommand)]
+enum EvidenceCommand {
+    /// Check that a bundle wasn't changed after it was made.
+    Verify { file: PathBuf },
+}
+
+#[derive(Subcommand)]
 enum ExportFormat {
+    /// Risk findings, one JSON object per line, for a SIEM or log pipeline.
+    Findings {
+        /// `ndjson` (agentcam's records) or `ocsf` (OCSF 1.3 Detection Finding).
+        #[arg(long, default_value = "ndjson")]
+        format: String,
+        /// Time range: 7d, 30d, 90d or all. Ignored with --since.
+        #[arg(long, default_value = "30d")]
+        range: String,
+        /// Only findings after this time (RFC 3339), say the last `ts` you shipped.
+        #[arg(long)]
+        since: Option<String>,
+        /// Lowest severity: low, medium, high or critical.
+        #[arg(long, default_value = "low")]
+        min: String,
+        /// File to write (default: stdout).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
     /// OTLP/JSON traces: write a file, or send to a collector with --endpoint.
     Otlp {
         /// Time range: 7d, 30d, 90d or all.
@@ -222,11 +264,138 @@ async fn main() -> anyhow::Result<()> {
                 endpoint,
                 headers,
             } => export_otlp(&db, &range, project, out, endpoint, &headers),
+            ExportFormat::Findings {
+                format,
+                range,
+                since,
+                min,
+                out,
+            } => export_findings(&db, &format, &range, since, &min, out),
         },
+        Command::Evidence {
+            check: Some(EvidenceCommand::Verify { file }),
+            ..
+        } => verify_evidence(&file),
+        Command::Evidence {
+            check: None,
+            session,
+            range,
+            project,
+            out,
+        } => evidence(&db, session, &range, project, out),
         Command::Search { query, limit } => search(&db, &query.join(" "), limit),
         Command::Team { command } => team(&db, command).await,
         Command::Blame { file } => blame(&db, &file),
         Command::Mcp => unreachable!("handled before startup"),
+    }
+}
+
+fn since_days(range: &str) -> Option<String> {
+    let days: i64 = range.strip_suffix('d')?.parse().ok()?;
+    Some(agentcam_core::util::format_ts_ms(
+        agentcam_core::util::now_ms() - days * 86_400_000,
+    ))
+}
+
+fn export_findings(
+    db: &std::path::Path,
+    format: &str,
+    range: &str,
+    since: Option<String>,
+    min: &str,
+    out: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if format != "ndjson" && format != "ocsf" {
+        anyhow::bail!("--format is ndjson or ocsf");
+    }
+    let mut idx = open_index(db)?;
+    idx.update(&agentcam_core::default_log_sources(), false)?;
+    let f = agentcam_core::query::Filter {
+        since: since.or_else(|| since_days(range)),
+        ..Default::default()
+    };
+    let floor = agentcam_core::query::severity_num(min);
+    let records: Vec<_> = agentcam_core::siem::findings(idx.conn(), &f, 1_000_000)?
+        .into_iter()
+        .filter(|r| agentcam_core::query::severity_num(&r.severity) >= floor)
+        .collect();
+    let text = agentcam_core::siem::lines(&records, format);
+    match out {
+        Some(path) => {
+            std::fs::write(&path, text)?;
+            eprintln!("Wrote {} findings to {}", records.len(), path.display());
+        }
+        None => print!("{text}"),
+    }
+    Ok(())
+}
+
+fn evidence(
+    db: &std::path::Path,
+    session: Option<String>,
+    range: &str,
+    project: Option<String>,
+    out: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let mut idx = open_index(db)?;
+    idx.update(&agentcam_core::default_log_sources(), false)?;
+    let scope = agentcam_core::evidence::Scope {
+        since: if session.is_some() {
+            None
+        } else {
+            since_days(range)
+        },
+        session_id: session,
+        until: None,
+        project: project.map(|p| agentcam_core::project_root(&p)),
+        agent: None,
+    };
+    let ev = agentcam_core::evidence::build(idx.conn(), scope, idx.rules())?;
+    if ev.sessions.is_empty() {
+        anyhow::bail!("no sessions in that range");
+    }
+    let path = out.unwrap_or_else(|| {
+        PathBuf::from(format!(
+            "agentcam-evidence-{}.json",
+            &ev.generated_at[..ev.generated_at.len().min(10)]
+        ))
+    });
+    std::fs::write(&path, serde_json::to_string_pretty(&ev)?)?;
+    println!(
+        "Wrote {} ({} sessions, {} steps, sha256 {})",
+        path.display(),
+        ev.summary.sessions,
+        ev.summary.steps,
+        ev.integrity
+            .as_ref()
+            .map_or("", |i| &i.content_sha256[..16])
+    );
+    if ev.summary.truncated {
+        println!(
+            "The range held more than {} sessions; narrow it with --range or --project for the rest.",
+            agentcam_core::evidence::MAX_SESSIONS
+        );
+    }
+    Ok(())
+}
+
+fn verify_evidence(file: &std::path::Path) -> anyhow::Result<()> {
+    let text =
+        std::fs::read_to_string(file).with_context(|| format!("can't read {}", file.display()))?;
+    match agentcam_core::evidence::verify(&text) {
+        agentcam_core::evidence::Verdict::Intact => {
+            println!("{}: intact (content matches its sha256)", file.display());
+            Ok(())
+        }
+        agentcam_core::evidence::Verdict::Changed { expected, found } => {
+            anyhow::bail!(
+                "{}: changed after it was made (expected sha256 {expected}, found {found})",
+                file.display()
+            )
+        }
+        agentcam_core::evidence::Verdict::NotABundle(why) => {
+            anyhow::bail!("{}: not an evidence bundle: {why}", file.display())
+        }
     }
 }
 

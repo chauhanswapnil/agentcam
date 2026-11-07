@@ -264,6 +264,18 @@ pub struct FileTouch {
     pub diff: Option<String>,
 }
 
+/// An MCP tool's description, or an MCP server's instructions, as the
+/// agent was given them. What the server told the agent, not what it did.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct ToolDef {
+    /// The server name as the agent knows it.
+    pub server: String,
+    /// The tool, or `(instructions)` for the server's own instructions.
+    pub tool: String,
+    pub text: String,
+    pub timestamp: Option<String>,
+}
+
 /// Everything parsed from one log file.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ParsedSession {
@@ -281,11 +293,35 @@ pub struct ParsedSession {
     pub skills_available: Vec<String>,
     /// Size of that listing, in characters: context it takes up.
     pub skills_listing_chars: u64,
+    /// MCP tool descriptions and server instructions the agent was given,
+    /// each (server, tool, text) once.
+    pub tool_defs: Vec<ToolDef>,
     /// Lines that weren't valid JSON.
     pub bad_lines: u32,
 }
 
 impl ParsedSession {
+    /// Keep a tool definition once per session, cut to 16 KB.
+    pub fn add_tool_def(&mut self, server: &str, tool: &str, text: &str, ts: Option<&str>) {
+        let text = truncate(text.trim(), 16_000);
+        if server.is_empty() || tool.is_empty() || text.is_empty() {
+            return;
+        }
+        if self
+            .tool_defs
+            .iter()
+            .any(|d| d.server == server && d.tool == tool && d.text == text)
+        {
+            return;
+        }
+        self.tool_defs.push(ToolDef {
+            server: server.to_string(),
+            tool: tool.to_string(),
+            text,
+            timestamp: ts.map(String::from),
+        });
+    }
+
     /// Number events in order, fill in first prompt and start/end times.
     pub fn finish(&mut self) {
         for (i, e) in self.events.iter_mut().enumerate() {

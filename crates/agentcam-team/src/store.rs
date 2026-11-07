@@ -6,6 +6,7 @@
 //! queries), and the schema only moves forward through numbered
 //! migrations, so a Postgres store can be a second implementation.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use agentcam_core::fleet::Inventory;
@@ -122,6 +123,25 @@ const MIGRATIONS: &[&str] = &[
         action TEXT NOT NULL,
         detail TEXT
     );
+    ",
+    // 2: tags on inventory items, and when each fact about a machine's setup
+    // was first seen, for baseline drift.
+    "
+    ALTER TABLE inventory ADD COLUMN tags TEXT;
+    CREATE TABLE machine_facts (
+        machine_id TEXT NOT NULL,
+        fact       TEXT NOT NULL,
+        first_seen TEXT NOT NULL,
+        PRIMARY KEY (machine_id, fact)
+    );
+    CREATE TABLE fact_changes (
+        id         INTEGER PRIMARY KEY,
+        ts         TEXT NOT NULL,
+        machine_id TEXT NOT NULL,
+        fact       TEXT NOT NULL,
+        change     TEXT NOT NULL
+    );
+    CREATE INDEX fact_changes_machine ON fact_changes(machine_id, ts);
     ",
 ];
 
@@ -401,7 +421,14 @@ impl Store {
     pub fn remove_device(&mut self, machine_id: &str) -> Result<bool> {
         let tx = self.conn.transaction()?;
         let n = tx.execute("DELETE FROM devices WHERE machine_id = ?1", [machine_id])?;
-        for t in ["sessions", "findings", "inventory", "agent_versions"] {
+        for t in [
+            "sessions",
+            "findings",
+            "inventory",
+            "agent_versions",
+            "machine_facts",
+            "fact_changes",
+        ] {
             tx.execute(
                 &format!("DELETE FROM {t} WHERE machine_id = ?1"),
                 [machine_id],
@@ -532,17 +559,17 @@ impl Store {
     }
 
     /// Store what a laptop sent. Sessions whose version is unchanged are
-    /// skipped; changed ones replace the old rows. Returns how many were
-    /// written.
+    /// skipped; changed ones replace the old rows. Returns the ids of the
+    /// sessions written.
     pub fn ingest(
         &mut self,
         device: &Device,
         agentcam_version: Option<&str>,
         sessions: &[SessionMeta],
         inventory: Option<&Inventory>,
-    ) -> Result<usize> {
+    ) -> Result<Vec<String>> {
         let tx = self.conn.transaction()?;
-        let mut written = 0;
+        let mut written = Vec::new();
         for m in sessions {
             // A laptop only speaks for its own sessions.
             if m.machine_id != device.machine_id {
@@ -644,7 +671,7 @@ impl Store {
                     ],
                 )?;
             }
-            written += 1;
+            written.push(m.session_id.clone());
         }
         if let Some(inv) = inventory {
             tx.execute(
@@ -657,18 +684,20 @@ impl Store {
             )?;
             for i in &inv.items {
                 tx.execute(
-                    "INSERT INTO inventory (machine_id, kind, agent, name, detail, scope)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO inventory (machine_id, kind, agent, name, detail, scope, tags)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         device.machine_id,
                         i.kind,
                         i.agent,
                         i.name,
                         i.detail,
-                        i.scope
+                        i.scope,
+                        (!i.tags.is_empty()).then(|| i.tags.join(","))
                     ],
                 )?;
             }
+            record_facts(&tx, &device.machine_id, &facts(inv))?;
             for f in &inv.flags {
                 tx.execute(
                     "INSERT INTO inventory (machine_id, kind, agent, name, detail, scope)
@@ -705,6 +734,67 @@ impl Store {
 }
 
 /// The first characters of a machine id, for labels.
+/// What a machine's setup says, as plain strings that compare across syncs:
+/// `flag:<agent>:<id>`, `item:<kind>:<agent>:<name>`,
+/// `tag:<kind>:<agent>:<name>:<tag>`, `version:<agent>:<version>`.
+pub fn facts(inv: &Inventory) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for f in &inv.flags {
+        out.push(format!("flag:{}:{}", f.agent, f.id));
+    }
+    for i in &inv.items {
+        out.push(format!("item:{}:{}:{}", i.kind, i.agent, i.name));
+        for t in &i.tags {
+            out.push(format!("tag:{}:{}:{}:{t}", i.kind, i.agent, i.name));
+        }
+    }
+    for a in &inv.agents {
+        if let Some(v) = &a.version {
+            out.push(format!("version:{}:{v}", a.agent));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Keep `machine_facts` in step with `now`, logging what was added or
+/// removed. The first sync only sets the starting point.
+fn record_facts(tx: &rusqlite::Transaction, machine: &str, now_facts: &[String]) -> Result<()> {
+    let mut stmt = tx.prepare("SELECT fact FROM machine_facts WHERE machine_id = ?1")?;
+    let old: HashSet<String> = stmt
+        .query_map([machine], |r| r.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    drop(stmt);
+    let first = old.is_empty();
+    let ts = now();
+    let new: HashSet<&String> = now_facts.iter().collect();
+    for f in now_facts.iter().filter(|f| !old.contains(*f)) {
+        tx.execute(
+            "INSERT INTO machine_facts (machine_id, fact, first_seen) VALUES (?1, ?2, ?3)
+             ON CONFLICT (machine_id, fact) DO NOTHING",
+            params![machine, f, ts],
+        )?;
+        if !first {
+            tx.execute(
+                "INSERT INTO fact_changes (ts, machine_id, fact, change) VALUES (?1, ?2, ?3, 'added')",
+                params![ts, machine, f],
+            )?;
+        }
+    }
+    for f in old.iter().filter(|f| !new.contains(f)) {
+        tx.execute(
+            "DELETE FROM machine_facts WHERE machine_id = ?1 AND fact = ?2",
+            params![machine, f],
+        )?;
+        tx.execute(
+            "INSERT INTO fact_changes (ts, machine_id, fact, change) VALUES (?1, ?2, ?3, 'removed')",
+            params![ts, machine, f],
+        )?;
+    }
+    Ok(())
+}
+
 pub fn short(machine_id: &str) -> String {
     machine_id.chars().take(6).collect()
 }

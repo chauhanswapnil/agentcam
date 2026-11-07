@@ -71,6 +71,21 @@ A joined laptop sends changes every 5 minutes while `agentcam serve` runs, or no
 
 The server stores only hashes of tokens. A lost laptop: `agentcam team remove` its machine. A leaked viewer token: `agentcam team revoke` it and make a new one. The last admin token can't be revoked, so make a new admin token first.
 
+## Setup baseline
+
+On the Settings page an admin sets what every machine's agent setup should look like:
+
+- flags every machine should have (the agentcam guard hook) or none should (approvals skipped by default, the Codex sandbox off, an allow rule that covers every command, outside content that can reach a shell without asking, a secret in an MCP config)
+- tags no MCP server or skill should carry (secret in config, runs the latest release, tool text aimed at the agent)
+- MCP servers allowed by name
+- the oldest Claude Code and Codex versions to run
+
+Fleet then lists the machines that differ, each difference with since when, and the setup changes of the last 30 days. agentcam never changes a machine; act on it through MDM or the agents' managed settings (Claude Code `managed-settings.json`, Codex `requirements.toml`).
+
+## SIEM
+
+Findings from every machine go to your SIEM by pull or push. See [evidence and SIEM](evidence-and-siem.md#from-the-team-server).
+
 ## People and privacy
 
 Machines show as `Machine abc123`. An admin can turn on names (the OS user name) in Settings; the change goes to the audit log. No view ranks people. Cost is at API list prices, so compare it with seat prices, not invoices.

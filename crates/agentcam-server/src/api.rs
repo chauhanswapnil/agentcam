@@ -182,6 +182,10 @@ pub struct Params {
     at: Option<String>,
     /// Prompts: words to look for.
     q: Option<String>,
+    /// Evidence: one session id.
+    session: Option<String>,
+    /// Findings export: `ndjson` or `ocsf`.
+    format: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -359,6 +363,92 @@ pub async fn session(
         Some(d) => Json(d).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     })
+}
+
+fn current_rules(path: &Option<std::path::PathBuf>) -> agentcam_core::audit::Rules {
+    match path {
+        Some(p) => agentcam_core::audit::Rules::with_user_file(p)
+            .unwrap_or_else(|_| agentcam_core::audit::Rules::builtin()),
+        None => agentcam_core::audit::Rules::builtin(),
+    }
+}
+
+fn download(body: String, mime: &str, name: &str) -> Response {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, mime.to_string()),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{name}\""),
+            ),
+            (axum::http::header::CACHE_CONTROL, "no-store".to_string()),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// `GET /api/evidence?session=<id>` or `?range=7d&project=`: an evidence
+/// bundle (JSON with a SHA-256 checksum), secrets masked.
+pub async fn evidence(State(st): Shared, Query(q): Query<Params>) -> Result<Response, ApiError> {
+    let rules_path = st.rules_path.clone();
+    let now = now_ms();
+    let f = q.filter(now);
+    let scope = agentcam_core::evidence::Scope {
+        session_id: q.session.clone().filter(|s| !s.is_empty()),
+        since: if q.session.is_some() { None } else { f.since },
+        until: None,
+        project: q.project.clone(),
+        agent: q.agent.clone(),
+    };
+    let ev = st
+        .read(move |idx| {
+            agentcam_core::evidence::build(idx.conn(), scope, &current_rules(&rules_path))
+        })
+        .await?;
+    if ev.sessions.is_empty() {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    let date = &ev.generated_at[..ev.generated_at.len().min(10)];
+    let name = match &ev.scope.session_id {
+        Some(id) => format!(
+            "agentcam-evidence-{}.json",
+            id.chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .take(36)
+                .collect::<String>()
+        ),
+        None => format!("agentcam-evidence-{date}.json"),
+    };
+    let body = serde_json::to_string_pretty(&ev).map_err(|e| ApiError(e.to_string()))?;
+    Ok(download(body, "application/json; charset=utf-8", &name))
+}
+
+/// `GET /api/findings/export?format=ndjson|ocsf&range=&severity=`: risk
+/// findings, one JSON object per line, for a SIEM.
+pub async fn findings_export(
+    State(st): Shared,
+    Query(q): Query<Params>,
+) -> Result<Response, ApiError> {
+    let format = q.format.clone().unwrap_or_else(|| "ndjson".into());
+    if format != "ndjson" && format != "ocsf" {
+        return Ok(bad("format must be ndjson or ocsf"));
+    }
+    let f = q.filter(now_ms());
+    let floor = agentcam_core::query::severity_num(q.severity.as_deref().unwrap_or("low"));
+    let records = st
+        .read(move |idx| agentcam_core::siem::findings(idx.conn(), &f, 1_000_000))
+        .await?;
+    let records: Vec<_> = records
+        .into_iter()
+        .filter(|r| agentcam_core::query::severity_num(&r.severity) >= floor)
+        .collect();
+    let body = agentcam_core::siem::lines(&records, &format);
+    Ok(download(
+        body,
+        "application/x-ndjson; charset=utf-8",
+        &format!("agentcam-findings.{format}.ndjson"),
+    ))
 }
 
 /// `GET /api/sessions/{id}/export?format=md|json`: a download of one

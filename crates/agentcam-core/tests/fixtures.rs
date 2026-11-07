@@ -1256,6 +1256,37 @@ fn hooks_plans_prompts_and_mcp() {
     );
     let r = call("get_step", json!({"session_id": id, "seq": 99}));
     assert_eq!(r["result"]["isError"], true);
+
+    // An evidence bundle of the session survives a write and read, and
+    // keeps the secret masked.
+    let scope = agentcam_core::evidence::Scope {
+        session_id: Some(id.into()),
+        since: None,
+        until: None,
+        project: None,
+        agent: None,
+    };
+    let ev = agentcam_core::evidence::build(idx.conn(), scope, idx.rules()).unwrap();
+    assert_eq!(ev.summary.sessions, 1);
+    assert!(ev.summary.prompts >= 1);
+    let text = serde_json::to_string_pretty(&ev).unwrap();
+    assert!(!text.contains("sk-ant-test-0000"), "secrets are masked");
+    assert_eq!(
+        agentcam_core::evidence::verify(&text),
+        agentcam_core::evidence::Verdict::Intact
+    );
+    assert!(matches!(
+        agentcam_core::evidence::verify(&text.replacen("Commit and push", "Commit", 1)),
+        agentcam_core::evidence::Verdict::Changed { .. }
+    ));
+    // The same session's findings as SIEM records.
+    let recs =
+        agentcam_core::siem::findings(idx.conn(), &agentcam_core::query::Filter::default(), 100)
+            .unwrap();
+    assert!(
+        recs.iter()
+            .any(|r| r.rule_id == "secret-anthropic-key" && !r.excerpt.contains("0000000000"))
+    );
     drop(idx);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -526,3 +526,58 @@ button.followRow:hover {
   flex: 1;
   min-width: 0;
 }
+/* Risk findings on the step under the playhead, and chains they belong to. */
+.findings {
+  display: grid;
+  gap: var(--s-1-5);
+  margin-top: var(--s-3);
+}
+.finding {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.findingTitle {
+  color: var(--text-1);
+}
+.findingNote {
+  color: var(--text-2);
+}
+.findingExcerpt {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chainIcon {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--text-3);
+}
+.chainLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-3);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.chainLink:hover {
+  color: var(--text-1);
+}
+.chainLink svg {
+  width: 12px;
+  height: 12px;
+}

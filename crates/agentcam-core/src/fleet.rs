@@ -46,6 +46,11 @@ pub struct Item {
     pub detail: Option<String>,
     /// `user` or `project`.
     pub scope: String,
+    /// Words from the Setup checks, never values: for MCP servers
+    /// `outside_content`, `unpinned`, `secret_in_config`, `plain_http`,
+    /// `flagged_text`, `description_changed`; for skills `flagged`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -82,7 +87,8 @@ pub fn inventory(conn: &Connection, home: &Path, agentcam_version: &str) -> Resu
     let projects: Vec<String> = stmt
         .query_map([&since], |r| r.get(0))?
         .collect::<std::result::Result<_, _>>()?;
-    let (items, flags) = read_setup(home, &projects);
+    let (mut items, mut flags) = read_setup(home, &projects);
+    tag_from_setup(conn, home, &mut items, &mut flags)?;
     Ok(Inventory {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
@@ -91,6 +97,84 @@ pub fn inventory(conn: &Connection, home: &Path, agentcam_version: &str) -> Resu
         items,
         flags,
     })
+}
+
+/// Add what the Setup checks found, as words: tags on MCP servers and
+/// skills, and flags for the machine. Names only, like everything here.
+fn tag_from_setup(
+    conn: &Connection,
+    home: &Path,
+    items: &mut [Item],
+    flags: &mut Vec<Flag>,
+) -> Result<()> {
+    let setup = crate::setup::report(conn, home)?;
+    let flagged_servers: BTreeSet<&str> = setup
+        .tools
+        .servers
+        .iter()
+        .filter(|s| s.tools.iter().any(|t| !t.flags.is_empty()))
+        .map(|s| s.server.as_str())
+        .collect();
+    let changed_servers: BTreeSet<&str> = setup
+        .tools
+        .servers
+        .iter()
+        .filter(|s| !s.changes.is_empty())
+        .map(|s| s.server.as_str())
+        .collect();
+    for it in items.iter_mut() {
+        if it.kind == "mcp_server" {
+            if let Some(m) = setup
+                .mcp
+                .iter()
+                .find(|m| m.name == it.name && m.agent == it.agent)
+            {
+                for (on, tag) in [
+                    (m.outside_content, "outside_content"),
+                    (m.unpinned, "unpinned"),
+                    (!m.secret_keys.is_empty(), "secret_in_config"),
+                    (m.plain_http, "plain_http"),
+                ] {
+                    if on {
+                        it.tags.push(tag.into());
+                    }
+                }
+            }
+            if flagged_servers.contains(it.name.as_str()) {
+                it.tags.push("flagged_text".into());
+            }
+            if changed_servers.contains(it.name.as_str()) {
+                it.tags.push("description_changed".into());
+            }
+        } else if it.kind == "skill" && setup.tools.skills.iter().any(|s| s.name == it.name) {
+            it.tags.push("flagged".into());
+        }
+    }
+    let mut add = |id: &str| {
+        let f = Flag {
+            id: id.into(),
+            agent: "any".into(),
+            scope: "user".into(),
+        };
+        if !flags.contains(&f) {
+            flags.push(f);
+        }
+    };
+    for c in &setup.checks {
+        match c.id.as_str() {
+            "outside_content_shell" => add("outside_content_open_shell"),
+            "mcp_secret_in_config" => add("mcp_secret_in_config"),
+            "mcp_plain_http" => add("mcp_plain_http"),
+            "mcp_tool_text" => add("mcp_flagged_text"),
+            "mcp_tool_changed" if c.level == "look" => add("mcp_flagged_text"),
+            "skill_text" => add("skill_flagged"),
+            "instructions_text" => add("instructions_flagged"),
+            "hook_missing_program" => add("hook_missing_program"),
+            _ => {}
+        }
+    }
+    flags.sort();
+    Ok(())
 }
 
 /// Items and flags from the agents' config files.
@@ -139,6 +223,7 @@ pub fn read_setup(home: &Path, projects: &[String]) -> (Vec<Item>, Vec<Flag>) {
                 name: name.clone(),
                 detail: None,
                 scope: "user".into(),
+                tags: Vec::new(),
             });
         }
     }
@@ -157,6 +242,7 @@ pub fn read_setup(home: &Path, projects: &[String]) -> (Vec<Item>, Vec<Flag>) {
             name: s.name,
             detail: None,
             scope: scope.into(),
+            tags: Vec::new(),
         });
     }
 
@@ -262,6 +348,7 @@ fn hooks(
                     name,
                     detail: Some(event.clone()),
                     scope: scope.into(),
+                    tags: Vec::new(),
                 });
             }
         }
@@ -297,6 +384,7 @@ fn mcp_servers(v: Option<&Value>, agent: &str, scope: &str, items: &mut BTreeSet
             name: name.clone(),
             detail: Some(detail),
             scope: scope.into(),
+            tags: Vec::new(),
         });
     }
 }
@@ -314,6 +402,7 @@ fn codex_config(text: &str, items: &mut BTreeSet<Item>, flags: &mut BTreeSet<Fla
                 name,
                 detail: Some(if http { "http" } else { "stdio" }.into()),
                 scope: "user".into(),
+                tags: Vec::new(),
             });
         }
     };

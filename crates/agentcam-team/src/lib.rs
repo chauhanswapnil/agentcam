@@ -6,8 +6,10 @@
 //! replies, commands, output, diffs or file contents. Laptops push; the
 //! server never reaches out to them.
 
+pub mod baseline;
 pub mod client;
 pub mod server;
+pub mod siem;
 pub mod store;
 pub mod views;
 

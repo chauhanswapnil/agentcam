@@ -5,7 +5,7 @@
 //!
 //! Environment variables are listed by name, never with their values.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -61,6 +61,16 @@ pub struct McpServer {
     pub defined_in: String,
     /// Tool calls to it in the last 30 days.
     pub calls_30d: i64,
+    /// Its tools bring in outside content (issues, errors, chat, web).
+    pub outside_content: bool,
+    /// Started with `npx`/`uvx`/... and no version: every start runs the
+    /// latest release.
+    pub unpinned: bool,
+    /// Names of config keys (env, headers) holding what looks like a
+    /// secret written in plain text. Never the values.
+    pub secret_keys: Vec<String>,
+    /// A remote server reached over plain `http://`.
+    pub plain_http: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,6 +116,8 @@ pub struct Setup {
     pub skills: Vec<SkillInfo>,
     /// Average skill listing size per session over 30 days, in characters.
     pub skill_listing_chars: Option<i64>,
+    /// What MCP tools, skills and instruction files tell the agent.
+    pub tools: crate::toolcheck::ToolCheck,
     pub checks: Vec<Check>,
 }
 
@@ -281,6 +293,10 @@ pub fn report(conn: &Connection, home: &Path) -> Result<Setup> {
                         project: None,
                         defined_in: path_s.clone(),
                         calls_30d: 0,
+                        outside_content: false,
+                        unpinned: false,
+                        secret_keys: vec![],
+                        plain_http: false,
                     });
                 }
                 continue;
@@ -301,9 +317,25 @@ pub fn report(conn: &Connection, home: &Path) -> Result<Setup> {
                     "url" => {
                         s.transport = "http".into();
                         s.target = host_of(v);
+                        s.plain_http = is_plain_http(v);
                     }
                     "command" => s.target = Some(basename(v)),
+                    "args" => {
+                        let args: Vec<String> = v
+                            .trim_matches(['[', ']'])
+                            .split(',')
+                            .map(|a| a.trim().trim_matches('"').to_string())
+                            .collect();
+                        s.unpinned = unpinned(s.target.as_deref().unwrap_or(""), &args);
+                    }
                     _ => {}
+                }
+            } else if let Some(s) = mcp.last_mut().filter(|s| {
+                table == format!("mcp_servers.{}.env", s.name)
+                    || table == format!("mcp_servers.{}.http_headers", s.name)
+            }) {
+                if looks_secret(k, v) {
+                    s.secret_keys.push(k.to_string());
                 }
             }
         }
@@ -565,6 +597,135 @@ pub fn report(conn: &Connection, home: &Path) -> Result<Setup> {
     }
     instruction_conflicts(&projects, &settings, &mut look);
 
+    // MCP servers and what they, skills and instruction files tell the agent.
+    for m in &mut mcp {
+        m.outside_content = crate::toolcheck::brings_outside_content(&m.name, m.target.as_deref());
+    }
+    let tools = crate::toolcheck::report(conn, home, &projects)?;
+    let outside: Vec<&str> = mcp
+        .iter()
+        .filter(|m| m.outside_content)
+        .map(|m| m.name.as_str())
+        .collect();
+    let open_shell = settings.iter().find(|f| {
+        f.default_mode.as_deref() == Some("bypassPermissions")
+            || f.default_mode.as_deref() == Some("approval_policy = never")
+            || f.allow.iter().any(|a| crate::fleet::is_broad_rule(a))
+    });
+    if let (false, Some(f)) = (outside.is_empty(), open_shell) {
+        look(
+            "outside_content_shell",
+            "Outside content can reach a shell that runs without asking".into(),
+            format!(
+                "{} bring{} in issues, messages or web pages, and {} lets shell commands run without asking. \
+                 An instruction planted in that content could run as a command. Narrower allow rules or the guard hook keep a question in the way.",
+                outside.join(", "),
+                if outside.len() == 1 { "s" } else { "" },
+                where_(f)
+            ),
+            Some(f.path.clone()),
+        );
+    }
+    for m in mcp.iter().filter(|m| !m.secret_keys.is_empty()) {
+        look(
+            "mcp_secret_in_config",
+            format!("{} has a secret written in its config", m.name),
+            format!(
+                "In {}: {}. A reference such as ${{TOKEN}} keeps the value out of the file.",
+                basename(&m.defined_in),
+                m.secret_keys.join(", ")
+            ),
+            Some(m.defined_in.clone()),
+        );
+    }
+    for m in mcp.iter().filter(|m| m.plain_http) {
+        look(
+            "mcp_plain_http",
+            format!("{} connects over plain http", m.name),
+            format!(
+                "{} in {}. Tokens and tool results travel unencrypted; https keeps them private.",
+                m.target.as_deref().unwrap_or("The server"),
+                basename(&m.defined_in)
+            ),
+            Some(m.defined_in.clone()),
+        );
+    }
+    for st in &tools.servers {
+        // A tool whose flagged text arrived in a change is told by the change.
+        let changed: HashSet<&str> = st
+            .changes
+            .iter()
+            .filter(|c| !c.new_flags.is_empty())
+            .map(|c| c.tool.as_str())
+            .collect();
+        for t in st
+            .tools
+            .iter()
+            .filter(|t| !t.flags.is_empty() && !changed.contains(t.tool.as_str()))
+            .take(10)
+        {
+            let f = &t.flags[0];
+            let what = if t.tool == "(instructions)" {
+                format!("{}'s instructions", st.server)
+            } else {
+                format!("{} tool {}", st.server, t.tool)
+            };
+            look(
+                "mcp_tool_text",
+                format!("{what}: {}", f.title.to_lowercase()),
+                format!(
+                    "“{}”. Tool descriptions reach the agent as instructions; worth reading before the next session.",
+                    f.excerpt.as_deref().unwrap_or("")
+                ),
+                None,
+            );
+        }
+        for c in st.changes.iter().filter(|c| !c.new_flags.is_empty()) {
+            look(
+                "mcp_tool_changed",
+                format!(
+                    "{} changed {} and the new text {}",
+                    st.server,
+                    if c.tool == "(instructions)" {
+                        "its instructions".to_string()
+                    } else {
+                        format!("the {} tool", c.tool)
+                    },
+                    c.new_flags[0].title.to_lowercase()
+                ),
+                format!(
+                    "On {}. Now: “{}”",
+                    c.changed_at
+                        .as_deref()
+                        .map_or("?", |t| t.get(..10).unwrap_or(t)),
+                    c.after
+                ),
+                None,
+            );
+        }
+    }
+    for sk in &tools.skills {
+        let (file, f) = &sk.flags[0];
+        look(
+            "skill_text",
+            format!("Skill {}: {}", sk.name, f.title.to_lowercase()),
+            format!("{file}: “{}”", f.excerpt.as_deref().unwrap_or("")),
+            Some(sk.path.clone()),
+        );
+    }
+    for file in &tools.instructions {
+        let (_, f) = &file.flags[0];
+        look(
+            "instructions_text",
+            format!("{}: {}", file.name, f.title.to_lowercase()),
+            format!(
+                "“{}”. These files load into every session.",
+                f.excerpt.as_deref().unwrap_or("")
+            ),
+            Some(file.path.clone()),
+        );
+    }
+
     let mut info = |id: &str, title: String, detail: String| {
         checks.push(Check {
             id: id.into(),
@@ -603,6 +764,55 @@ pub fn report(conn: &Connection, home: &Path) -> Result<Setup> {
             "See the Skills page for which ones and how much context they take.".into(),
         );
     }
+    let unpinned: Vec<&str> = mcp
+        .iter()
+        .filter(|m| m.unpinned)
+        .map(|m| m.name.as_str())
+        .collect();
+    if !unpinned.is_empty() {
+        info(
+            "mcp_unpinned",
+            format!(
+                "{} MCP server{} run{} the latest release on every start",
+                unpinned.len(),
+                if unpinned.len() == 1 { "" } else { "s" },
+                if unpinned.len() == 1 { "s" } else { "" }
+            ),
+            format!(
+                "{}. Pinning a version (name@1.2.3) means an update runs only when you choose.",
+                unpinned.join(", ")
+            ),
+        );
+    }
+    let quiet_changes: Vec<String> = tools
+        .servers
+        .iter()
+        .flat_map(|st| {
+            st.changes
+                .iter()
+                .filter(|c| c.new_flags.is_empty())
+                .map(move |c| format!("{} · {}", st.server, c.tool))
+        })
+        .collect();
+    if !quiet_changes.is_empty() {
+        info(
+            "mcp_tool_changed",
+            format!(
+                "{} MCP tool description{} changed in the last 90 days",
+                quiet_changes.len(),
+                if quiet_changes.len() == 1 { "" } else { "s" }
+            ),
+            format!(
+                "{}. Nothing in the new text stood out; the MCP tools list shows what changed.",
+                quiet_changes
+                    .iter()
+                    .take(6)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
+    }
     if !hooks.iter().any(|h| {
         h.event == "PreToolUse" && h.command.contains("agentcam") && h.command.contains("guard")
     }) {
@@ -632,6 +842,7 @@ pub fn report(conn: &Connection, home: &Path) -> Result<Setup> {
         hooks,
         skills,
         skill_listing_chars,
+        tools,
         checks,
     })
 }
@@ -673,19 +884,119 @@ fn mcp_from(
                     "stdio".into()
                 }
             });
+        let command = cfg.get("command").and_then(Value::as_str);
+        let args: Vec<String> = cfg
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(String::from)
+            .collect();
+        let mut secret_keys: Vec<String> = ["env", "headers"]
+            .iter()
+            .filter_map(|k| cfg.get(*k).and_then(Value::as_object))
+            .flatten()
+            .filter(|(k, v)| v.as_str().is_some_and(|v| looks_secret(k, v)))
+            .map(|(k, _)| k.clone())
+            .collect();
+        // A token pasted into the arguments (`--api-key sk-...`).
+        if args
+            .iter()
+            .any(|a| secret_rules().mask_secrets(a) != a.as_str())
+        {
+            secret_keys.push("args".into());
+        }
         out.push(McpServer {
             agent: "claude-code".into(),
             name: name.clone(),
             transport,
-            target: url
-                .and_then(host_of)
-                .or_else(|| cfg.get("command").and_then(Value::as_str).map(basename)),
+            target: url.and_then(host_of).or_else(|| command.map(basename)),
             scope: scope.into(),
             project: project.clone(),
             defined_in: file.into(),
             calls_30d: 0,
+            outside_content: false,
+            unpinned: command.is_some_and(|c| unpinned(&basename(c), &args)),
+            secret_keys,
+            plain_http: url.is_some_and(is_plain_http),
         });
     }
+}
+
+/// A remote URL over plain http (loopback is fine).
+fn is_plain_http(url: &str) -> bool {
+    url.starts_with("http://")
+        && ![
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://[::1]",
+            "http://0.0.0.0",
+        ]
+        .iter()
+        .any(|l| url.starts_with(l))
+}
+
+/// A launcher (`npx`, `uvx`, ...) asked for a package with no version, so
+/// each start runs whatever was published last.
+fn unpinned(program: &str, args: &[String]) -> bool {
+    let launcher = matches!(program, "npx" | "bunx" | "pnpx" | "uvx" | "pipx");
+    if !launcher {
+        return false;
+    }
+    let mut it = args
+        .iter()
+        .filter(|a| !a.starts_with('-') && a.as_str() != "run" && a.as_str() != "dlx");
+    let Some(pkg) = it.next() else {
+        return false;
+    };
+    if pkg.contains('/') && (pkg.starts_with('.') || pkg.starts_with('/')) {
+        return false;
+    }
+    // npm: name@1.2.3 or @scope/name@1.2.3; Python: name==1.2.3.
+    let version = pkg
+        .rfind('@')
+        .filter(|i| *i > 0)
+        .map(|i| &pkg[i + 1..])
+        .or_else(|| pkg.split_once("==").map(|(_, v)| v));
+    !version.is_some_and(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+/// A config value that looks like a secret written in plain text, not a
+/// reference to one (`${TOKEN}`, `$TOKEN`, `env:TOKEN`).
+fn looks_secret(key: &str, value: &str) -> bool {
+    let v = value.trim();
+    if v.is_empty() || v.starts_with('$') || v.starts_with("env:") || v.starts_with("op://") {
+        return false;
+    }
+    if secret_rules().mask_secrets(v) != v {
+        return true;
+    }
+    let k = key.to_lowercase();
+    let named = [
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "api_key",
+        "apikey",
+        "api-key",
+        "auth",
+        "credential",
+    ]
+    .iter()
+    .any(|w| k.contains(w));
+    let bearer = v.to_lowercase().starts_with("bearer ");
+    // "Bearer abc..." headers, or a long value with no spaces under a
+    // secret-ish name (a sentence isn't a token).
+    named && (bearer || (v.len() >= 16 && !v.contains(' ')))
+}
+
+/// Built-in secret patterns, compiled once.
+fn secret_rules() -> &'static crate::audit::Rules {
+    static RULES: std::sync::LazyLock<crate::audit::Rules> =
+        std::sync::LazyLock::new(crate::audit::Rules::builtin);
+    &RULES
 }
 
 fn read_hooks(v: &Value, agent: &str, scope: &str, file: &str, out: &mut Vec<Hook>) {
@@ -832,5 +1143,24 @@ mod tests {
         let pre = out.iter().find(|h| h.event == "PreToolUse").unwrap();
         assert!(!pre.missing);
         assert_eq!(pre.matcher.as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn mcp_config_flags() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(unpinned("npx", &a(&["-y", "@sentry/mcp-server"])));
+        assert!(unpinned("npx", &a(&["-y", "@sentry/mcp-server@latest"])));
+        assert!(!unpinned("npx", &a(&["-y", "@sentry/mcp-server@1.4.2"])));
+        assert!(!unpinned("uvx", &a(&["mcp-server-git==0.6.2"])));
+        assert!(!unpinned("node", &a(&["server.js"])));
+        assert!(looks_secret(
+            "GITHUB_TOKEN",
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+        ));
+        assert!(looks_secret("Authorization", "Bearer abc123"));
+        assert!(!looks_secret("GITHUB_TOKEN", "${GITHUB_TOKEN}"));
+        assert!(!looks_secret("LOG_LEVEL", "debug-verbose-mode-on"));
+        assert!(is_plain_http("http://mcp.example.dev/sse"));
+        assert!(!is_plain_http("http://localhost:3000/mcp"));
     }
 }

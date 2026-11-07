@@ -483,6 +483,39 @@ impl State {
             return;
         };
         match str_of(a, "type") {
+            // The MCP tools on offer, with their descriptions.
+            Some("deferred_tools_record") => {
+                for e in a
+                    .get("entries")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    let (Some(name), Some(desc)) = (str_of(e, "name"), str_of(e, "description"))
+                    else {
+                        continue;
+                    };
+                    if let Some((server, tool)) =
+                        name.strip_prefix("mcp__").and_then(|r| r.split_once("__"))
+                    {
+                        self.out.add_tool_def(server, tool, desc, ts.as_deref());
+                    }
+                }
+                return;
+            }
+            // Instructions MCP servers give the agent when they connect.
+            Some("mcp_instructions_delta") => {
+                let names = a.get("addedNames").and_then(Value::as_array);
+                let blocks = a.get("addedBlocks").and_then(Value::as_array);
+                if let (Some(names), Some(blocks)) = (names, blocks) {
+                    for (n, b) in names.iter().zip(blocks) {
+                        if let (Some(n), Some(b)) = (n.as_str(), b.as_str()) {
+                            self.out.add_tool_def(n, "(instructions)", b, ts.as_deref());
+                        }
+                    }
+                }
+                return;
+            }
             Some("skill_listing") => {
                 if let Some(names) = a.get("names").and_then(Value::as_array) {
                     self.out.skills_available = names

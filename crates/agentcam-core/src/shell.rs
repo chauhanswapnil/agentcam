@@ -43,6 +43,48 @@ pub(crate) fn command_words(cmd: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// The command with heredoc bodies that are data or code for another
+/// language dropped (`python3 - <<EOF`, `cat > f <<EOF`), keeping bodies a
+/// shell runs (`bash <<EOF`, `ssh host <<EOF`). Risk rules match this, so
+/// a script that merely mentions `/etc/sudoers` isn't read as a command.
+pub fn shell_text(cmd: &str) -> std::borrow::Cow<'_, str> {
+    if !cmd.contains("<<") {
+        return std::borrow::Cow::Borrowed(cmd);
+    }
+    let runs_shell = |line: &str| {
+        line.split(|c: char| c.is_whitespace() || c == '|' || c == ';' || c == '&')
+            .map(|w| w.rsplit('/').next().unwrap_or(w))
+            .any(|w| matches!(w, "bash" | "sh" | "zsh" | "ssh" | "dash"))
+    };
+    let mut out = String::new();
+    let mut end: Option<(String, bool)> = None;
+    for line in cmd.lines() {
+        if let Some((tag, keep)) = &end {
+            if line.trim() == tag {
+                end = None;
+            } else if *keep {
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        if let Some(i) = line.find("<<") {
+            let rest = line[i + 2..].trim_start_matches('-').trim_start();
+            let tag: String = rest
+                .trim_start_matches(['\'', '"'])
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !tag.is_empty() {
+                end = Some((tag, runs_shell(&line[..i])));
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// Drop heredoc bodies (`<<EOF ... EOF`), keeping the command lines.
 fn strip_heredocs(cmd: &str) -> String {
     let mut out = String::new();
@@ -436,5 +478,17 @@ mod tests {
         assert_eq!(t("echo hi > \"$FILE\""), []);
         assert_eq!(t("rm ~/x"), []);
         assert_eq!(t("FOO=1 git status && grep -rn 'a > b' src"), []);
+    }
+
+    #[test]
+    fn shell_text_keeps_only_bodies_a_shell_runs() {
+        let py = "python3 - <<'EOF'\nopen('/etc/sudoers')\nEOF\necho done";
+        assert_eq!(shell_text(py), "python3 - <<'EOF'\necho done\n");
+        let sh = "bash <<EOF\nrm -rf /tmp/x\nEOF";
+        assert!(shell_text(sh).contains("rm -rf /tmp/x"));
+        assert!(matches!(
+            shell_text("ls -la"),
+            std::borrow::Cow::Borrowed(_)
+        ));
     }
 }

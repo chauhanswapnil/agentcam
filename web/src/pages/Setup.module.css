@@ -72,6 +72,105 @@
 .pad {
   padding: var(--s-4);
 }
+/* Badges under an MCP server's name. */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  margin-top: var(--s-1);
+}
+.intro {
+  padding-bottom: 0;
+}
+.servers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.servers li + li {
+  border-top: 1px solid var(--line-1);
+}
+.server summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  cursor: pointer;
+}
+.server summary:hover {
+  background: var(--bg-2);
+}
+.serverName {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.serverMeta {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.serverBody {
+  display: grid;
+  gap: var(--s-3);
+  padding: 0 var(--s-4) var(--s-4);
+}
+.toolFlag,
+.change {
+  display: grid;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.toolName {
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.flagLine {
+  display: block;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.flagLine .excerpt {
+  margin-top: var(--s-1);
+}
+.flagLine::before,
+.before::before,
+.after::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--s-1-5);
+  border-radius: var(--r-full);
+  content: '';
+  vertical-align: middle;
+}
+.flagLine::before {
+  background: var(--status-warning);
+}
+.excerpt,
+.before,
+.after {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: var(--s-1-5) var(--s-2);
+  border-radius: var(--r-1);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.before::before {
+  background: var(--diff-del-mark);
+}
+.after::before {
+  background: var(--diff-add-mark);
+}
+.toolList {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
 @media (max-width: 900px) {
   .grid {
     grid-template-columns: minmax(0, 1fr);

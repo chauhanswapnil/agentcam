@@ -11,6 +11,26 @@
 # (command, read, edit, write, search, web, mcp, subagent, other).
 # `secret: true` masks the match before it is stored.
 # If the regex has a capture group, the first group is the excerpt.
+# `unless` is a second regex: a match is dropped when it also matches.
+# `tags` mark the steps a rule matches, for sequence rules.
+# `when_tagged` only checks steps with one of these context tags.
+#
+# Sequence rules have no pattern. `sequence` lists links in order; each
+# link matches a step by `tags` or by `rules` (ids). `within` is how many
+# steps the chain may span (default 30). The finding sits on the last step
+# and points back to the first.
+#
+# Context tags every step gets: `outside-content` (output from an MCP tool,
+# a web fetch or search, `gh`/`glab`, or a curl/wget download; also
+# `outside-mcp`, `outside-web`, `outside-tracker`), `guardrails-off` (the
+# turn skipped approvals), `denied` (the call was rejected or blocked),
+# and `command`, `edit`, `web`, `mcp` by tool.
+#
+# `outside_content: [mcp, tracker, web]` flags a command that runs a
+# package, runs a download, or sends data, when that package, URL or host
+# appeared in that kind of outside content in the last `within` steps
+# (default 15) and never in a prompt before it. Plain downloads and hosts
+# the source step itself fetched from don't count.
 #
 # Add your own in rules.yaml next to the index (see `agentcam scan --help`).
 
@@ -76,43 +96,76 @@
 - id: read-env-file
   title: Read a .env file
   severity: medium
+  tags: [secret-read]
   field: path
   pattern: '(?:^|/)(\.env(?:\.(?:local|development|production|staging|test|prod|dev))?)$'
 - id: read-env-command
   title: Printed a .env file
   severity: medium
+  tags: [secret-read]
   categories: [command]
   pattern: '\b(?:cat|less|more|head|tail|source|bat)\s+(\S*\.env(?:\.(?:local|production|prod))?)(?:\s|$|;|&|\|)'
 - id: read-ssh
   title: Touched ~/.ssh
   severity: high
+  tags: [secret-read]
   field: path
   pattern: '(/\.ssh/\S+)'
 - id: read-ssh-command
   title: Command used ~/.ssh
   severity: high
+  tags: [secret-read]
   categories: [command]
   pattern: '(~/\.ssh/\S+|\$HOME/\.ssh/\S+)'
 - id: read-cloud-credentials
   title: Touched cloud credentials
   severity: high
+  tags: [secret-read]
   field: path
   pattern: '(/\.aws/credentials|/\.config/gcloud/\S+|/\.azure/\S+|/\.kube/config)$'
 - id: read-keychain
   title: Touched a keychain
   severity: high
+  tags: [secret-read]
   field: path
   pattern: '(\.keychain(?:-db)?|/Keychains/\S*)$'
 - id: keychain-command
   title: Read the macOS keychain
   severity: high
+  tags: [secret-read]
   categories: [command]
   pattern: '\b(security\s+(?:find-generic-password|find-internet-password|dump-keychain))\b'
 - id: read-browser-profile
   title: Touched a browser profile
   severity: high
+  tags: [secret-read]
   field: path
   pattern: '(/(?:Google/Chrome|BraveSoftware|Firefox/Profiles|Microsoft Edge)/\S*)'
+
+- id: read-secret-manager
+  title: Read a secret from a secret manager
+  severity: high
+  tags: [secret-read]
+  categories: [command]
+  pattern: '\b(aws\s+secretsmanager\s+get-secret-value|aws\s+ssm\s+get-parameters?\b[^;&|]*--with-decryption|gcloud\s+secrets\s+versions\s+access|az\s+keyvault\s+secret\s+(?:show|download)|vault\s+(?:kv\s+get|read)\s+\S+|kubectl\s+get\s+secrets?\b[^;&|]*(?:-o|--output)[ =]?(?:yaml|json|jsonpath)|op\s+(?:read|item\s+get)\s+\S+|doppler\s+secrets(?:\s+get)?)'
+- id: read-dev-credentials
+  title: Touched a credentials file
+  severity: high
+  tags: [secret-read]
+  field: path
+  pattern: '(/(?:\.netrc|\.pgpass|\.npmrc|\.pypirc|\.git-credentials|\.docker/config\.json|\.config/gh/hosts\.yml|\.huggingface/token|\.cache/huggingface/token|\.kaggle/kaggle\.json|\.terraform\.d/credentials\.tfrc\.json))$'
+- id: read-dev-credentials-command
+  title: Printed a credentials file
+  severity: high
+  tags: [secret-read]
+  categories: [command]
+  pattern: '\b(?:cat|less|more|head|tail|bat|cp|base64)\s+(\S*(?:\.netrc|\.pgpass|\.npmrc|\.pypirc|\.git-credentials|\.docker/config\.json|gh/hosts\.yml|\.aws/credentials|\.kube/config|id_rsa|id_ed25519))(?:\s|$|;|&|\|)'
+- id: read-process-env
+  title: Read another process's environment
+  severity: high
+  tags: [secret-read]
+  categories: [command, read]
+  pattern: '(/proc/(?:\d+|self|\$\w+)/environ)'
 
 # ── Dangerous commands ────────────────────────────────────────────────
 - id: rm-rf-root
@@ -128,6 +181,7 @@
 - id: sudo
   title: Ran with sudo
   severity: medium
+  tags: [bypass]
   categories: [command]
   pattern: '(?:^|[;&|(]\s*)(sudo\s+\S+)'
 - id: chmod-777
@@ -158,8 +212,175 @@
 - id: disable-verify
   title: Skipped git hooks
   severity: low
+  tags: [bypass]
   categories: [command]
   pattern: '\b(git\s+(?:commit|push)\b[^;&|]*--no-verify)'
+
+- id: history-wipe
+  title: Cleared shell history
+  severity: high
+  categories: [command]
+  pattern: '(history\s+-c\b|unset\s+HISTFILE\b|(?:export\s+)?HISTSIZE=0\b|HISTFILE=/dev/null|rm\s+(?:-\w+\s+)*\S*\.(?:bash|zsh)_history|>\s*\S*\.(?:bash|zsh)_history)'
+- id: hooks-path-off
+  title: Turned off git hooks
+  severity: medium
+  tags: [bypass]
+  categories: [command]
+  pattern: '(core\.hooksPath(?:\s*=\s*|\s+)(?:/dev/null|""|\x27\x27)|-c\s+core\.hooksPath=\S*)'
+- id: agent-bypass-flags
+  title: Started an agent with approvals turned off
+  severity: high
+  tags: [bypass, guardrails-off]
+  categories: [command]
+  pattern: '((?:claude|codex)\b[^;&|]*(?:--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--yolo|--permission-mode[ =]bypassPermissions|--sandbox[ =]danger-full-access|-s\s+danger-full-access))'
+- id: base64-to-shell
+  title: Ran decoded base64 in a shell
+  severity: high
+  categories: [command]
+  pattern: '(base64\s+(?:-d|-D|--decode)\b[^|;]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b)'
+- id: reverse-shell
+  title: Opened a reverse shell
+  severity: critical
+  categories: [command]
+  pattern: '((?:ba|z)?sh\s+-i\s+[>&]+\s*/dev/tcp/\S+|/dev/tcp/[\w.-]+/\d+|\bnc(?:at)?\s+(?:-\w*e\w*\s|[^;&|]*\s-e\s)\S*|\bsocat\b[^;&|]*\bexec:\S*)'
+- id: reverse-tunnel
+  title: Opened a reverse tunnel
+  severity: high
+  categories: [command]
+  pattern: '(\bssh\b[^;&|]*\s-R\s*\S+|\b(?:chisel|ligolo(?:-ng)?)\s+\S+|\bngrok\s+(?:http|tcp)\b)'
+
+# ── Privilege and persistence ─────────────────────────────────────────
+- id: root-shell
+  title: Opened a root shell
+  severity: high
+  tags: [bypass]
+  categories: [command]
+  pattern: '(?:^|[;&|(]\s*)(sudo\s+(?:-i|-s|su\b|(?:ba|z)?sh\b)|\bsu\s+(?:-|root)(?:\s|$)|\bdoas\s+(?:ba|z)?sh\b|\bpkexec\s+(?:ba|z)?sh\b)'
+- id: sudoers-change
+  title: Changed sudo permissions
+  severity: critical
+  categories: [command, edit, write]
+  pattern: '(\bvisudo\b|/etc/sudoers(?:\.d/\S*)?)'
+  unless: '\b(?:cat|less|head|grep)\s+/etc/sudoers'
+- id: setuid
+  title: Set a setuid bit or file capability
+  severity: high
+  categories: [command]
+  pattern: '(\bchmod\s+(?:-\w+\s+)*(?:[ugoa]*\+s|[2467][0-7]{3})\b|\bsetcap\s+\S+)'
+- id: privileged-container
+  title: Ran a container with host access
+  severity: high
+  categories: [command]
+  pattern: '(\b(?:docker|podman)\s+(?:run|create)\b[^;&|]*(?:--privileged|--pid[ =]host|--net(?:work)?[ =]host|--userns[ =]host|/var/run/docker\.sock|-v\s+/:/\S*))'
+- id: container-socket
+  title: Used the Docker socket directly
+  severity: medium
+  categories: [command]
+  pattern: '((?:curl\b[^;&|]*--unix-socket\s+|-H\s+unix://)\S*(?:docker|containerd|podman|crio)\.sock)'
+- id: shell-profile-write
+  title: Changed a shell startup file
+  severity: high
+  field: path
+  actions: [edit, create, delete]
+  pattern: '(/(?:\.bashrc|\.bash_profile|\.bash_login|\.profile|\.zshrc|\.zprofile|\.zshenv|\.zlogin|\.config/fish/config\.fish))$'
+- id: shell-profile-command
+  title: Appended to a shell startup file
+  severity: high
+  categories: [command]
+  pattern: '((?:>>?|\btee\s+(?:-a\s+)?)\s*(?:~|\$HOME|/Users/[^/\s]+|/home/[^/\s]+)/(?:\.bashrc|\.bash_profile|\.profile|\.zshrc|\.zprofile|\.zshenv|\.config/fish/config\.fish))'
+- id: scheduled-job
+  title: Added a scheduled or background job
+  severity: high
+  categories: [command]
+  pattern: '(\bcrontab\s+(?:-e|-r|[^-\s]\S*)|\|\s*crontab\s+-|\blaunchctl\s+(?:load|bootstrap|submit|enable)\b[^;&|]*|\bsystemctl\s+(?:--user\s+)?(?:enable|link)\s+\S+|\bschtasks\s+/create\b)'
+- id: scheduled-job-file
+  title: Changed a scheduled job file
+  severity: high
+  field: path
+  actions: [edit, create]
+  pattern: '(/(?:Library/LaunchAgents|Library/LaunchDaemons|\.config/systemd/user|etc/systemd/system|etc/cron\.\w+|var/spool/cron)/\S+)$'
+- id: git-hook-write
+  title: Changed a git hook
+  severity: medium
+  field: path
+  actions: [edit, create]
+  pattern: '(/\.git/hooks/[\w-]+)$'
+- id: authorized-keys
+  title: Changed SSH authorized keys
+  severity: critical
+  categories: [command, edit, write]
+  pattern: '((?:>>?|\btee\s+(?:-a\s+)?)\s*\S*authorized_keys\b|\S*/\.ssh/authorized_keys2?\b|administrators_authorized_keys)'
+  unless: '\b(?:cat|less|head|tail|grep|wc)\s+\S*authorized_keys'
+
+# ── Recon and impact ──────────────────────────────────────────────────
+- id: cloud-metadata
+  title: Asked a cloud metadata service
+  severity: high
+  categories: [command, web]
+  pattern: '(169\.254\.169\.254|169\.254\.170\.2|metadata\.google\.internal|\[?fd00:ec2::254\]?|100\.100\.100\.200)'
+- id: privilege-discovery
+  title: Looked for ways to gain privileges
+  severity: medium
+  categories: [command]
+  pattern: '(\bsudo\s+-l\b|\bfind\s+/\S*\s[^;&|]*-perm\s+[-/]?(?:u=s|4000|2000|-u\+s)|\bgetcap\s+-r\s+/)'
+- id: network-scan
+  title: Scanned a network
+  severity: medium
+  categories: [command]
+  pattern: '(\b(?:nmap|masscan|zmap|rustscan)\s+\S+[^;&|]*)'
+- id: disk-wipe
+  title: Erased a disk or partition
+  severity: critical
+  categories: [command]
+  pattern: '(\bmkfs(?:\.\w+)?\s+/dev/\S+|\bdd\s+[^;&|]*\bof=/dev/(?:sd|hd|nvme|disk|rdisk|mmcblk|xvd)\S*|\bdiskutil\s+(?:eraseDisk|eraseVolume|zeroDisk|secureErase|partitionDisk)\b|\bwipefs\s+\S+|\bshred\s+[^;&|]*/dev/\S+)'
+- id: fork-bomb
+  title: Ran a fork bomb
+  severity: critical
+  categories: [command]
+  pattern: '(:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:)'
+- id: kill-everything
+  title: Killed every process
+  severity: high
+  categories: [command]
+  pattern: '(\bkill\s+-(?:9|KILL)\s+-1\b|\bkillall5\b|\bpkill\s+-9\s+-u\s+\S+|\bkillall\s+-9?\s*-u\s+\S+)'
+- id: crypto-miner
+  title: Ran a cryptocurrency miner
+  severity: critical
+  categories: [command]
+  pattern: '\b(xmrig|minerd|cpuminer|ethminer|nbminer|t-rex|lolminer|phoenixminer)\b'
+
+# ── Source control and agent settings ─────────────────────────────────
+- id: git-remote-change
+  title: Changed a git remote
+  severity: medium
+  categories: [command]
+  pattern: '(\bgit\s+remote\s+(?:add|set-url)\s+\S+\s+\S+|\bgit\s+config\s+[^;&|]*url\.\S+\.(?:insteadOf|pushInsteadOf)\s+\S+)'
+- id: git-config-runs-program
+  title: Set a git option that runs a program
+  severity: medium
+  categories: [command]
+  pattern: '(\bgit\s+config\s+[^;&|]*\b(?:core\.(?:sshCommand|pager|editor|fsmonitor|hooksPath|askPass)|credential\.helper|alias\.\S+\s+["\x27]?!)\s*\S*)'
+  unless: 'credential\.helper\s+["\x27]?(?:osxkeychain|manager|manager-core|store|cache|libsecret)\b|core\.(?:pager|editor)\s+["\x27]?(?:less|vim|nvim|nano|code|cat)\b'
+- id: agent-settings-change
+  title: Changed agent settings or hooks
+  severity: medium
+  tags: [bypass]
+  field: path
+  actions: [edit, create, delete]
+  pattern: '(/\.claude/settings(?:\.local)?\.json|/\.claude\.json|/\.mcp\.json|/\.codex/(?:config\.toml|hooks\.json|requirements\.toml)|/managed-settings\.json)$'
+- id: agentcam-files-change
+  title: Changed agentcam's own files
+  severity: high
+  tags: [bypass]
+  field: path
+  actions: [edit, create, delete]
+  pattern: '(/agentcam/(?:rules|guard|prices)\.yaml|/agentcam/index\.db|/agentcam/team\.json)$'
+- id: agentcam-files-command
+  title: Changed agentcam's own files
+  severity: high
+  tags: [bypass]
+  categories: [command]
+  pattern: '((?:\brm\b|\bmv\b|\btruncate\b|\bsed\s+-i\b|>>?|\btee\b)[^;&|]*agentcam/(?:rules|guard|prices)\.yaml|(?:\brm\b|\bmv\b|\btruncate\b|>)[^;&|]*agentcam/index\.db)'
 
 # ── Installs and network ──────────────────────────────────────────────
 - id: package-install
@@ -167,6 +388,32 @@
   severity: low
   categories: [command]
   pattern: '\b((?:npm|pnpm|yarn|bun)\s+(?:i|install|add)\s+\S+|pip3?\s+install\s+\S+|uv\s+(?:add|pip\s+install)\s+\S+|brew\s+install\s+\S+|cargo\s+install\s+\S+|gem\s+install\s+\S+|go\s+install\s+\S+)'
+- id: upload-data
+  title: Sent data to a server
+  severity: low
+  tags: [egress]
+  categories: [command]
+  pattern: '(\b(?:curl|http|xh)\b[^;&|]*(?:\s-d\b|\s--data(?:-\w+)?\b|\s-F\b|\s--form\b|\s-T\b|\s--upload-file\b|\s-X\s*(?:POST|PUT|PATCH)\b)[^;&|]*|\bwget\b[^;&|]*--post-(?:data|file)\S*|\b(?:scp|rsync)\b[^;&|]*\s[\w.-]+@?[\w.-]+:\S*|\bnc\s+[\w.-]+\s+\d+\s*<\s*\S+)'
+  unless: 'localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]'
+- id: send-credential-file
+  title: Sent a credentials file over the network
+  severity: critical
+  tags: [egress]
+  categories: [command]
+  pattern: '(\b(?:curl|wget|http|nc|scp)\b[^;&|]*@?\S*(?:\.env\b|id_rsa|id_ed25519|\.aws/credentials|\.kube/config|\.netrc|\.npmrc|\.git-credentials|\.pgpass|/proc/\S+/environ)\S*)'
+  unless: 'localhost|127\.0\.0\.1|\.env\.example'
+- id: send-env-output
+  title: Sent environment variables over the network
+  severity: critical
+  tags: [egress]
+  categories: [command]
+  pattern: '(\b(?:env|printenv|set)\b\s*\|[^;&]*\b(?:curl|wget|nc|ncat|http)\b\S*|\b(?:curl|wget|http)\b[^;&|]*\$\((?:env|printenv)\)\S*)'
+- id: dns-exfil
+  title: Put command output in a DNS lookup
+  severity: high
+  tags: [egress]
+  categories: [command]
+  pattern: '(\b(?:dig|nslookup|host|drill)\s+[^;&|]*(?:\$\(|`)[^;&|]*)'
 - id: outbound-domain
   title: Contacted a domain
   severity: low
@@ -178,3 +425,57 @@
   title: Changed a file outside the project
   severity: medium
   outside_project: true
+
+# ── Outside content ───────────────────────────────────────────────────
+- id: injection-phrase
+  title: Outside content held instructions for the agent
+  severity: medium
+  tags: [injection]
+  field: body
+  when_tagged: [outside-content]
+  pattern: '(?i)(ignore\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|prior|above|earlier)\s+(?:instructions|prompts?|messages)|disregard\s+(?:all\s+|the\s+)?(?:previous|prior|above)\s+(?:instructions|context)|you\s+are\s+now\s+(?:in\s+)?(?:developer|dan|unrestricted|jailbreak)\b|new\s+instructions\s*:|(?:ai\s+(?:assistant|agent)|coding\s+agent|claude|codex|llm)s?\s*[,:]?\s+(?:you\s+)?must\s+(?:now\s+|first\s+|immediately\s+)?(?:run|execute|install|download|send|curl)\b|do\s+not\s+(?:tell|inform|alert|mention\s+this\s+to)\s+the\s+user|<\|im_start\|>|\[/?INST\]|BEGIN\s+SYSTEM\s+PROMPT)'
+- id: hidden-unicode
+  title: Outside content had hidden characters
+  severity: high
+  tags: [injection]
+  field: body
+  when_tagged: [outside-content]
+  pattern: '([\x{E0000}-\x{E007F}]+|[\x{202A}-\x{202E}\x{2066}-\x{2069}]|[\x{200B}-\x{200D}\x{2060}\x{FEFF}]{3,})'
+- id: command-from-tool-output
+  title: Ran code or sent data based on a tool result
+  severity: high
+  outside_content: [mcp, tracker]
+- id: command-from-web
+  title: Ran code or sent data based on a web page
+  severity: medium
+  outside_content: [web]
+
+# ── Sequences ─────────────────────────────────────────────────────────
+- id: secret-then-upload
+  title: Read a secret, then sent data out
+  severity: high
+  sequence:
+    - tags: [secret-read]
+    - tags: [egress]
+  within: 30
+- id: instructions-then-command
+  title: Ran a command after outside content held instructions
+  severity: high
+  sequence:
+    - tags: [injection]
+    - tags: [command]
+  within: 10
+- id: approvals-off-then-upload
+  title: Sent data out while approvals were off
+  severity: medium
+  sequence:
+    - tags: [guardrails-off]
+    - tags: [egress]
+  within: 1000
+- id: stopped-then-workaround
+  title: Tried another way after a call was stopped
+  severity: high
+  sequence:
+    - tags: [denied]
+    - tags: [bypass]
+  within: 10

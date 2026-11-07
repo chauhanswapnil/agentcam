@@ -118,7 +118,15 @@ export type FileRow = { seq: number; path: string; action: 'read' | 'edit' | 'cr
 
 export type Severity = 'low' | 'medium' | 'high' | 'critical'
 
-export type FindingRow = { seq: number; rule_id: string; title: string; severity: Severity; excerpt: string }
+export type FindingRow = {
+  seq: number
+  rule_id: string
+  title: string
+  severity: Severity
+  excerpt: string
+  /** Sequence and outside-content findings: the earlier step the chain started from. */
+  related_seq: number | null
+}
 
 export type SessionDetail = {
   session: SessionRow
@@ -309,6 +317,12 @@ export type RuleDef = {
   actions: string[]
   secret: boolean
   outside_project: boolean
+  tags?: string[]
+  unless?: string
+  when_tagged?: string[]
+  sequence?: { tags?: string[]; rules?: string[] }[]
+  within?: number
+  outside_content?: string[]
 }
 
 export type RulesInfo = { rules: RuleDef[]; builtin_ids: string[]; user_yaml: string; user_path: string | null }

@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Audit: 45 new built-in rules (73 in all) for secret managers and credential files, data sent out (credential files, environment variables, DNS lookups), cleared history, reverse shells and tunnels, sudoers, setuid, containers with host access, shell startup files, scheduled jobs, git hooks and remotes, cloud metadata, disk wipes, agents started with approvals off, and changes to agent settings or agentcam's own files. Each has a test with a match and a near miss, and all were checked against real logs for false alarms.
+- Sequence rules: steps in order within a window, matched by tag or rule id. Built in: a secret read then an upload, a command after outside content held instructions, data sent out while approvals were off, another way tried after a call was stopped. Findings link back to the step the chain started from ("follows step 12"), and that step says it starts a chain.
+- Outside content: commands that run a package, run a download or send data using a package, URL or host that came from an MCP result, an issue or a web page rather than your prompts; instruction-like text and hidden characters in tool output, with hidden text decoded.
+- Rules can say `unless` (a regex that drops near misses), `tags` and `when_tagged`.
+- Setup: the tool descriptions and instructions each MCP server gave the agent, read from Claude Code and Codex logs, with checks for hidden characters, orders aimed at the agent and descriptions that changed; skills and instruction files get the same checks, plus skill scripts that read credentials and call out. MCP servers are marked when they bring in outside content, run the latest release on every start, keep a secret in plain text or use plain http, and Setup notes when outside content can reach a shell that runs without asking.
+- Evidence bundles: a session or range as JSON with identity, prompts, steps and approvals, changes, findings and commits, secrets masked, with a SHA-256 checksum (`agentcam evidence`, `agentcam evidence verify`, `GET /api/evidence`, buttons on the replay and Audit page).
+- Findings for a SIEM as NDJSON or OCSF 1.3 Detection Finding (`agentcam export findings`, `GET /api/findings/export`).
+- Team server: a setup baseline (flags required or ruled out, MCP and skill tags, an MCP allowlist, oldest agent versions) with the machines that differ and since when, and a log of setup changes; findings from every machine by pull (`/api/team/findings/export`) or webhook (NDJSON, OCSF, Splunk HEC). Fleet shows tags on MCP servers and skills.
+- Docs: [audit rules](docs/audit-rules.md) and [evidence and SIEM](docs/evidence-and-siem.md).
+
 - Who wrote this: each line of a file with the agent session, model and prompt that wrote it, from the Files page, `agentcam blame <file>` and `/api/blame`.
 - `agentcam mcp`: a read-only MCP server so agents can search past sessions, read a session or step, see a file's history and blame, a repo's instruction rules and how they were followed, and what lasted.
 - Setup page: settings files, instruction and memory files, MCP servers (with calls in 30 days), hooks (with runs and errors) and skills, plus checks worth a look such as approvals skipped by default, broad allow rules, an instruction that an allow rule overrides, hooks pointing at missing files, large memory files and heavy skill listings. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are honored.
@@ -69,6 +79,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - Design system: dark tokens, a color-blind-checked palette for event kinds, bundled Inter and JetBrains Mono, base components, a ⌘K command palette and a `/styleguide` page.
 
 ### Changed
+
+- The audit prefilter uses ASCII word boundaries, so 73 rules check as fast as 28 did (214 ms against 220 ms on 26,000 real steps); each rule's own regex still makes the final call.
+- Command rules ignore heredoc bodies that are data or another language's code (`python3 - <<'EOF'`).
+- The share contract is version 3: inventory items carry tags. Index schema 14.
 
 - MCP answers mask secrets the same way exports do, and the MCP server picks up new logs while it runs (at most every 30 seconds, before a tool call).
 - Blame reads a file only when an agent session edited it, so the local API never serves other files.

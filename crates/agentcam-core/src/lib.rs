@@ -7,6 +7,7 @@ pub mod claude;
 pub mod codex;
 pub mod commits;
 pub mod compare;
+pub mod evidence;
 pub mod export;
 pub mod fleet;
 pub mod follow;
@@ -26,8 +27,10 @@ pub mod quota;
 pub mod setup;
 pub mod share;
 pub mod shell;
+pub mod siem;
 pub mod skills;
 pub mod survival;
+pub mod toolcheck;
 pub mod turns;
 pub mod util;
 

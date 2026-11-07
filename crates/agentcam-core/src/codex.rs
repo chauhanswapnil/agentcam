@@ -72,6 +72,32 @@ impl State {
         let ptype = str_of(p, "type").unwrap_or("");
         match (str_of(rec, "type").unwrap_or(""), ptype) {
             ("session_meta", _) => self.meta(p),
+            // The tools on offer; MCP servers are namespaces named `mcp__<server>`.
+            ("response_item", "additional_tools") => {
+                for ns in p
+                    .get("tools")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    let Some(server) = str_of(ns, "name").and_then(|n| n.strip_prefix("mcp__"))
+                    else {
+                        continue;
+                    };
+                    for t in ns
+                        .get("tools")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let (Some(name), Some(desc)) =
+                            (str_of(t, "name"), str_of(t, "description"))
+                        {
+                            self.out.add_tool_def(server, name, desc, ts.as_deref());
+                        }
+                    }
+                }
+            }
             ("turn_context", _) => {
                 if let Some(m) = str_of(p, "model") {
                     self.out.session.model = Some(m.to_string());

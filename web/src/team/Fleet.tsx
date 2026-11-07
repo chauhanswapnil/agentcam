@@ -1,11 +1,12 @@
-import { Blocks, CircleCheck, Laptop, Settings2, Tag } from 'lucide-react'
+import { Blocks, CircleCheck, History, Laptop, ListChecks, Settings2, Tag } from 'lucide-react'
 import { Fragment } from 'react'
 import { formatAgo, formatNumber } from '../lib/format'
-import { FLAG_LABEL, ITEM_KIND, flagLabel } from '../lib/fleet'
+import { FLAG_LABEL, ITEM_KIND, TAG_LABEL, TAG_LOOK, flagLabel } from '../lib/fleet'
+import { Badge } from '../ui/Badge'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import v from '../pages/Views.module.css'
-import { useTeamApi, type Fleet as Data } from './api'
+import { useTeamApi, type BaselineView, type Fleet as Data } from './api'
 import { TeamHead } from './TeamHead'
 import { useScope } from './scope'
 import s from './Team.module.css'
@@ -16,6 +17,7 @@ const agentOf = (a: string): AgentId => (a === 'codex' ? 'codex' : 'claude-code'
 export function Fleet() {
   const { q } = useScope()
   const { data, error } = useTeamApi<Data>(`/api/team/fleet${q}`)
+  const base = useTeamApi<BaselineView>(`/api/team/baseline${q}`)
   return (
     <div className={v.page}>
       <TeamHead title="Fleet" noRange>
@@ -31,6 +33,7 @@ export function Fleet() {
         </Panel>
       ) : (
         <>
+          {base.data && <BaselinePanel data={base.data} />}
           <Panel title="Settings to note" icon={<Settings2 />}>
             {data.flags.length === 0 ? (
               <p className={v.note}>Nothing to note on any machine.</p>
@@ -43,7 +46,7 @@ export function Fleet() {
                     </span>
                     <span>
                       <span className={s.flagName}>
-                        <AgentLabel agent={agentOf(f.agent)} hideName /> {flagLabel(f.id)}
+                        {f.agent !== 'any' && <AgentLabel agent={agentOf(f.agent)} hideName />} {flagLabel(f.id)}
                         {FLAG_LABEL[f.id]?.good && (
                           <span className={s.good}>
                             <CircleCheck aria-hidden /> Set up
@@ -109,7 +112,20 @@ export function Fleet() {
                         </tr>
                         {rows.slice(0, 40).map((i) => (
                           <tr key={`${k}-${i.agent}-${i.name}-${i.detail}`}>
-                            <td className={v.mono}>{i.name}</td>
+                            <td className={v.mono}>
+                              {i.name}
+                              {i.tags.length > 0 && (
+                                <span className={s.tags}>
+                                  {i.tags.map(([t, n]) => (
+                                    <span key={t} title={`${n} of ${i.machines} machines`}>
+                                      <Badge dot={TAG_LOOK.has(t)} color={TAG_LOOK.has(t) ? 'var(--status-warning)' : undefined}>
+                                        {TAG_LABEL[t] ?? t}
+                                      </Badge>
+                                    </span>
+                                  ))}
+                                </span>
+                              )}
+                            </td>
                             <td>
                               <AgentLabel agent={agentOf(i.agent)} hideName />
                             </td>
@@ -162,5 +178,99 @@ export function Fleet() {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * The team's setup baseline and the machines that differ from it, each
+ * difference with since when. A list to work through, not a ranking.
+ */
+function BaselinePanel({ data }: { data: BaselineView }) {
+  if (!data.set) {
+    return (
+      <Panel title="Baseline" icon={<ListChecks />}>
+        <p className={v.note}>
+          No baseline yet. An admin can set one in Settings: the setup every machine should have (say, the guard hook) and
+          what none should (approvals skipped by default, a secret in an MCP config). This page then lists the machines that
+          differ and since when.
+        </p>
+      </Panel>
+    )
+  }
+  return (
+    <>
+      <Panel
+        title="Baseline"
+        icon={<ListChecks />}
+        actions={
+          <span className={s.baselineCount}>
+            {data.matching} of {data.machines} machines match
+          </span>
+        }
+        flush
+      >
+        {data.drift.length === 0 ? (
+          <p className={`${v.note} ${s.pad}`}>Every machine matches the baseline.</p>
+        ) : (
+          <>
+            <ul className={s.ruleCounts}>
+              {data.by_rule.map(([rule, n]) => (
+                <li key={rule}>
+                  <span className={s.flagCount}>{n}</span> {rule}
+                </li>
+              ))}
+            </ul>
+            <div className={v.tableWrap}>
+              <table className={v.table}>
+                <thead>
+                  <tr>
+                    <th>Machine</th>
+                    <th>Team</th>
+                    <th>Differs from the baseline</th>
+                    <th>Last sync</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.drift.map((m) => (
+                    <tr key={m.machine} className={s.topRow}>
+                      <td>
+                        <span className={v.name}>{m.machine}</span>
+                      </td>
+                      <td>{m.team}</td>
+                      <td>
+                        <ul className={s.diffs}>
+                          {m.differences.map((d) => (
+                            <li key={d.rule + d.title}>
+                              {d.title}
+                              {d.since && <span className={s.since}> · since {formatAgo(d.since)}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                      <td>{m.last_sync ? formatAgo(m.last_sync) : 'never'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Panel>
+      {data.changes.length > 0 && (
+        <Panel title="Setup changes, last 30 days" icon={<History />} flush>
+          <ul className={s.changes}>
+            {data.changes.map((c, i) => (
+              <li key={i}>
+                <span className={s.since}>{formatAgo(c.ts)}</span>
+                <span className={v.name}>{c.machine}</span>
+                <span>
+                  {c.change === 'added' ? 'Added' : 'Removed'}: {c.what}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+    </>
   )
 }

@@ -618,6 +618,8 @@ pub struct VersionRow {
 
 #[derive(Debug, Serialize)]
 pub struct ItemRow {
+    /// Tags any machine reported for it, with how many machines did.
+    pub tags: Vec<(String, i64)>,
     pub kind: String,
     pub agent: String,
     pub name: String,
@@ -714,6 +716,7 @@ pub fn fleet(store: &Store, scope: &Scope) -> Result<Fleet> {
     let items = stmt
         .query_map(params![team], |r| {
             Ok(ItemRow {
+                tags: Vec::new(),
                 kind: r.get(0)?,
                 agent: r.get(1)?,
                 name: r.get(2)?,
@@ -721,7 +724,34 @@ pub fn fleet(store: &Store, scope: &Scope) -> Result<Fleet> {
                 machines: r.get(4)?,
             })
         })?
-        .collect::<std::result::Result<_, _>>()?;
+        .collect::<std::result::Result<Vec<ItemRow>, _>>()?;
+    // Tags are stored comma-joined per machine; count each tag per item here
+    // (plain SQL, so the same queries run on Postgres).
+    let mut items = items;
+    {
+        let mut stmt = c.prepare(&format!(
+            "SELECT kind, agent, name, tags FROM inventory
+             WHERE kind <> 'flag' AND tags IS NOT NULL AND {in_team}"
+        ))?;
+        let rows: Vec<(String, String, String, String)> = stmt
+            .query_map(params![team], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        for (kind, agent, name, tags) in rows {
+            if let Some(it) = items
+                .iter_mut()
+                .find(|i| i.kind == kind && i.agent == agent && i.name == name)
+            {
+                for t in tags.split(',').filter(|t| !t.is_empty()) {
+                    match it.tags.iter_mut().find(|(x, _)| x == t) {
+                        Some((_, n)) => *n += 1,
+                        None => it.tags.push((t.to_string(), 1)),
+                    }
+                }
+            }
+        }
+    }
     let mut stmt = c.prepare(&format!(
         "SELECT name, agent, count(DISTINCT machine_id) FROM inventory
          WHERE kind = 'flag' AND {in_team} GROUP BY name, agent ORDER BY 3 DESC"

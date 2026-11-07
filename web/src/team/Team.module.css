@@ -207,3 +207,97 @@
     display: none;
   }
 }
+/* Fleet: tags on installed items, the baseline and setup changes. */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  margin-top: var(--s-1);
+}
+.pad {
+  padding: var(--s-4);
+}
+.baselineCount {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.ruleCounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line-1);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  list-style: none;
+}
+.diffs {
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+.since {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.changes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.changes li {
+  display: grid;
+  grid-template-columns: 90px 140px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: baseline;
+  padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--line-1);
+  font-size: var(--fs-sm);
+}
+.changes li:first-child {
+  border-top: 0;
+}
+@media (max-width: 700px) {
+  .changes li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-1);
+  }
+}
+/* Settings: baseline editor. */
+.baselineGrid {
+  display: grid;
+  gap: var(--s-1-5);
+}
+.baselineRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: var(--s-3);
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+.fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.fieldset legend {
+  margin-bottom: var(--s-2);
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+/* Rows with several lines read from the top. */
+.topRow td {
+  vertical-align: top;
+}

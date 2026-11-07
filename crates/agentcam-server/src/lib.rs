@@ -171,6 +171,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/follow", get(api::follow))
         .route("/blame", get(api::blame))
         .route("/setup", get(api::setup))
+        .route("/evidence", get(api::evidence))
+        .route("/findings/export", get(api::findings_export))
         .route("/prompts", get(api::prompts))
         .fallback(api_not_found)
         .with_state(state);
@@ -385,7 +387,7 @@ mod tests {
     #[tokio::test]
     async fn overview_and_sessions() {
         let ob = json("/api/outbox").await;
-        assert_eq!(ob["schema_version"], 2);
+        assert_eq!(ob["schema_version"], 3);
         assert!(ob["inventory"]["items"].is_array());
         assert!(ob["team"].is_null(), "not joined to a team");
         assert!(
@@ -512,6 +514,53 @@ mod tests {
             get(&format!("/api/sessions/{id}/export?format=pdf"))
                 .await
                 .status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[tokio::test]
+    async fn evidence_bundles_and_findings_export() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let ev = json(&format!("/api/evidence?session={id}")).await;
+        assert_eq!(ev["format"], "agentcam-evidence");
+        assert_eq!(ev["sessions"][0]["session"]["id"], id);
+        assert_eq!(
+            ev["sessions"].as_array().unwrap().len(),
+            2,
+            "the session and its subagent"
+        );
+        let text = serde_json::to_string(&ev).unwrap();
+        assert_eq!(
+            agentcam_core::evidence::verify(&text),
+            agentcam_core::evidence::Verdict::Intact
+        );
+        assert_eq!(
+            get("/api/evidence?session=missing").await.status(),
+            StatusCode::NOT_FOUND
+        );
+
+        // The test logs hold no risky steps; the record shape is tested in core.
+        let res = get("/api/findings/export?format=ocsf&range=all").await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(
+            res.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("application/x-ndjson")
+        );
+        let body = String::from_utf8(
+            to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        for line in body.lines() {
+            let v: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert_eq!(v["class_uid"], 2004);
+        }
+        assert_eq!(
+            get("/api/findings/export?format=csv").await.status(),
             StatusCode::BAD_REQUEST
         );
     }

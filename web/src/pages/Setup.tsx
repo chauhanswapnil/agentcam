@@ -1,6 +1,8 @@
-import { Blocks, CircleAlert, FileText, Info, Plug, Settings2, Webhook } from 'lucide-react'
+import { Blocks, CircleAlert, FileText, Info, Plug, Settings2, Webhook, Wrench } from 'lucide-react'
 import { useApi, useIndexStatus } from '../lib/api'
 import { formatNumber } from '../lib/format'
+import { formatAgo } from '../lib/format'
+import { Badge } from '../ui/Badge'
 import { AgentLabel, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import v from './Views.module.css'
@@ -25,7 +27,20 @@ type SetupData = {
     env: string[]
   }[]
   memory: { scope: string; project: string | null; path: string; chars: number; tokens: number; imports: number }[]
-  mcp: { agent: AgentId; name: string; transport: string; target: string | null; scope: string; project: string | null; defined_in: string; calls_30d: number }[]
+  mcp: {
+    agent: AgentId
+    name: string
+    transport: string
+    target: string | null
+    scope: string
+    project: string | null
+    defined_in: string
+    calls_30d: number
+    outside_content: boolean
+    unpinned: boolean
+    secret_keys: string[]
+    plain_http: boolean
+  }[]
   hooks: {
     agent: AgentId
     event: string
@@ -39,8 +54,24 @@ type SetupData = {
   }[]
   skills: { name: string; source: string; chars: number; uses_90d: number }[]
   skill_listing_chars: number | null
+  tools: {
+    servers: {
+      server: string
+      tools: { tool: string; chars: number; flags: Flag[] }[]
+      instructions_chars: number
+      changes: { tool: string; first_seen: string | null; changed_at: string | null; before: string; after: string; new_flags: Flag[] }[]
+      last_seen: string | null
+      sessions: number
+    }[]
+    skills: { name: string; source: string; path: string; flags: [string, Flag][] }[]
+  }
   checks: { id: string; level: 'look' | 'info'; title: string; detail: string; path: string | null }[]
 }
+
+type Flag = { id: string; level: 'look' | 'info'; title: string; excerpt: string | null }
+
+/** Claude.ai connectors show up under an id; keep it short. */
+const serverName = (n: string) => (/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(n) ? `connector ${n.slice(0, 8)}` : n)
 
 const home = (p: string) => p.replace(/^\/(Users|home)\/[^/]+/, '~')
 const base = (p: string) => p.split('/').pop() ?? p
@@ -190,6 +221,32 @@ export function Setup() {
                             <AgentLabel agent={m.agent} hideName />
                             {m.name}
                           </span>
+                          {(m.outside_content || m.unpinned || m.secret_keys.length > 0 || m.plain_http) && (
+                            <span className={s.tags}>
+                              {m.outside_content && (
+                                <span title="Its tools bring issues, messages or web pages into the session">
+                                  <Badge>outside content</Badge>
+                                </span>
+                              )}
+                              {m.unpinned && (
+                                <span title="No version: every start runs the latest release">
+                                  <Badge>latest release</Badge>
+                                </span>
+                              )}
+                              {m.secret_keys.length > 0 && (
+                                <span title={`Plain-text secret in: ${m.secret_keys.join(', ')}`}>
+                                  <Badge dot color="var(--status-warning)">
+                                    secret in config
+                                  </Badge>
+                                </span>
+                              )}
+                              {m.plain_http && (
+                                <Badge dot color="var(--status-warning)">
+                                  plain http
+                                </Badge>
+                              )}
+                            </span>
+                          )}
                         </td>
                         <td className={v.mono} title={m.target ?? ''}>
                           {m.transport}
@@ -204,6 +261,8 @@ export function Setup() {
               </div>
             </Panel>
           </div>
+
+          <McpTools servers={data.tools.servers} />
 
           <Panel title="Hooks" icon={<Webhook />} flush>
             {data.hooks.length === 0 ? (
@@ -272,7 +331,16 @@ export function Setup() {
                     .slice(0, 80)
                     .map((k, i) => (
                       <tr key={i}>
-                        <td className={v.mono}>{k.name}</td>
+                        <td className={v.mono}>
+                          {k.name}
+                          {data.tools.skills.some((f) => f.name === k.name) && (
+                            <span className={s.tags} title={data.tools.skills.find((f) => f.name === k.name)?.flags.map(([file, f]) => `${file}: ${f.title}`).join('\n')}>
+                              <Badge dot color="var(--status-warning)">
+                                worth a look
+                              </Badge>
+                            </span>
+                          )}
+                        </td>
                         <td>{k.source.replace('claude-', 'Claude Code ').replace('codex', 'Codex')}</td>
                         <td className={v.num}>{formatNumber(Math.round(k.chars / 4))} tokens</td>
                         <td className={v.num}>{k.uses_90d}</td>
@@ -291,5 +359,84 @@ export function Setup() {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * MCP tools the agents were given in the last 90 days, from the logs: what
+ * each server's tools and instructions say, flags on that text, and
+ * descriptions that changed after they were first seen.
+ */
+function McpTools({ servers }: { servers: SetupData['tools']['servers'] }) {
+  if (servers.length === 0) return null
+  return (
+    <Panel title={`MCP tools in your sessions · ${servers.length} servers`} icon={<Wrench />} flush>
+      <p className={`${v.note} ${s.pad} ${s.intro}`}>
+        What each server told the agent, read from the logs. Text aimed at the agent and descriptions that changed are listed under
+        each server.
+      </p>
+      <ul className={s.servers}>
+        {servers.map((x) => {
+          const flagged = x.tools.filter((t) => t.flags.length > 0)
+          const count = x.tools.filter((t) => t.tool !== '(instructions)').length
+          return (
+            <li key={x.server}>
+              <details className={s.server}>
+                <summary>
+                  <span className={s.serverName} title={x.server}>
+                    {serverName(x.server)}
+                  </span>
+                  <span className={s.serverMeta}>
+                    {count} {count === 1 ? 'tool' : 'tools'} · {formatNumber(x.sessions)} {x.sessions === 1 ? 'session' : 'sessions'}
+                    {x.last_seen && ` · ${formatAgo(x.last_seen)}`}
+                  </span>
+                  {flagged.length > 0 && (
+                    <Badge dot color="var(--status-warning)">
+                      {flagged.length} worth a look
+                    </Badge>
+                  )}
+                  {x.changes.length > 0 && (
+                    <Badge>
+                      {x.changes.length} changed
+                    </Badge>
+                  )}
+                </summary>
+                <div className={s.serverBody}>
+                  {flagged.map((t) => (
+                    <div key={t.tool} className={s.toolFlag}>
+                      <span className={s.toolName}>{t.tool}</span>
+                      {t.flags.map((f) => (
+                        <span key={f.id} className={s.flagLine}>
+                          {f.title}
+                          {f.excerpt && <code className={s.excerpt}>{f.excerpt}</code>}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                  {x.changes.map((c, i) => (
+                    <div key={i} className={s.change}>
+                      <span className={s.toolName}>
+                        {c.tool === '(instructions)' ? 'Server instructions' : c.tool} changed
+                        {c.changed_at && ` ${formatAgo(c.changed_at)}`}
+                        {c.new_flags.length > 0 && ` · new text: ${c.new_flags.map((f) => f.title.toLowerCase()).join(', ')}`}
+                      </span>
+                      <code className={s.before}>{c.before || '(empty)'}</code>
+                      <code className={s.after}>{c.after || '(empty)'}</code>
+                    </div>
+                  ))}
+                  <span className={s.toolList}>
+                    {x.tools
+                      .filter((t) => t.tool !== '(instructions)')
+                      .map((t) => t.tool)
+                      .join(' · ')}
+                    {x.instructions_chars > 0 && ` · instructions (${formatNumber(x.instructions_chars)} characters)`}
+                  </span>
+                </div>
+              </details>
+            </li>
+          )
+        })}
+      </ul>
+    </Panel>
   )
 }

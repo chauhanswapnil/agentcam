@@ -15,6 +15,9 @@ import {
   ScrollText,
   CircleCheck,
   CircleMinus,
+  CornerLeftUp,
+  CornerRightDown,
+  Link2,
   MessagesSquare,
   GitPullRequest,
   Puzzle,
@@ -425,6 +428,8 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                     root={x.project_root}
                     agent={x.agent}
                     findings={findings.filter((f) => f.seq === cur?.seq)}
+                    ledTo={findings.filter((f) => f.related_seq != null && f.related_seq === cur?.seq && f.seq !== cur?.seq)}
+                    onJump={jump}
                   />
                 </div>
               </Panel>
@@ -756,6 +761,8 @@ function StepDetail({
   root,
   agent,
   findings,
+  ledTo,
+  onJump,
 }: {
   sessionId: string
   event?: EventRow
@@ -764,6 +771,9 @@ function StepDetail({
   root: string | null
   agent: string
   findings: FindingRow[]
+  /** Findings on later steps whose chain starts at this step. */
+  ledTo: FindingRow[]
+  onJump: (seq: number) => void
 }) {
   const [blocking, setBlocking] = useState(false)
   const { data: st, error } = useApi<Step>(event ? `/api/step${query({ session: sessionId, seq: event.seq })}` : null)
@@ -799,14 +809,30 @@ function StepDetail({
       </div>
 
       {findings.length > 0 && (
-        <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+        <div className={s.findings}>
           {findings.map((f, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-sm)' }}>
+            <div key={i} className={s.finding}>
               <SeverityBadge severity={f.severity} />
-              <span style={{ color: 'var(--text-1)' }}>{f.title}</span>
-              <span className={s.mono} style={{ color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {f.excerpt}
-              </span>
+              <span className={s.findingTitle}>{f.title}</span>
+              {f.related_seq != null && f.related_seq !== f.seq && (
+                <button type="button" className={s.chainLink} onClick={() => onJump(f.related_seq!)}>
+                  <CornerLeftUp aria-hidden /> follows step {f.related_seq + 1}
+                </button>
+              )}
+              <span className={`${s.mono} ${s.findingExcerpt}`}>{f.excerpt}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {ledTo.length > 0 && (
+        <div className={s.findings}>
+          {ledTo.map((f, i) => (
+            <div key={i} className={s.finding}>
+              <Link2 aria-hidden className={s.chainIcon} />
+              <span className={s.findingNote}>This step starts a chain:</span>
+              <button type="button" className={s.chainLink} onClick={() => onJump(f.seq)}>
+                {f.title} at step {f.seq + 1} <CornerRightDown aria-hidden />
+              </button>
             </div>
           ))}
         </div>
@@ -827,7 +853,8 @@ function StepDetail({
           tool={event.tool_name}
           // Start from the risky part of the step (say, the force push in a
           // longer command). Masked secrets can't be matched, so skip those.
-          title={findings.find((f) => !f.excerpt.includes('…'))?.excerpt ?? event.title}
+          // Chain findings describe two steps, so they aren't a pattern either.
+          title={findings.find((f) => f.related_seq == null && !f.excerpt.includes('…'))?.excerpt ?? event.title}
           why={findings[0]?.title}
           onClose={() => setBlocking(false)}
         />

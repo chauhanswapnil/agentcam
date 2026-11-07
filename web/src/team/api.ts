@@ -146,9 +146,36 @@ export type Fleet = {
     sessions: number
   }[]
   versions: { agent: string; version: string | null; machines: number; sessions: number }[]
-  items: { kind: string; agent: string; name: string; detail: string | null; machines: number }[]
+  items: { kind: string; agent: string; name: string; detail: string | null; machines: number; tags: [string, number][] }[]
   flags: { id: string; agent: string; machines: number }[]
   show_people: boolean
+}
+
+export type Baseline = {
+  require: string[]
+  forbid: string[]
+  forbid_tags: string[]
+  mcp_allowlist: string[] | null
+  min_versions: Record<string, string>
+}
+
+export type BaselineView = {
+  baseline: Baseline
+  set: boolean
+  suggested: Baseline
+  flags: [string, string][]
+  tags: [string, string][]
+  machines: number
+  matching: number
+  by_rule: [string, number][]
+  drift: { machine: string; team: string; last_sync: string | null; differences: { rule: string; title: string; since: string | null }[] }[]
+  changes: { ts: string; machine: string; what: string; change: 'added' | 'removed' }[]
+}
+
+export type SiemSettings = {
+  webhook: { url: string; format: 'ndjson' | 'ocsf' | 'splunk_hec' } | null
+  token_set: boolean
+  last: { ts: string; ok: boolean; sent: number; message: string } | null
 }
 
 export type Team = { id: number; name: string; machines: number }

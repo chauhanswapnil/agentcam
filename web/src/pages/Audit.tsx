@@ -1,4 +1,4 @@
-import { ShieldAlert, ShieldCheck } from 'lucide-react'
+import { FileCheck2, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useLocation, useSearch } from 'wouter'
 import { AGENTS } from '../lib/agents'
 import { query, useApi, useIndexStatus, type Audit as AuditData, type Approvals } from '../lib/api'
@@ -23,6 +23,7 @@ const FINDING_COLUMNS: Column<FindingHit>[] = [
   { label: 'title', value: (h) => h.title },
   { label: 'severity', value: (h) => h.severity },
   { label: 'excerpt', value: (h) => h.excerpt },
+  { label: 'follows step', value: (h) => (h.related_seq != null ? String(h.related_seq + 1) : '') },
   { label: 'agent', value: (h) => h.agent },
   { label: 'project', value: (h) => h.project_root },
   { label: 'session', value: (h) => h.session_title },
@@ -68,8 +69,9 @@ export function Audit() {
         <div>
           <h1>Audit</h1>
           <p>
-            Risky steps found by the rules: secrets in transcripts, sensitive files, dangerous commands, installs and
-            network use. Secrets are masked. Add your own rules in <code>rules.yaml</code> next to the index.
+            Steps worth a second look: secrets in transcripts, sensitive files, dangerous commands, data sent out, and
+            chains across steps, such as a secret read before an upload or a command taken from a tool result. Secrets
+            are masked. Add your own rules below.
           </p>
         </div>
         <div className={s.controls}>
@@ -154,7 +156,8 @@ export function Audit() {
                       <span className={s.refTitle}>{h.excerpt}</span>
                     </span>
                     <span className={s.refMeta}>
-                      {h.title} · {AGENTS[h.agent]?.label} · {h.project_root ? baseName(h.project_root) : '?'} ·{' '}
+                      {h.title}
+                      {h.related_seq != null && h.related_seq !== h.seq && ` · follows step ${h.related_seq + 1}`} · {AGENTS[h.agent]?.label} · {h.project_root ? baseName(h.project_root) : '?'} ·{' '}
                       {h.ts ? formatAgo(h.ts) : ''} · {oneLine(h.session_title ?? '')}
                     </span>
                   </button>
@@ -164,7 +167,44 @@ export function Audit() {
           </div>
         </div>
       )}
+      <ShareExports range={f.range} severity={f.severity} />
       <RuleEditor />
     </div>
+  )
+}
+
+/** Evidence bundles and SIEM feeds for the range on screen. */
+function ShareExports({ range, severity }: { range: string; severity: string }) {
+  return (
+    <Panel title="For your security team" icon={<FileCheck2 />}>
+      <div className={s.exports}>
+        <div>
+          <span className={s.exportTitle}>Evidence bundle</span>
+          <p className={s.exportText}>
+            Every session in this range as one JSON file: who ran it and when, prompts, each step and how it was allowed, file
+            changes, findings and commits. Secrets are masked, and a SHA-256 checksum shows whether the file was changed later
+            (<code>agentcam evidence verify file.json</code>).
+          </p>
+          <a className={s.exportLink} href={`/api/evidence${query({ range })}`} download>
+            Download evidence
+          </a>
+        </div>
+        <div>
+          <span className={s.exportTitle}>Findings for a SIEM</span>
+          <p className={s.exportText}>
+            One finding per line at this severity and up. OCSF is the Detection Finding schema that Splunk, Sentinel and Security
+            Lake read. To ship new ones on a schedule: <code>agentcam export findings --format ocsf --since &lt;last ts&gt;</code>.
+          </p>
+          <span className={s.exportLinks}>
+            <a className={s.exportLink} href={`/api/findings/export${query({ range, severity, format: 'ndjson' })}`} download>
+              NDJSON
+            </a>
+            <a className={s.exportLink} href={`/api/findings/export${query({ range, severity, format: 'ocsf' })}`} download>
+              OCSF
+            </a>
+          </span>
+        </div>
+      </div>
+    </Panel>
   )
 }

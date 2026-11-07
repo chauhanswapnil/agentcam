@@ -15,7 +15,7 @@ use crate::index::Result;
 use crate::query::{Filter, conditions, severity_name};
 
 /// Bump when the fields below change; the server checks it.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMeta {
