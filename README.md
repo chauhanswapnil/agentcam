@@ -6,7 +6,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Overview: agent time, a year of activity, sessions and projects](docs/screenshots/overview.png)
 
-> **Status:** in heavy development and used every day, not yet packaged. Install from source below. Screenshots use made-up demo data.
+> **Status:** 0.1.0, the first release. Used every day, still young: expect rough edges and say so in [issues](https://github.com/chauhanswapnil/agentcam/issues). The team server is a preview. Screenshots use made-up demo data.
 
 ## What it does
 
@@ -136,17 +136,39 @@ agentcam team join https://agentcam.example.com ac_inv_...
 
 ## Install
 
-Not published yet. You need Rust (stable) and Node 20+.
+macOS and Linux, with [Homebrew](https://brew.sh):
 
 ```sh
-git clone https://github.com/chauhanswapnil/agentcam
-cd agentcam
-npm --prefix web ci && npm --prefix web run build
-cargo install --path crates/agentcam
+brew install chauhanswapnil/tap/agentcam
+```
+
+Anywhere with Node 18+:
+
+```sh
+npx agentcam
+```
+
+Or the install script, which puts the binary in `~/.cargo/bin`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/chauhanswapnil/agentcam/releases/latest/download/agentcam-installer.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/chauhanswapnil/agentcam/releases/latest/download/agentcam-installer.ps1 | iex"
+```
+
+With Rust: `cargo install agentcam`. Binaries for every platform are on the [releases page](https://github.com/chauhanswapnil/agentcam/releases).
+
+Then run:
+
+```sh
 agentcam
 ```
 
-`agentcam` indexes your logs, starts a server on `http://127.0.0.1:4747` and opens your browser. Packages for `cargo install agentcam`, `npx agentcam` and Homebrew are coming.
+It indexes your logs, starts a server on `http://127.0.0.1:4747` and opens your browser. The first run reads every past session, so there's something to see straight away.
 
 ## Commands
 
@@ -196,12 +218,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). [AGENTS.md](AGENTS.md) covers the layout
 
 ### Try it with demo data
 
-To look around without your own logs, or to retake these screenshots, make a folder of made-up sessions and point agentcam at it:
+To look around without your own logs, or to retake these screenshots, make a folder of made-up sessions with the script in this repo (Python 3, nothing to install) and point agentcam at it. Your real logs and index aren't touched:
 
 ```sh
+git clone https://github.com/chauhanswapnil/agentcam && cd agentcam
 python3 scripts/demo-data.py /tmp/agentcam-demo
-HOME=/tmp/agentcam-demo cargo run -- --db /tmp/agentcam-demo/index.db serve
+HOME=/tmp/agentcam-demo agentcam --db /tmp/agentcam-demo/index.db
 ```
+
+From a checkout without agentcam installed, use `cargo run --` in place of `agentcam`.
 
 ## License
 

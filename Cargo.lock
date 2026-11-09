@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agentcam"
-version = "0.1.0-rc.2"
+version = "0.1.0"
 dependencies = [
  "agentcam-core",
  "agentcam-server",
@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "agentcam-core"
-version = "0.1.0-rc.2"
+version = "0.1.0"
 dependencies = [
  "dirs",
  "rayon",
@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "agentcam-server"
-version = "0.1.0-rc.2"
+version = "0.1.0"
 dependencies = [
  "agentcam-core",
  "axum",
@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "agentcam-team"
-version = "0.1.0-rc.2"
+version = "0.1.0"
 dependencies = [
  "agentcam-core",
  "agentcam-server",
