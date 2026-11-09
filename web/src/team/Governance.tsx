@@ -1,6 +1,10 @@
 import { ListChecks, ShieldCheck } from 'lucide-react'
+import { useState } from 'react'
 import type { Severity } from '../lib/api'
 import { formatAgo, formatNumber } from '../lib/format'
+import { severityNum, sortRows } from '../lib/sort'
+import { CsvButton } from '../ui/CsvButton'
+import { SortTh } from '../ui/SortTh'
 import { EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { SeverityBadge } from '../ui/Severity'
@@ -16,6 +20,18 @@ const LEVELS: Severity[] = ['critical', 'high', 'medium', 'low']
 export function Governance() {
   const { q } = useScope()
   const { data, error } = useTeamApi<Data>(`/api/team/governance${q}`)
+  const [sort, setSort] = useState('')
+  const th = (id: string, label: string, num = true) => <SortTh id={id} label={label} sort={sort} onSort={setSort} num={num} />
+  const rules = data
+    ? sortRows(data.rules, sort, {
+        rule: (r) => r.rule_id,
+        severity: (r) => severityNum(r.severity),
+        count: (r) => r.count,
+        sessions: (r) => r.sessions,
+        machines: (r) => r.machines,
+        projects: (r) => r.projects,
+      })
+    : []
   return (
     <div className={v.page}>
       <TeamHead title="Governance">
@@ -38,21 +54,39 @@ export function Governance() {
               </div>
             ))}
           </div>
-          <Panel title="Rules that fired" icon={<ListChecks />} flush>
+          <Panel
+            title="Rules that fired"
+            icon={<ListChecks />}
+            flush
+            actions={
+              <CsvButton
+                name="team-rules"
+                rows={rules}
+                columns={[
+                  { label: 'Rule', value: (r) => r.rule_id },
+                  { label: 'Severity', value: (r) => r.severity },
+                  { label: 'Times', value: (r) => r.count },
+                  { label: 'Sessions', value: (r) => r.sessions },
+                  { label: 'Machines', value: (r) => r.machines },
+                  { label: 'Repos', value: (r) => r.projects },
+                ]}
+              />
+            }
+          >
             <div className={v.tableWrap}>
               <table className={v.table}>
                 <thead>
                   <tr>
-                    <th>Rule</th>
-                    <th>Severity</th>
-                    <th className={v.num}>Times</th>
-                    <th className={v.num}>Sessions</th>
-                    <th className={v.num}>Machines</th>
-                    <th className={v.num}>Repos</th>
+                    {th('rule', 'Rule', false)}
+                    {th('severity', 'Severity', false)}
+                    {th('count', 'Times')}
+                    {th('sessions', 'Sessions')}
+                    {th('machines', 'Machines')}
+                    {th('projects', 'Repos')}
                   </tr>
                 </thead>
                 <tbody>
-                  {data.rules.map((r) => (
+                  {rules.map((r) => (
                     <tr key={r.rule_id}>
                       <td className={v.mono}>{r.rule_id}</td>
                       <td>
@@ -68,7 +102,27 @@ export function Governance() {
               </table>
             </div>
           </Panel>
-          <Panel title="Latest findings, high and critical first" icon={<ShieldCheck />} flush>
+          <Panel
+            title="Latest findings, high and critical first"
+            icon={<ShieldCheck />}
+            flush
+            actions={
+              <CsvButton
+                name="team-findings"
+                rows={data.latest}
+                columns={[
+                  { label: 'When', value: (f) => f.ts },
+                  { label: 'Severity', value: (f) => f.severity },
+                  { label: 'Rule', value: (f) => f.rule_id },
+                  { label: 'What matched', value: (f) => f.excerpt },
+                  { label: 'Repo', value: (f) => f.project },
+                  { label: 'Team', value: (f) => f.team },
+                  { label: data.show_people ? 'Person' : 'Machine', value: (f) => f.machine },
+                  { label: 'Step', value: (f) => f.step },
+                ]}
+              />
+            }
+          >
             <div className={v.tableWrap}>
               <table className={v.table}>
                 <thead>

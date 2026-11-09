@@ -8,6 +8,8 @@ import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import s from './Views.module.css'
 import { CsvButton } from '../ui/CsvButton'
+import { sortRows } from '../lib/sort'
+import { SortTh } from '../ui/SortTh'
 import type { Column } from '../lib/csv'
 
 const TOOL_COLUMNS: Column<ToolStat>[] = [
@@ -35,7 +37,8 @@ const AGENT_OPTIONS = [
 export function Tools() {
   const p = new URLSearchParams(useSearch())
   const [, navigate] = useLocation()
-  const f = { range: p.get('range') ?? '30d', agent: p.get('agent') ?? '', tool: p.get('tool') ?? '' }
+  const f = { range: p.get('range') ?? '30d', agent: p.get('agent') ?? '', tool: p.get('tool') ?? '', sort: p.get('sort') ?? 'calls' }
+  const sort = f.sort
   const set = (patch: Partial<typeof f>) => navigate(`/tools${query({ ...f, ...patch })}`, { replace: true })
   const gen = useIndexStatus().status?.generation ?? 0
   const { data } = useApi<ToolStat[]>(`/api/tools${query({ range: f.range, agent: f.agent })}`, gen)
@@ -72,16 +75,23 @@ export function Tools() {
               <table className={s.table}>
                 <thead>
                   <tr>
-                    <th>Tool</th>
-                    <th>Calls</th>
-                    <th className={s.num}>Errored</th>
-                    <th className={s.num}>Time</th>
-                    <th className={s.num}>Avg</th>
-                    <th className={s.num}>Sessions</th>
+                    <SortTh id="name" label="Tool" sort={sort} onSort={(sort) => set({ sort })} />
+                    <SortTh id="calls" label="Calls" sort={sort} onSort={(sort) => set({ sort })} />
+                    <SortTh id="errors" label="Errored" sort={sort} onSort={(sort) => set({ sort })} num />
+                    <SortTh id="time" label="Time" sort={sort} onSort={(sort) => set({ sort })} num />
+                    <SortTh id="avg" label="Avg" sort={sort} onSort={(sort) => set({ sort })} num />
+                    <SortTh id="sessions" label="Sessions" sort={sort} onSort={(sort) => set({ sort })} num />
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((t) => (
+                  {sortRows(data, sort, {
+                    name: (t) => t.tool_name,
+                    calls: (t) => t.calls,
+                    errors: (t) => t.errors / Math.max(1, t.calls),
+                    time: (t) => t.total_ms,
+                    avg: (t) => t.total_ms / Math.max(1, t.calls),
+                    sessions: (t) => t.sessions,
+                  }).map((t) => (
                     <tr
                       key={t.tool_name}
                       className={`${s.rowBtn} ${f.tool === t.tool_name ? s.rowOn : ''}`}
@@ -90,13 +100,13 @@ export function Tools() {
                       <td>
                         <span className={s.name}>
                           <KindIcon kind="tool_call" category={t.category} />
-                          <span className={s.mono} style={{ color: 'var(--text-1)' }}>
+                          <span className={`${s.mono} ${s.clip}`} style={{ color: 'var(--text-1)' }} title={t.tool_name}>
                             {t.tool_name}
                           </span>
                         </span>
                       </td>
                       <td>
-                        <span className={s.bar} style={{ width: Math.max(2, (t.calls / max) * 80) }} />
+                        <span className={s.bar} style={{ width: Math.max(2, (t.calls / max) * 56) }} />
                         {formatNumber(t.calls)}
                       </td>
                       <td className={s.num} style={{ color: t.errors ? 'var(--text-1)' : undefined }}>

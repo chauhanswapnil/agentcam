@@ -103,3 +103,48 @@
   content: '';
   vertical-align: middle;
 }
+/* What draft rules would match, before saving. */
+.preview {
+  padding: var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+}
+.previewNote {
+  margin: 0 0 var(--s-2);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.previewList {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.previewList li {
+  display: grid;
+  gap: var(--s-1);
+}
+.previewRule {
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.previewCount {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.previewExample {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.previewExample:hover {
+  color: var(--text-1);
+}
+.previewExample code {
+  font-size: var(--fs-xs);
+}

@@ -1,0 +1,24 @@
+.num {
+  text-align: right;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.btn:hover,
+.on {
+  color: var(--text-1);
+}
+.btn svg {
+  width: 11px;
+  height: 11px;
+}

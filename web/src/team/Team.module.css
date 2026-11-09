@@ -301,3 +301,16 @@
 .topRow td {
   vertical-align: top;
 }
+/* Wide tables (ten columns): narrower gaps so they fit a 1280px window. */
+.tight th,
+.tight td {
+  padding-inline: var(--s-3);
+}
+.tight th:first-child,
+.tight td:first-child {
+  padding-left: var(--s-4);
+}
+.tight th:last-child,
+.tight td:last-child {
+  padding-right: var(--s-4);
+}

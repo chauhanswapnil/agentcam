@@ -1,6 +1,9 @@
 import { Blocks, CircleCheck, History, Laptop, ListChecks, Settings2, Tag } from 'lucide-react'
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { formatAgo, formatNumber } from '../lib/format'
+import { sortRows } from '../lib/sort'
+import { CsvButton } from '../ui/CsvButton'
+import { SortTh } from '../ui/SortTh'
 import { FLAG_LABEL, ITEM_KIND, TAG_LABEL, TAG_LOOK, flagLabel } from '../lib/fleet'
 import { Badge } from '../ui/Badge'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
@@ -14,10 +17,28 @@ import s from './Team.module.css'
 type AgentId = 'claude-code' | 'codex'
 const agentOf = (a: string): AgentId => (a === 'codex' ? 'codex' : 'claude-code')
 
+type Machine = Data['machines'][number]
+/** Flags on a machine that aren't good news. */
+const toLookAt = (m: Machine) => m.flags.filter((f) => !FLAG_LABEL[f.split(':')[1] ?? '']?.good).length
+const agentsText = (m: Machine) => m.agents.map(([a, ver]) => `${a === 'codex' ? 'Codex' : 'Claude Code'} ${ver ?? ''}`.trim()).join(', ')
+
 export function Fleet() {
   const { q } = useScope()
   const { data, error } = useTeamApi<Data>(`/api/team/fleet${q}`)
   const base = useTeamApi<BaselineView>(`/api/team/baseline${q}`)
+  const [sort, setSort] = useState('')
+  const th = (id: string, label: string, num = false) => <SortTh id={id} label={label} sort={sort} onSort={setSort} num={num} />
+  const machines = data
+    ? sortRows(data.machines, sort, {
+        name: (m) => m.label,
+        team: (m) => m.team,
+        os: (m) => m.os ?? '',
+        version: (m) => m.agentcam_version ?? '',
+        sessions: (m) => m.sessions,
+        flags: toLookAt,
+        sync: (m) => m.last_sync ?? '',
+      })
+    : []
   return (
     <div className={v.page}>
       <TeamHead title="Fleet" noRange>
@@ -141,32 +162,53 @@ export function Fleet() {
             </div>
           </Panel>
 
-          <Panel title={`${data.machines.length} machines`} icon={<Laptop />} flush>
+          <Panel
+            title={`${data.machines.length} machines`}
+            icon={<Laptop />}
+            flush
+            actions={
+              <CsvButton
+                name="team-machines"
+                rows={machines}
+                columns={[
+                  { label: data.show_people ? 'Person' : 'Machine', value: (m) => m.label },
+                  { label: 'Team', value: (m) => m.team },
+                  { label: 'Agents', value: agentsText },
+                  { label: 'OS', value: (m) => m.os },
+                  { label: 'agentcam', value: (m) => m.agentcam_version },
+                  { label: 'Sessions', value: (m) => m.sessions },
+                  { label: 'Settings to look at', value: (m) => m.flags.map((f) => flagLabel(f.split(':')[1] ?? f)).join('; ') },
+                  { label: 'Joined', value: (m) => m.joined_at },
+                  { label: 'Last sync', value: (m) => m.last_sync },
+                ]}
+              />
+            }
+          >
             <div className={v.tableWrap}>
               <table className={v.table}>
                 <thead>
                   <tr>
-                    <th>{data.show_people ? 'Person' : 'Machine'}</th>
-                    <th>Team</th>
+                    {th('name', data.show_people ? 'Person' : 'Machine')}
+                    {th('team', 'Team')}
                     <th>Agents</th>
-                    <th>OS</th>
-                    <th>agentcam</th>
-                    <th className={v.num}>Sessions</th>
-                    <th className={v.num}>Settings to look at</th>
-                    <th>Last sync</th>
+                    {th('os', 'OS')}
+                    {th('version', 'agentcam')}
+                    {th('sessions', 'Sessions', true)}
+                    {th('flags', 'Settings to look at', true)}
+                    {th('sync', 'Last sync')}
                   </tr>
                 </thead>
                 <tbody>
-                  {data.machines.map((m, i) => (
-                    <tr key={i}>
+                  {machines.map((m, i) => (
+                    <tr key={`${m.label}-${i}`}>
                       <td className={v.name}>{m.label}</td>
                       <td>{m.team}</td>
-                      <td className={v.mono}>{m.agents.map(([a, ver]) => `${a === 'codex' ? 'Codex' : 'Claude Code'} ${ver ?? ''}`).join(', ')}</td>
+                      <td className={v.mono}>{agentsText(m)}</td>
                       <td>{m.os ?? ''}</td>
                       <td className={v.mono}>{m.agentcam_version ?? ''}</td>
                       <td className={v.num}>{formatNumber(m.sessions)}</td>
                       <td className={v.num} title={m.flags.map((f) => flagLabel(f.split(':')[1] ?? f)).join(', ')}>
-                        {m.flags.filter((f) => !FLAG_LABEL[f.split(':')[1] ?? '']?.good).length}
+                        {toLookAt(m)}
                       </td>
                       <td>{m.last_sync ? formatAgo(m.last_sync) : 'never'}</td>
                     </tr>

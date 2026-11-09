@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- Audit: mark a finding "looks fine" or mute its rule for a project, from the Audit page or the replay; a To review / All switch keeps the list to what you haven't seen, and everything can be undone. Marks are kept in `reviews.json` next to the index.
+- Rule editor: Preview matches runs draft rules over recent sessions before saving and shows the steps they'd flag.
+- Search: a "With findings" filter. Command palette: pages, recent sessions and actions, and a pasted file path opens its history or who wrote each line.
+- Small things: copy buttons for commands, output and paths; sortable columns on Tools; open-in-editor on Setup paths; switches on narrow screens keep the chosen option in view.
+- Team server: every table can be sorted and downloaded as CSV; copy buttons for a new invite command and viewer link; wide tables fit a 1280px window.
+
 - Audit: 45 new built-in rules (73 in all) for secret managers and credential files, data sent out (credential files, environment variables, DNS lookups), cleared history, reverse shells and tunnels, sudoers, setuid, containers with host access, shell startup files, scheduled jobs, git hooks and remotes, cloud metadata, disk wipes, agents started with approvals off, and changes to agent settings or agentcam's own files. Each has a test with a match and a near miss, and all were checked against real logs for false alarms.
 - Sequence rules: steps in order within a window, matched by tag or rule id. Built in: a secret read then an upload, a command after outside content held instructions, data sent out while approvals were off, another way tried after a call was stopped. Findings link back to the step the chain started from ("follows step 12"), and that step says it starts a chain.
 - Outside content: commands that run a package, run a download or send data using a package, URL or host that came from an MCP result, an issue or a web page rather than your prompts; instruction-like text and hidden characters in tool output, with hidden text decoded.

@@ -285,3 +285,45 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Audit: a finding row with its review actions beside it. */
+.refRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border-bottom: 1px solid var(--line-1);
+}
+.refRow .ref {
+  border-bottom: 0;
+}
+.refRow:hover {
+  background: var(--bg-2);
+}
+.refRow:hover .ref {
+  background: transparent;
+}
+.refActions {
+  padding: 0 var(--s-4) var(--s-2);
+  margin-top: calc(-1 * var(--s-1));
+}
+.refLooked .refTop,
+.refLooked .refMeta {
+  opacity: 0.55;
+}
+.panelActions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.clip {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+/* A cell whose text may wrap, so long names don't push columns off the panel. */
+.table td.wrapCell {
+  min-width: 200px;
+  white-space: normal;
+}

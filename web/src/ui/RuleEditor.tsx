@@ -1,4 +1,5 @@
-import { Check, ListChecks, Save } from 'lucide-react'
+import { Check, ListChecks, Save, ScanSearch } from 'lucide-react'
+import { Link } from 'wouter'
 import { useState } from 'react'
 import { sendJson, useApi, type RulesInfo } from '../lib/api'
 import { SEVERITY_COLOR } from '../lib/severity'
@@ -37,10 +38,25 @@ export function RuleEditor() {
   const [draft, setDraft] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [preview, setPreview] = useState<Preview | null>(null)
+  const [previewing, setPreviewing] = useState(false)
   if (!data) return null
   const text = draft ?? (data.user_yaml || EXAMPLE)
   const builtin = new Set(data.builtin_ids)
   const userIds = new Set(data.rules.filter((r) => !builtin.has(r.id) || data.user_yaml.includes(`id: ${r.id}`)).map((r) => r.id))
+
+  const runPreview = async () => {
+    setPreviewing(true)
+    setMsg(null)
+    try {
+      setPreview(await sendJson<Preview>('POST', '/api/rules/preview', { yaml: text }))
+    } catch (e) {
+      setPreview(null)
+      setMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setPreviewing(false)
+    }
+  }
 
   const send = async (dry: boolean) => {
     try {
@@ -68,6 +84,7 @@ export function RuleEditor() {
           onChange={(e) => {
             setDraft(e.target.value)
             setMsg(null)
+            setPreview(null)
           }}
           spellCheck={false}
           aria-label="Your rules (YAML)"
@@ -79,10 +96,39 @@ export function RuleEditor() {
           <Button size="sm" onClick={() => send(true)}>
             <Check aria-hidden /> Check
           </Button>
+          <Button size="sm" onClick={runPreview} disabled={previewing}>
+            <ScanSearch aria-hidden /> {previewing ? 'Looking…' : 'Preview matches'}
+          </Button>
           <Button size="sm" variant="primary" onClick={() => send(false)}>
             <Save aria-hidden /> Save and re-check
           </Button>
         </div>
+        {preview && (
+          <div className={s.preview}>
+            <p className={s.previewNote}>
+              In the last {preview.days} days ({preview.sessions_checked} most recent sessions), before saving:
+            </p>
+            <ul className={s.previewList}>
+              {preview.rules.map((r) => (
+                <li key={r.rule_id}>
+                  <span className={s.previewRule}>
+                    {r.title} <span className={s.mono}>{r.rule_id}</span>
+                  </span>
+                  <span className={s.previewCount}>
+                    {r.matches === 0
+                      ? 'No matches'
+                      : `${r.matches} ${r.matches === 1 ? 'match' : 'matches'} in ${r.sessions} ${r.sessions === 1 ? 'session' : 'sessions'}`}
+                  </span>
+                  {r.examples.map((x) => (
+                    <Link key={`${x.session_id}:${x.seq}`} href={`/sessions/${x.session_id}?step=${x.seq}`} className={s.previewExample}>
+                      <code>{x.step ?? x.excerpt}</code> · {x.session_title ?? 'Untitled session'}
+                    </Link>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <button type="button" className={s.toggle} onClick={() => setShowAll(!showAll)}>
           {showAll ? '▾' : '▸'} All {data.rules.length} rules
         </button>
@@ -110,6 +156,12 @@ export function RuleEditor() {
       </div>
     </Panel>
   )
+}
+
+type Preview = {
+  sessions_checked: number
+  days: number
+  rules: { rule_id: string; title: string; matches: number; sessions: number; examples: { session_id: string; seq: number; excerpt: string; step: string | null; session_title: string | null }[] }[]
 }
 
 /** What a rule checks, in one line. */

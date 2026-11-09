@@ -43,6 +43,8 @@ import { ruleText } from '../lib/follow'
 import { CodeText } from '../ui/Code'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
+import { CopyButton } from '../ui/CopyButton'
+import { FindingReview } from '../ui/FindingReview'
 import { DiffView } from '../ui/DiffView'
 import { Kbd } from '../ui/Kbd'
 import { Markdown } from '../ui/Markdown'
@@ -81,7 +83,9 @@ export function Replay() {
   // A session that was active in the last 15 minutes may still be running:
   // refetch it after each index run so new steps appear.
   const live = !!ended && openedAt - Date.parse(ended) < 15 * 60_000
-  const { data, error } = useApi<SessionDetail>(`/api/sessions/${id}`, live ? (status?.generation ?? 0) : 0)
+  // Bumped after marking a finding, to refetch its review state.
+  const [rev, setRev] = useState(0)
+  const { data, error } = useApi<SessionDetail>(`/api/sessions/${id}`, (live ? (status?.generation ?? 0) : 0) * 1000 + rev)
   if (data && data.session.ended_at !== ended) setEnded(data.session.ended_at)
 
   if (error) {
@@ -103,10 +107,10 @@ export function Replay() {
       </div>
     )
   }
-  return <Player key={id} id={id} data={data} />
+  return <Player key={id} id={id} data={data} onReviewed={() => setRev((n) => n + 1)} />
 }
 
-function Player({ id, data }: { id: string; data: SessionDetail }) {
+function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onReviewed: () => void }) {
   const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs, follow, plan } = data
   const [view, setView] = useState<'transcript' | 'turns' | 'trace'>('transcript')
   const [, navigate] = useLocation()
@@ -430,6 +434,7 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                     findings={findings.filter((f) => f.seq === cur?.seq)}
                     ledTo={findings.filter((f) => f.related_seq != null && f.related_seq === cur?.seq && f.seq !== cur?.seq)}
                     onJump={jump}
+                    onReviewed={onReviewed}
                   />
                 </div>
               </Panel>
@@ -474,10 +479,20 @@ function Player({ id, data }: { id: string; data: SessionDetail }) {
                 </Panel>
               )}
               {findings.length > 0 && (
-                <Panel title={`Risks · ${findings.length}`} icon={<ShieldAlert />} flush>
+                <Panel
+                  title={`Risks · ${findings.filter((f) => !f.review).length} to review${findings.some((f) => f.review) ? ` of ${findings.length}` : ''}`}
+                  icon={<ShieldAlert />}
+                  flush
+                >
                   <div className={s.scroll} style={{ maxHeight: 260 }}>
                     {findings.map((f, i) => (
-                      <button key={i} type="button" className={`${s.file} ${f.seq === cur?.seq ? s.fileOn : ''}`} onClick={() => jump(f.seq)}>
+                      <button
+                        key={i}
+                        type="button"
+                        className={`${s.file} ${f.seq === cur?.seq ? s.fileOn : ''} ${f.review ? s.looked : ''}`}
+                        onClick={() => jump(f.seq)}
+                        title={f.review === 'reviewed' ? 'Looked at' : f.review === 'muted' ? 'Rule muted' : undefined}
+                      >
                         <ShieldAlert aria-hidden style={{ width: 13, height: 13, flex: 'none', color: SEVERITY_COLOR[f.severity] }} />
                         <span style={{ fontFamily: 'var(--font-sans)', flex: 'none' }}>{f.title}</span>
                         <span className={s.filePath}>
@@ -763,6 +778,7 @@ function StepDetail({
   findings,
   ledTo,
   onJump,
+  onReviewed,
 }: {
   sessionId: string
   event?: EventRow
@@ -774,6 +790,7 @@ function StepDetail({
   /** Findings on later steps whose chain starts at this step. */
   ledTo: FindingRow[]
   onJump: (seq: number) => void
+  onReviewed: () => void
 }) {
   const [blocking, setBlocking] = useState(false)
   const { data: st, error } = useApi<Step>(event ? `/api/step${query({ session: sessionId, seq: event.seq })}` : null)
@@ -806,6 +823,11 @@ function StepDetail({
           </Badge>
         )}
         <span className="sr-only">{g.label}</span>
+        <CopyButton
+          className={s.stepLink}
+          text={`${window.location.origin}/sessions/${sessionId}?step=${event.seq}`}
+          label="Copy link to this step"
+        />
       </div>
 
       {findings.length > 0 && (
@@ -820,6 +842,14 @@ function StepDetail({
                 </button>
               )}
               <span className={`${s.mono} ${s.findingExcerpt}`}>{f.excerpt}</span>
+              <FindingReview
+                sessionId={sessionId}
+                seq={f.seq}
+                ruleId={f.rule_id}
+                review={f.review}
+                project={root}
+                onDone={onReviewed}
+              />
             </div>
           ))}
         </div>
@@ -838,7 +868,12 @@ function StepDetail({
         </div>
       )}
 
-      {tool && <div className={s.detailTitle}>{event.title}</div>}
+      {tool && (
+        <div className={s.titleRow}>
+          <div className={s.detailTitle}>{event.title}</div>
+          <CopyButton text={event.title} label={event.category === 'command' ? 'Copy command' : 'Copy'} />
+        </div>
+      )}
       {tool && event.tool_name && (agent === 'claude-code' || agent === 'codex') && (
         <div style={{ marginTop: -6, marginBottom: 12 }}>
           <Button size="sm" variant={findings.length ? 'default' : 'ghost'} onClick={() => setBlocking(true)}>
@@ -878,7 +913,12 @@ function StepBody({ st, root }: { st: Step; root: string | null }) {
     return <Markdown text={st.body || st.title} className={s.detailMd} />
   }
   if (st.kind === 'prompt' || st.kind === 'system') {
-    return <p className={s.proseText} style={{ marginTop: 12 }}>{st.body || st.title}</p>
+    return (
+      <>
+        <p className={s.proseText} style={{ marginTop: 12 }}>{st.body || st.title}</p>
+        {st.kind === 'prompt' && <CopyButton text={st.body || st.title} label="Copy prompt" />}
+      </>
+    )
   }
   if (st.kind === 'thinking') {
     return <p className={s.thinkingText} style={{ marginTop: 12 }}>{st.body}</p>
@@ -919,13 +959,19 @@ function StepBody({ st, root }: { st: Step; root: string | null }) {
       ))}
       {showInput && input && (
         <>
-          <div className={s.label}>Input</div>
+          <div className={s.labelRow}>
+            <span className={s.label}>Input</span>
+            <CopyButton text={input} label="Copy input" />
+          </div>
           <pre className={s.pre}>{input}</pre>
         </>
       )}
       {st.body && (
         <>
-          <div className={s.label}>{st.is_error ? 'Error output' : 'Output'}</div>
+          <div className={s.labelRow}>
+            <span className={s.label}>{st.is_error ? 'Error output' : 'Output'}</span>
+            <CopyButton text={st.body} label="Copy output" />
+          </div>
           <pre className={`${s.pre} ${st.is_error ? s.preError : ''}`}>{st.body}</pre>
         </>
       )}

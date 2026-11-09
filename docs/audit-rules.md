@@ -79,4 +79,12 @@ This flags a command that runs a package, runs a download, or sends data, when t
 
 ## Checking a new rule
 
-Before you rely on a rule, run it over your own history: save it, let agentcam re-check, and look at what it found on the Audit page. A rule that fires on ordinary work teaches people to ignore findings.
+Before you rely on a rule, run it over your own history. **Preview matches** in the rule editor checks your draft against the most recent sessions (up to 400 from the last 90 days) without saving, and shows how many steps each rule would flag, with examples you can open. A rule that fires on ordinary work teaches people to ignore findings, so tighten it with `unless` until the examples look right, then save.
+
+The preview reads the index, where long text is cut to 32 KB, so it can miss a match deep in a very long output. Saving re-checks everything from the logs.
+
+## Reviewing findings
+
+On the Audit page, **Looks fine** marks one finding as seen, and **Mute in** a project hides a rule's findings in that project. The To review list leaves both out; All shows them dimmed, with Undo. The replay has the same buttons on each finding.
+
+Marks live in `reviews.json` next to the index, so they survive a rebuild. They only change what you see: findings are still stored, exported and sent to a team server as before.

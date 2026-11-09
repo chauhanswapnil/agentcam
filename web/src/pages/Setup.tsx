@@ -3,6 +3,8 @@ import { useApi, useIndexStatus } from '../lib/api'
 import { formatNumber } from '../lib/format'
 import { formatAgo } from '../lib/format'
 import { Badge } from '../ui/Badge'
+import { CopyButton } from '../ui/CopyButton'
+import { OpenInEditor } from '../ui/SessionActions'
 import { AgentLabel, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import v from './Views.module.css'
@@ -119,7 +121,13 @@ export function Setup() {
                           <span className="sr-only">{c.level === 'look' ? ' (worth a look)' : ' (for your information)'}</span>
                         </span>
                         <span className={s.checkDetail}>{c.detail}</span>
-                        {c.path && <span className={s.checkPath}>{home(c.path)}</span>}
+                        {c.path && (
+                          <span className={s.checkPathRow}>
+                            <span className={s.checkPath}>{home(c.path)}</span>
+                            <OpenInEditor path={c.path} />
+                            <CopyButton text={c.path} label="Copy path" />
+                          </span>
+                        )}
                       </span>
                     </li>
                   ))}

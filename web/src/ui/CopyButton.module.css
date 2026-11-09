@@ -1,0 +1,27 @@
+.copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--s-1);
+  height: 22px;
+  padding: 0 var(--s-1-5);
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+.copy:hover,
+.copy:focus-visible {
+  border-color: var(--line-2);
+  color: var(--text-1);
+}
+.copy svg {
+  width: 12px;
+  height: 12px;
+}

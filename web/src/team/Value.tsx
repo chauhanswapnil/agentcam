@@ -1,5 +1,10 @@
 import { BadgeDollarSign, GitCompare, TrendingUp, Users } from 'lucide-react'
+import { useState } from 'react'
+import type { Column } from '../lib/csv'
 import { formatCost, formatDuration, formatNumber } from '../lib/format'
+import { sortRows } from '../lib/sort'
+import { CsvButton } from '../ui/CsvButton'
+import { SortTh } from '../ui/SortTh'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Sparkline } from '../ui/Sparkline'
@@ -73,7 +78,21 @@ export function Value() {
             </div>
           </div>
 
-          <Panel title="Machines active each week" icon={<Users />} flush>
+          <Panel
+            title="Machines active each week"
+            icon={<Users />}
+            flush
+            actions={
+              <CsvButton
+                name="team-active-machines"
+                rows={data.adoption}
+                columns={[
+                  { label: 'Team', value: (a) => a.team },
+                  ...data.weeks.map((w, i) => ({ label: `Week of ${w}`, value: (a: (typeof data.adoption)[number]) => a.machines[i] ?? 0 })),
+                ]}
+              />
+            }
+          >
             <div className={v.tableWrap}>
               <table className={v.table}>
                 <thead>
@@ -117,27 +136,64 @@ export function Value() {
   )
 }
 
+const COHORT_SORT: Record<string, (c: Cohort) => number | string> = {
+  label: (c) => c.label,
+  sessions: (c) => c.sessions,
+  machines: (c) => c.machines,
+  time: (c) => c.median_active_ms ?? -1,
+  cost: (c) => c.median_cost_usd ?? -1,
+  errors: (c) => c.errors_per_100 ?? -1,
+  retries: (c) => c.retry_share ?? -1,
+  kept: (c) => c.kept_share ?? -1,
+  followed: (c) => c.followed_share ?? -1,
+}
+
+const pctCell = (n: number | null | undefined) => (n == null ? null : Math.round(n * 1000) / 10)
+
+function cohortColumns(first: string): Column<Cohort>[] {
+  return [
+    { label: first, value: (c) => c.label },
+    { label: 'Agent', value: (c) => c.agent },
+    { label: 'Sessions', value: (c) => c.sessions },
+    { label: 'Machines', value: (c) => c.machines },
+    { label: 'Median minutes', value: (c) => (c.median_active_ms == null ? null : Math.round(c.median_active_ms / 6000) / 10) },
+    { label: 'Median cost (USD)', value: (c) => c.median_cost_usd },
+    { label: 'Errored per 100 steps', value: (c) => c.errors_per_100 },
+    { label: 'In retries (%)', value: (c) => pctCell(c.retry_share) },
+    { label: 'Lines still there (%)', value: (c) => pctCell(c.kept_share) },
+    { label: 'Rules followed (%)', value: (c) => pctCell(c.followed_share) },
+  ]
+}
+
 function Cohorts({ title, icon, rows, first }: { title: string; icon: React.ReactNode; rows: Cohort[]; first: string }) {
+  const [sort, setSort] = useState('')
   if (rows.length === 0) return null
+  const shown = sortRows(rows, sort, COHORT_SORT)
+  const th = (id: string, label: string, num = true) => <SortTh id={id} label={label} sort={sort} onSort={setSort} num={num} />
   return (
-    <Panel title={title} icon={icon} flush>
+    <Panel
+      title={title}
+      icon={icon}
+      flush
+      actions={<CsvButton name={`team-${first.toLowerCase()}s`} rows={shown} columns={cohortColumns(first)} />}
+    >
       <div className={v.tableWrap}>
-        <table className={v.table}>
+        <table className={`${v.table} ${s.tight}`}>
           <thead>
             <tr>
-              <th>{first}</th>
-              <th className={v.num}>Sessions</th>
-              <th className={v.num}>Machines</th>
-              <th className={v.num}>Median time</th>
-              <th className={v.num}>Median cost</th>
-              <th className={v.num}>Errored / 100 steps</th>
-              <th className={v.num}>In retries</th>
-              <th className={v.num}>Lines still there</th>
-              <th className={v.num}>Rules followed</th>
+              {th('label', first, false)}
+              {th('sessions', 'Sessions')}
+              {th('machines', 'Machines')}
+              {th('time', 'Median time')}
+              {th('cost', 'Median cost')}
+              <SortTh id="errors" label="Errored /100" title="Steps that errored, per 100 steps" sort={sort} onSort={setSort} num />
+              {th('retries', 'In retries')}
+              {th('kept', 'Still there')}
+              {th('followed', 'Rules followed')}
             </tr>
           </thead>
           <tbody>
-            {rows.map((c) => (
+            {shown.map((c) => (
               <tr key={`${c.agent}-${c.label}`}>
                 <td>
                   <span className={v.name}>

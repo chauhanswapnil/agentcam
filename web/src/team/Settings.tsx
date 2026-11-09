@@ -2,6 +2,7 @@ import { History, KeyRound, ListChecks, Radio, Settings2, UserPlus } from 'lucid
 import { useState, type FormEvent } from 'react'
 import { formatAgo } from '../lib/format'
 import { Button } from '../ui/Button'
+import { CopyButton } from '../ui/CopyButton'
 import { Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import v from '../pages/Views.module.css'
@@ -166,6 +167,7 @@ function Invites({ data, onMade }: { data: Settings; onMade: () => void }) {
             only once.
           </p>
           <pre className={s.code}>agentcam team join {server} {made.code}</pre>
+          <CopyButton text={`agentcam team join ${server} ${made.code}`} label="Copy command" />
         </div>
       )}
       {data.teams.length > 0 && (
@@ -214,6 +216,7 @@ function Viewers({ onMade }: { onMade: () => void }) {
           <pre className={s.code}>
             {window.location.origin}/team/login#{token}
           </pre>
+          <CopyButton text={`${window.location.origin}/team/login#${token}`} label="Copy link" />
         </div>
       )}
     </Panel>

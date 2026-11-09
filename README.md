@@ -60,7 +60,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ### Safety
 
-**Risk audit.** 73 built-in rules flag secrets in transcripts (masked before they're stored), sensitive files, dangerous commands, privilege and persistence changes (sudoers, shell startup files, cron, `authorized_keys`), data sent out, and writes outside the project. Findings show on the replay timeline and the Audit page. Add your own rules in YAML from the Audit page; [the rules guide](docs/audit-rules.md) covers every field.
+**Risk audit.** 73 built-in rules flag secrets in transcripts (masked before they're stored), sensitive files, dangerous commands, privilege and persistence changes (sudoers, shell startup files, cron, `authorized_keys`), data sent out, and writes outside the project. Findings show on the replay timeline and the Audit page. Mark a finding "looks fine" or mute a rule for one project, and the To review list keeps only what you haven't seen. Add your own rules in YAML from the Audit page and preview what they'd find before saving; [the rules guide](docs/audit-rules.md) covers every field.
 
 **Chains and outside content.** Some risks only show across steps: a secret read and then an upload, a stopped call followed by another way around it, a command run right after a web page or MCP result held instructions. agentcam also notices when a command runs a package or sends data to an address that came from a tool result, such as a fake Sentry error telling the agent to run a package, and decodes hidden characters in tool output. Each finding links back to the step the chain started from.
 
@@ -70,7 +70,9 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Block next time.** Turn a risky step into a guard rule. A Claude Code or Codex `PreToolUse` hook runs `agentcam guard` before each tool call and stops calls that match, with a message to the agent.
 
-![Audit: a guard rule, approvals with allow rules to copy, and the rules that fired](docs/screenshots/audit.png)
+![Audit: a guard rule and approvals with allow rules to copy](docs/screenshots/audit.png)
+
+![Audit: the rules that fired, with a muted rule, and findings to review with Looks fine and Mute buttons](docs/screenshots/audit-review.png)
 
 ### Skills and tools
 
@@ -166,7 +168,7 @@ agentcam
 | `agentcam team viewers` / `team revoke <id>` | List viewer tokens, or revoke one |
 | `agentcam team join <server> <invite>` | Join a team; then `team sync`, `status`, `pause`, `resume`, `leave` |
 
-All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By default the index lives in your data folder (`~/Library/Application Support/agentcam/` on macOS), next to `rules.yaml` (your rules) and `guard.yaml` (your guard rules).
+All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By default the index lives in your data folder (`~/Library/Application Support/agentcam/` on macOS), next to `rules.yaml` (your rules), `guard.yaml` (your guard rules) and `reviews.json` (findings you marked and rules you muted).
 
 ## Supported agents
 

@@ -111,7 +111,9 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/sessions/{id}` | One session: steps (titles, plus the start of transcript text), files touched, subagents |
 | `GET /api/sessions/{id}/export?format=md\|json` | One session as a download (Markdown or JSON), secrets masked |
 | `GET /api/step?session=&seq=` | One step in full: output, input, file changes with diffs |
-| `GET /api/audit` | Rules that fired and the latest findings; takes `rule`, `severity` (lowest to show) |
+| `GET /api/audit` | Rules that fired and the latest findings; takes `rule`, `severity` (lowest to show), `status` (`open` hides findings marked looked at or muted, `all`) |
+| `GET/POST /api/reviews` | Findings marked "looks fine" and rules muted per project or everywhere (`reviews.rs`, kept in `reviews.json`) |
+| `POST /api/rules/preview` | What draft rules would find in recent sessions, before saving (`preview.rs`) |
 | `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool |
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
@@ -131,7 +133,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/setup` | Settings, memory files, MCP servers, hooks and skills on this machine, with checks (`setup.rs`) |
 | `GET /api/prompts?q=` | Prompts you typed, newest first, and the ones repeated across sessions (`prompts.rs`) |
 | `GET /api/outbox` | The metadata a team server receives (`share.rs`), the setup inventory (`fleet.rs`) and the team link, if any |
-| `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind`, `category`, `limit` |
+| `GET /api/search?q=` | Full-text matches, best first; takes `range`, `agent`, `project`, `kind` (`risky`: only steps with findings), `category`, `limit` |
 | `GET /api/evidence?session=` or `?range=` | An evidence bundle: JSON with a SHA-256 checksum, secrets masked (`evidence.rs`) |
 | `GET /api/findings/export?format=ndjson\|ocsf` | Findings one per line for a SIEM; takes `range`, `severity` (`siem.rs`) |
 
@@ -156,6 +158,8 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Changed rules re-check every session (fingerprint in the `meta` table). If you change how rules are checked in code, bump `ENGINE_VERSION` in `audit.rs`.
 - Every rule needs a test in `audit.rs` that shows a match and a near miss.
 - `agentcam scan` prints findings in the terminal.
+- **Reviews** (`reviews.rs`): a finding marked "looks fine" or a rule muted for a project (or everywhere) drops out of the Audit page's To review list. Marks live in `reviews.json` next to the index, not in it, so they survive a rebuild. They never change what rules find or what exports contain.
+- **Rule preview** (`preview.rs`): rebuilds the most recent sessions from the index (titles, text, inputs, touches, turn settings) and checks them with the draft rules, reporting only the rules the draft defines, with example steps. Text is the indexed 32 KB cut, so a preview can miss a match deep in a long output.
 
 ### Evidence and SIEM export
 

@@ -18,6 +18,7 @@ const TYPES: { value: string; label: string; kind?: string; category?: string }[
   { value: 'edit', label: 'Edits', category: 'edit' },
   { value: 'read', label: 'Reads', category: 'read' },
   { value: 'web', label: 'Web', category: 'web' },
+  { value: 'risky', label: 'With findings', kind: 'risky' },
 ]
 const RANGES = [
   { value: '30d', label: '30 days' },

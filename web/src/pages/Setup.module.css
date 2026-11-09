@@ -32,9 +32,15 @@
   color: var(--text-2);
   font-size: var(--fs-sm);
 }
+.checkPathRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+  margin-top: var(--s-1);
+}
 .checkPath {
   display: block;
-  margin-top: var(--s-1);
   color: var(--text-3);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);

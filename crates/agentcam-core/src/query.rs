@@ -476,6 +476,8 @@ pub struct FindingRow {
     pub excerpt: String,
     /// The earlier step a sequence or outside-content finding started from.
     pub related_seq: Option<i64>,
+    /// `reviewed` or `muted` once someone has looked (`reviews.rs`).
+    pub review: Option<&'static str>,
 }
 
 pub fn severity_name(n: i64) -> Option<String> {
@@ -565,6 +567,7 @@ pub fn session(conn: &Connection, id: &str) -> Result<Option<SessionDetail>> {
                 severity: severity_name(r.get(3)?).unwrap_or_default(),
                 excerpt: r.get(4)?,
                 related_seq: r.get(5)?,
+                review: None,
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
@@ -762,6 +765,16 @@ pub fn search(
     };
     let (cond, mut args) = conditions(f);
     let mut extra = String::new();
+    // `kind=risky`: steps a risk rule matched.
+    let (kind, risky) = match kind {
+        Some("risky") => (None, true),
+        k => (k, false),
+    };
+    if risky {
+        extra.push_str(
+            " AND EXISTS (SELECT 1 FROM findings fd WHERE fd.session_id = e.session_id AND fd.seq = e.seq)",
+        );
+    }
     for (col, v) in [("e.kind", kind), ("e.category", category)] {
         if let Some(v) = v.filter(|v| !v.is_empty()) {
             extra.push_str(&format!(" AND {col} = ?"));
@@ -823,6 +836,8 @@ mod tests {
 /// How often each rule fired.
 #[derive(Debug, Clone, Serialize)]
 pub struct RuleSummary {
+    /// Muted in every project (`reviews.rs`).
+    pub muted: bool,
     pub rule_id: String,
     pub title: String,
     pub severity: String,
@@ -845,6 +860,7 @@ pub fn audit_rules(conn: &Connection, f: &Filter) -> Result<Vec<RuleSummary>> {
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(&args), |r| {
         Ok(RuleSummary {
+            muted: false,
             rule_id: r.get(0)?,
             title: r.get(1)?,
             severity: severity_name(r.get(2)?).unwrap_or_default(),
@@ -867,6 +883,8 @@ pub struct FindingHit {
     pub severity: String,
     pub excerpt: String,
     pub related_seq: Option<i64>,
+    /// `reviewed` or `muted` once someone has looked (`reviews.rs`).
+    pub review: Option<&'static str>,
     pub step_title: String,
     pub agent: String,
     pub session_title: Option<String>,
@@ -914,6 +932,7 @@ pub fn findings(
             session_title: r.get(9)?,
             project_root: r.get(10)?,
             related_seq: r.get(11)?,
+            review: None,
         })
     })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)

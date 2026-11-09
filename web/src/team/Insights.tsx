@@ -1,12 +1,12 @@
 import { CalendarRange, FolderGit2, Sparkles, Users } from 'lucide-react'
 import { formatCost, formatDelta, formatHours, formatNumber } from '../lib/format'
 import { keptPct } from '../lib/lasted'
-import { LastedBar } from '../ui/LastedBar'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Stat } from '../ui/Stat'
 import v from '../pages/Views.module.css'
-import { share, useTeamApi, type Insights as Data, type Sum } from './api'
+import { followed, share, useTeamApi, type Insights as Data, type Sum } from './api'
+import { SumTable } from './SumTable'
 import { TeamHead } from './TeamHead'
 import { useScope, weekLabel } from './scope'
 import s from './Team.module.css'
@@ -18,42 +18,6 @@ function vs(cur: number, prev: number | undefined) {
   if (!d) return prev === 0 && cur > 0 ? 'none before' : undefined
   return d === 'same as' ? 'same as before' : `${d} vs before`
 }
-
-const followed = (x: Sum) => (x.followed + x.not_followed > 0 ? x.followed / (x.followed + x.not_followed) : null)
-
-/** Columns shared by the team, project and model tables. */
-function SumCells({ x }: { x: Sum }) {
-  const k = keptPct(x.lasted)
-  return (
-    <>
-      <td className={v.num}>{formatNumber(x.sessions)}</td>
-      <td className={v.num}>{formatNumber(x.machines)}</td>
-      <td className={v.num}>{formatHours(x.active_ms)}</td>
-      <td className={v.num}>{formatCost(x.cost_usd)}</td>
-      <td className={v.num}>{share(x.active_ms ? x.retry_ms / x.active_ms : null)}</td>
-      <td className={s.barCell}>
-        <LastedBar c={x.lasted} />
-      </td>
-      <td className={v.num}>{k == null ? '–' : `${Math.round(k)}%`}</td>
-      <td className={v.num}>{share(followed(x))}</td>
-      <td className={v.num}>{formatNumber(x.findings)}</td>
-    </>
-  )
-}
-
-const HEAD = (
-  <>
-    <th className={v.num}>Sessions</th>
-    <th className={v.num}>Machines</th>
-    <th className={v.num}>Agent time</th>
-    <th className={v.num}>Est. cost</th>
-    <th className={v.num}>In retries</th>
-    <th className={s.barCell}>Lines added</th>
-    <th className={v.num}>Still there</th>
-    <th className={v.num}>Rules followed</th>
-    <th className={v.num}>Findings</th>
-  </>
-)
 
 export function Insights() {
   const { q } = useScope()
@@ -76,95 +40,57 @@ export function Insights() {
       ) : (
         <>
           <Strip t={data.totals} p={data.previous ?? undefined} />
-          <Panel title="By week" icon={<CalendarRange />} flush>
-            <div className={v.tableWrap}>
-              <table className={v.table}>
-                <thead>
-                  <tr>
-                    <th>Week of</th>
-                    {HEAD}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...data.weeks].reverse().map((w) => (
-                    <tr key={w.week}>
-                      <td>{weekLabel(w.week)}</td>
-                      <SumCells x={w} />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+          <SumTable
+            title="By week"
+            icon={<CalendarRange />}
+            csv="team-weeks"
+            first="Week of"
+            rows={[...data.weeks].reverse()}
+            rowKey={(w) => w.week}
+            name={(w) => w.week}
+            cell={(w) => weekLabel(w.week)}
+          />
           {data.by_team.length > 1 && (
-            <Panel title="By team" icon={<Users />} flush>
-              <div className={v.tableWrap}>
-                <table className={v.table}>
-                  <thead>
-                    <tr>
-                      <th>Team</th>
-                      {HEAD}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.by_team.map((t) => (
-                      <tr key={t.name}>
-                        <td className={v.name}>{t.name}</td>
-                        <SumCells x={t} />
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
+            <SumTable
+              title="By team"
+              icon={<Users />}
+              csv="team-teams"
+              first="Team"
+              rows={data.by_team}
+              rowKey={(x) => x.name}
+              name={(x) => x.name}
+              cell={(x) => <span className={v.name}>{x.name}</span>}
+            />
           )}
-          <Panel title="By repo" icon={<FolderGit2 />} flush>
-            <div className={v.tableWrap}>
-              <table className={v.table}>
-                <thead>
-                  <tr>
-                    <th>Repo</th>
-                    {HEAD}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.by_project.map((p) => (
-                    <tr key={p.name}>
-                      <td className={`${v.mono} ${s.repo}`} title={p.name}>
-                        {p.name}
-                      </td>
-                      <SumCells x={p} />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-          <Panel title="By agent and model" icon={<Sparkles />} flush>
-            <div className={v.tableWrap}>
-              <table className={v.table}>
-                <thead>
-                  <tr>
-                    <th>Model</th>
-                    {HEAD}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.by_agent_model.map((m) => (
-                    <tr key={`${m.agent}-${m.model}`}>
-                      <td>
-                        <span className={v.name}>
-                          <AgentLabel agent={m.agent} hideName />
-                          {m.model ?? 'Unknown model'}
-                        </span>
-                      </td>
-                      <SumCells x={m} />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+          <SumTable
+            title="By repo"
+            icon={<FolderGit2 />}
+            csv="team-repos"
+            first="Repo"
+            rows={data.by_project}
+            rowKey={(x) => x.name}
+            name={(x) => x.name}
+            cell={(x) => (
+              <span className={`${v.mono} ${v.clip}`} title={x.name}>
+                {x.name}
+              </span>
+            )}
+          />
+          <SumTable
+            title="By agent and model"
+            icon={<Sparkles />}
+            csv="team-models"
+            first="Model"
+            rows={data.by_agent_model}
+            rowKey={(m) => `${m.agent}-${m.model}`}
+            name={(m) => `${m.agent} ${m.model ?? 'unknown'}`}
+            cell={(m) => (
+              <span className={v.name}>
+                <AgentLabel agent={m.agent} hideName />
+                {m.model ?? 'Unknown model'}
+              </span>
+            )}
+          />
           <p className={s.how}>
             Cost is at API list prices, from the tokens in each log. Agent time leaves out idle gaps over 5 minutes.
             "Still there" is the share of lines agents added that are in the code today, as each laptop last checked.

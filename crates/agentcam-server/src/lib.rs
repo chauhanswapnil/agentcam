@@ -155,6 +155,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/guard/suggest", get(api::guard_suggest))
         .route("/guard/{id}", axum::routing::delete(api::guard_delete))
         .route("/rules", get(api::rules_info).post(api::rules_save))
+        .route("/rules/preview", post(api::rules_preview))
         .route("/commits", get(api::commits))
         .route("/outbox", get(api::outbox))
         .route("/live", get(api::live))
@@ -172,6 +173,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/blame", get(api::blame))
         .route("/setup", get(api::setup))
         .route("/evidence", get(api::evidence))
+        .route("/reviews", get(api::reviews).post(api::reviews_save))
         .route("/findings/export", get(api::findings_export))
         .route("/prompts", get(api::prompts))
         .fallback(api_not_found)
@@ -244,6 +246,77 @@ mod tests {
 
     async fn send(app: &Router, req: Request<Body>) -> Response {
         app.clone().oneshot(req).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn rules_preview_before_saving() {
+        let app = router(state());
+        let post = |body: serde_json::Value| {
+            Request::post("/api/rules/preview")
+                .header(header::HOST, "127.0.0.1:4747")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("origin", "http://127.0.0.1:4747")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let yaml = "- id: tests-run\n  title: Ran the tests\n  severity: low\n  categories: [command]\n  pattern: 'npm\\s+test'\n";
+        let res = send(&app, post(serde_json::json!({"yaml": yaml}))).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let p: serde_json::Value =
+            serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(
+            p["rules"].as_array().unwrap().len(),
+            1,
+            "only the draft's rules: {p}"
+        );
+        assert_eq!(p["rules"][0]["rule_id"], "tests-run");
+        let bad = send(&app, post(serde_json::json!({"yaml": "- id: x\n  title: x\n  severity: low\n  pattern: '('\n"}))).await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn reviews_mark_and_mute() {
+        let app = router(state());
+        let post = |body: &str, origin: &'static str| {
+            Request::post("/api/reviews")
+                .header(header::HOST, "127.0.0.1:4747")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("origin", origin)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let mute = r#"{"action":"mute","rule_id":"package-install","project":null,"note":"we install often"}"#;
+        assert_eq!(
+            send(&app, post(mute, "https://evil.example"))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        let ok = send(&app, post(mute, "http://127.0.0.1:4747")).await;
+        assert_eq!(ok.status(), StatusCode::OK);
+        let r = json("/api/reviews").await;
+        assert!(r["muted"].is_array());
+        let res = send(
+            &app,
+            post(
+                r#"{"action":"review","session_id":"s","seq":1,"rule_id":"rm-rf","note":null}"#,
+                "http://127.0.0.1:4747",
+            ),
+        )
+        .await;
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(body["findings"][0]["rule_id"], "rm-rf");
+        assert_eq!(body["muted"][0]["note"], "we install often");
+        let bad = send(
+            &app,
+            post(r#"{"action":"explode"}"#, "http://127.0.0.1:4747"),
+        )
+        .await;
+        assert!(bad.status().is_client_error());
+        // The audit list carries the count of findings looked at.
+        let a = json("/api/audit?status=all").await;
+        assert!(a["reviewed"].is_number());
     }
 
     #[tokio::test]

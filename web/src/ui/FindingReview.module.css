@@ -1,0 +1,43 @@
+.row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+.action,
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: 22px;
+  padding: 0 var(--s-1-5);
+  border-radius: var(--r-1);
+  font-size: var(--fs-xs);
+}
+.action {
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  cursor: pointer;
+}
+.action:hover:not(:disabled) {
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+.action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.state {
+  color: var(--text-3);
+}
+.action svg,
+.state svg {
+  width: 12px;
+  height: 12px;
+}
+.err {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}

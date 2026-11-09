@@ -126,6 +126,8 @@ export type FindingRow = {
   excerpt: string
   /** Sequence and outside-content findings: the earlier step the chain started from. */
   related_seq: number | null
+  /** `reviewed` or `muted` once someone has looked. */
+  review?: 'reviewed' | 'muted' | null
 }
 
 export type SessionDetail = {
@@ -150,7 +152,7 @@ export type SessionPlan = {
   plans: { seq: number; text: string }[]
 }
 
-export type RuleSummary = { rule_id: string; title: string; severity: Severity; count: number; sessions: number; last_ts: string | null }
+export type RuleSummary = { rule_id: string; title: string; severity: Severity; count: number; sessions: number; last_ts: string | null; muted: boolean }
 
 export type FindingHit = FindingRow & {
   session_id: string
@@ -161,7 +163,7 @@ export type FindingHit = FindingRow & {
   project_root: string | null
 }
 
-export type Audit = { rules: RuleSummary[]; findings: FindingHit[] }
+export type Audit = { rules: RuleSummary[]; findings: FindingHit[]; reviewed: number }
 
 export type ToolStat = {
   tool_name: string

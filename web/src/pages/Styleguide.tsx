@@ -15,6 +15,9 @@ import { Tooltip } from '../ui/Tooltip'
 import { UsageMeter } from '../ui/UsageMeter'
 import { QuotaMeter } from '../ui/QuotaMeter'
 import { CsvButton } from '../ui/CsvButton'
+import { CopyButton } from '../ui/CopyButton'
+import { FindingReview } from '../ui/FindingReview'
+import { SortTh } from '../ui/SortTh'
 import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
 import { SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
@@ -55,6 +58,7 @@ const GROUP_MEMBERS: Record<string, [EventKind, ToolCategory?][]> = {
 export function Styleguide() {
   const [range, setRange] = useState<'7d' | '30d' | 'all'>('30d')
   const [selected, setSelected] = useState(0)
+  const [sort, setSort] = useState('calls')
   const [step, setStep] = useState<number | undefined>(8)
   const current = step != null ? SAMPLE_EVENTS[step] : null
 
@@ -332,6 +336,32 @@ export function Styleguide() {
                 <Stat label="Agent time" value="61h" sub="across 7 projects" />
                 <Stat label="Tool calls" value="11.7k" sub="3,957 commands" />
                 <Stat label="Files changed" value="412" sub="218 created" />
+              </div>
+            </Panel>
+          </div>
+
+          <span className={s.sub}>Small actions</span>
+          <p className={s.rule}>Copy text, sort a table, and mark a finding as looked at. Quiet until hovered; the state they set is spelled out.</p>
+          <div className={s.grid2}>
+            <Panel title="Copy and sort">
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <CopyButton text="npm test -- --watch=false" label="Copy command" />
+                <CopyButton text="https://example.invalid" label="Copy link to this step" />
+              </div>
+              <table style={{ marginTop: 12 }}>
+                <thead>
+                  <tr>
+                    <SortTh id="calls" label="Calls" sort={sort} onSort={setSort} />
+                    <SortTh id="errors" label="Errored" sort={sort} onSort={setSort} num />
+                  </tr>
+                </thead>
+              </table>
+            </Panel>
+            <Panel title="Finding review">
+              <div style={{ display: 'grid', gap: 8 }}>
+                <FindingReview sessionId="sample" seq={4} ruleId="rm-rf" review={null} project="/Users/dev/app" onDone={() => {}} />
+                <FindingReview sessionId="sample" seq={4} ruleId="rm-rf" review="reviewed" project="/Users/dev/app" onDone={() => {}} />
+                <FindingReview sessionId="sample" seq={4} ruleId="rm-rf" review="muted" project="/Users/dev/app" onDone={() => {}} />
               </div>
             </Panel>
           </div>

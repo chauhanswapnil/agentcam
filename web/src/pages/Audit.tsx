@@ -1,7 +1,8 @@
 import { FileCheck2, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { AGENTS } from '../lib/agents'
-import { query, useApi, useIndexStatus, type Audit as AuditData, type Approvals } from '../lib/api'
+import { query, sendJson, useApi, useIndexStatus, type Audit as AuditData, type Approvals } from '../lib/api'
 import { baseName, formatAgo, formatNumber, oneLine } from '../lib/format'
 import { EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
@@ -10,6 +11,7 @@ import { SEVERITY_COLOR } from '../lib/severity'
 import { GuardPanel } from '../ui/GuardPanel'
 import { ApprovalsPanel } from '../ui/ApprovalsPanel'
 import { RuleEditor } from '../ui/RuleEditor'
+import { FindingReview } from '../ui/FindingReview'
 import { SeverityBadge } from '../ui/Severity'
 import s from './Views.module.css'
 import { CsvButton } from '../ui/CsvButton'
@@ -54,13 +56,20 @@ const MINS = [
 export function Audit() {
   const p = new URLSearchParams(useSearch())
   const [, navigate] = useLocation()
-  const f = { range: p.get('range') ?? 'all', rule: p.get('rule') ?? '', severity: p.get('severity') ?? 'medium' }
+  const f = {
+    range: p.get('range') ?? 'all',
+    rule: p.get('rule') ?? '',
+    severity: p.get('severity') ?? 'medium',
+    status: p.get('status') ?? 'open',
+  }
+  // Bumped after marking a finding or muting a rule.
+  const [rev, setRev] = useState(0)
   const set = (patch: Partial<typeof f>) => navigate(`/audit${query({ ...f, ...patch })}`, { replace: true })
   const { status } = useIndexStatus()
   const approvals = useApi<Approvals>(`/api/approvals${query({ range: f.range })}`, status?.generation ?? 0)
   const { data } = useApi<AuditData>(
-    `/api/audit${query({ range: f.range, rule: f.rule, severity: f.severity, limit: 300 })}`,
-    status?.generation ?? 0,
+    `/api/audit${query({ range: f.range, rule: f.rule, severity: f.severity, status: f.status, limit: 300 })}`,
+    (status?.generation ?? 0) * 1000 + rev,
   )
 
   return (
@@ -117,10 +126,11 @@ export function Audit() {
                       className={`${s.rowBtn} ${f.rule === r.rule_id ? s.rowOn : ''}`}
                       onClick={() => set({ rule: f.rule === r.rule_id ? '' : r.rule_id })}
                     >
-                      <td>
+                      <td className={s.wrapCell}>
                         <span className={s.name}>{r.title}</span>
                         <span className={s.mono} style={{ color: 'var(--text-3)' }}>
                           {r.rule_id}
+                          {r.muted && ' · muted everywhere'}
                         </span>
                       </td>
                       <td>
@@ -138,29 +148,54 @@ export function Audit() {
 
           <div className={s.sticky}>
             <Panel
-              title={f.rule ? `Steps · ${f.rule}` : 'Latest findings'}
+              title={f.rule ? `Steps · ${f.rule}` : f.status === 'all' ? 'Latest findings' : 'To review'}
               flush
-              actions={<CsvButton name="findings" rows={data.findings} columns={FINDING_COLUMNS} />}
+              actions={
+                <span className={s.panelActions}>
+                  {f.rule && <MuteRule ruleId={f.rule} muted={!!data.rules.find((r) => r.rule_id === f.rule)?.muted} onDone={() => setRev((n) => n + 1)} />}
+                  <Segmented
+                    label="Which findings"
+                    value={f.status}
+                    onChange={(status) => set({ status })}
+                    options={[
+                      { value: 'open', label: 'To review' },
+                      { value: 'all', label: `All${data.reviewed ? ` · ${data.reviewed} looked at` : ''}` },
+                    ]}
+                  />
+                  <CsvButton name="findings" rows={data.findings} columns={FINDING_COLUMNS} />
+                </span>
+              }
             >
               <div className={s.list}>
-                {data.findings.length === 0 && <EmptyState title="No findings at this severity" />}
+                {data.findings.length === 0 && (
+                  <EmptyState title={f.status === 'open' && data.reviewed ? 'Nothing left to review' : 'No findings at this severity'}>
+                    {f.status === 'open' && data.reviewed ? `${data.reviewed} findings were looked at or muted. Pick All to see them.` : undefined}
+                  </EmptyState>
+                )}
                 {data.findings.map((h) => (
-                  <button
-                    key={`${h.session_id}:${h.seq}:${h.rule_id}:${h.excerpt}`}
-                    type="button"
-                    className={s.ref}
-                    onClick={() => navigate(`/sessions/${h.session_id}?step=${h.seq}`)}
-                  >
-                    <span className={s.refTop}>
-                      <ShieldAlert aria-hidden style={{ width: 13, height: 13, flex: 'none', color: SEVERITY_COLOR[h.severity] }} />
-                      <span className={s.refTitle}>{h.excerpt}</span>
+                  <div key={`${h.session_id}:${h.seq}:${h.rule_id}:${h.excerpt}`} className={`${s.refRow} ${h.review ? s.refLooked : ''}`}>
+                    <button type="button" className={s.ref} onClick={() => navigate(`/sessions/${h.session_id}?step=${h.seq}`)}>
+                      <span className={s.refTop}>
+                        <ShieldAlert aria-hidden style={{ width: 13, height: 13, flex: 'none', color: SEVERITY_COLOR[h.severity] }} />
+                        <span className={s.refTitle}>{h.excerpt}</span>
+                      </span>
+                      <span className={s.refMeta}>
+                        {h.title}
+                        {h.related_seq != null && h.related_seq !== h.seq && ` · follows step ${h.related_seq + 1}`} · {AGENTS[h.agent]?.label} · {h.project_root ? baseName(h.project_root) : '?'} ·{' '}
+                        {h.ts ? formatAgo(h.ts) : ''} · {oneLine(h.session_title ?? '')}
+                      </span>
+                    </button>
+                    <span className={s.refActions}>
+                      <FindingReview
+                        sessionId={h.session_id}
+                        seq={h.seq}
+                        ruleId={h.rule_id}
+                        review={h.review}
+                        project={h.project_root}
+                        onDone={() => setRev((n) => n + 1)}
+                      />
                     </span>
-                    <span className={s.refMeta}>
-                      {h.title}
-                      {h.related_seq != null && h.related_seq !== h.seq && ` · follows step ${h.related_seq + 1}`} · {AGENTS[h.agent]?.label} · {h.project_root ? baseName(h.project_root) : '?'} ·{' '}
-                      {h.ts ? formatAgo(h.ts) : ''} · {oneLine(h.session_title ?? '')}
-                    </span>
-                  </button>
+                  </div>
                 ))}
               </div>
             </Panel>
@@ -183,7 +218,7 @@ function ShareExports({ range, severity }: { range: string; severity: string }) 
           <p className={s.exportText}>
             Every session in this range as one JSON file: who ran it and when, prompts, each step and how it was allowed, file
             changes, findings and commits. Secrets are masked, and a SHA-256 checksum shows whether the file was changed later
-            (<code>agentcam evidence verify file.json</code>).
+            (<code>agentcam evidence verify file.json</code>). One file holds up to 500 sessions; pick a shorter range for more.
           </p>
           <a className={s.exportLink} href={`/api/evidence${query({ range })}`} download>
             Download evidence
@@ -206,5 +241,18 @@ function ShareExports({ range, severity }: { range: string; severity: string }) 
         </div>
       </div>
     </Panel>
+  )
+}
+
+/** Mute one rule in every project, or unmute it. */
+function MuteRule({ ruleId, muted, onDone }: { ruleId: string; muted: boolean; onDone: () => void }) {
+  const toggle = async () => {
+    await sendJson('POST', '/api/reviews', { action: muted ? 'unmute' : 'mute', rule_id: ruleId, project: null, note: null })
+    onDone()
+  }
+  return (
+    <button type="button" className={s.exportLink} onClick={toggle} title={muted ? 'Show this rule again' : 'Hide this rule everywhere; its findings stay under All'}>
+      {muted ? 'Unmute rule' : 'Mute everywhere'}
+    </button>
   )
 }

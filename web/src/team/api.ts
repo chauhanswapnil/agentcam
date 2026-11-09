@@ -192,3 +192,6 @@ export type Me = { name: string; role: 'admin' | 'viewer'; org: string }
 
 /** 0.734 -> "73%". */
 export const share = (x: number | null | undefined) => (x == null ? '–' : `${Math.round(x * 100)}%`)
+
+/** Share of checkable instruction rules that sessions followed, or null when none could be checked. */
+export const followed = (x: Sum) => (x.followed + x.not_followed > 0 ? x.followed / (x.followed + x.not_followed) : null)

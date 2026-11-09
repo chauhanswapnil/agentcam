@@ -491,6 +491,12 @@ def main():
         "  reason: Force pushes are blocked. Ask the user first.\n"
         f"  created: '{ts(NOW - timedelta(days=3))}'\n"
     )
+    # Rules someone muted, so the Audit page's To review switch has
+    # something hidden and the rules table shows a muted rule.
+    (HOME / "reviews.json").write_text(json.dumps({"findings": [], "muted": [
+        {"rule_id": "outbound-domain", "note": "Domains are fine here", "at": ts(NOW - timedelta(days=2))},
+        {"rule_id": "package-install", "project": str(CODE / "mobile-app"), "at": ts(NOW - timedelta(days=5))},
+    ]}, indent=2))
     print(f"wrote {count} sessions to {HOME} (index with --db {HOME}/index.db)")
 
 

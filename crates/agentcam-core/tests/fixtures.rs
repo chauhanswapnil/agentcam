@@ -1279,6 +1279,33 @@ fn hooks_plans_prompts_and_mcp() {
         agentcam_core::evidence::verify(&text.replacen("Commit and push", "Commit", 1)),
         agentcam_core::evidence::Verdict::Changed { .. }
     ));
+    // A draft rule previewed against the index finds the same steps the
+    // saved rule would.
+    let draft = "- id: pushes\n  title: Asked to push\n  severity: low\n  kinds: [prompt]\n  field: body\n  pattern: '(?i)\\bpush\\b'\n";
+    let rules = agentcam_core::audit::Rules::with_user_text(draft).unwrap();
+    let only = agentcam_core::preview::defined_ids(draft);
+    let p = agentcam_core::preview::preview(idx.conn(), &rules, &only, 36_500, 100).unwrap();
+    assert_eq!(p.rules.len(), 1);
+    assert!(p.rules[0].matches >= 1, "{:?}", p.rules);
+    assert_eq!(p.rules[0].examples[0].session_id, id);
+    // Each example carries the step's own text, not only the matched word.
+    let step = p.rules[0].examples[0].step.as_deref().unwrap_or_default();
+    assert!(
+        step.len() > p.rules[0].examples[0].excerpt.len(),
+        "{:?}",
+        p.rules[0].examples[0]
+    );
+    // Search can keep only steps a risk rule matched.
+    let f0 = agentcam_core::query::Filter::default();
+    let risky =
+        agentcam_core::query::search(idx.conn(), "command", &f0, Some("risky"), None, 20).unwrap();
+    assert!(
+        !risky.is_empty() && risky.iter().all(|h| h.seq == hook_seq as i64),
+        "{risky:?}"
+    );
+    let prompts =
+        agentcam_core::query::search(idx.conn(), "push", &f0, Some("risky"), None, 20).unwrap();
+    assert!(prompts.is_empty(), "the prompt has no finding");
     // The same session's findings as SIEM records.
     let recs =
         agentcam_core::siem::findings(idx.conn(), &agentcam_core::query::Filter::default(), 100)

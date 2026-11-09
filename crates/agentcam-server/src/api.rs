@@ -22,6 +22,8 @@ pub struct AppState {
     guard_path: Option<std::path::PathBuf>,
     /// Where the user's `rules.yaml` lives.
     rules_path: Option<std::path::PathBuf>,
+    /// Where `reviews.json` (findings looked at, rules muted) lives.
+    reviews_path: Option<std::path::PathBuf>,
     db_path: Option<std::path::PathBuf>,
     writer: Arc<Mutex<Index>>,
     reader: Arc<Mutex<Index>>,
@@ -51,6 +53,7 @@ impl AppState {
         Ok(Arc::new(AppState {
             guard_path: Some(agentcam_core::guard::guard_path(db)),
             rules_path: Some(agentcam_core::index::user_rules_path(db)),
+            reviews_path: Some(agentcam_core::reviews::path(db)),
             db_path: Some(db.to_path_buf()),
             writer: Arc::new(Mutex::new(writer)),
             reader: Arc::new(Mutex::new(reader)),
@@ -68,6 +71,9 @@ impl AppState {
         let index = Arc::new(Mutex::new(index));
         Arc::new(AppState {
             rules_path: guard_path.as_ref().map(|g| g.with_file_name("rules.yaml")),
+            reviews_path: guard_path
+                .as_ref()
+                .map(|g| g.with_file_name("reviews.json")),
             guard_path,
             db_path: None,
             writer: index.clone(),
@@ -75,6 +81,14 @@ impl AppState {
             sources,
             status: Mutex::default(),
         })
+    }
+
+    /// Findings marked and rules muted; none when there's no file yet.
+    pub fn reviews(&self) -> agentcam_core::reviews::Reviews {
+        self.reviews_path
+            .as_deref()
+            .map(agentcam_core::reviews::load)
+            .unwrap_or_default()
     }
 
     pub fn sources(&self) -> &[LogSource] {
@@ -186,6 +200,8 @@ pub struct Params {
     session: Option<String>,
     /// Findings export: `ndjson` or `ocsf`.
     format: Option<String>,
+    /// Audit: `open` (default, what's left to review) or `all`.
+    status: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -358,7 +374,15 @@ pub async fn session(
     if let Some(id) = id.strip_suffix("/export") {
         return export(st, id.to_string(), q.format).await;
     }
-    let found: Option<SessionDetail> = st.read(move |idx| query::session(idx.conn(), &id)).await?;
+    let mut found: Option<SessionDetail> =
+        st.read(move |idx| query::session(idx.conn(), &id)).await?;
+    if let Some(d) = found.as_mut() {
+        let r = st.reviews();
+        let project = d.session.project_root.clone();
+        for f in &mut d.findings {
+            f.review = r.state(&d.session.id, f.seq, &f.rule_id, project.as_deref());
+        }
+    }
     Ok(match found {
         Some(d) => Json(d).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -406,7 +430,9 @@ pub async fn evidence(State(st): Shared, Query(q): Query<Params>) -> Result<Resp
             agentcam_core::evidence::build(idx.conn(), scope, &current_rules(&rules_path))
         })
         .await?;
-    if ev.sessions.is_empty() {
+    // An unknown session is a 404; an empty range is an empty bundle, so a
+    // download link never lands on an error page.
+    if ev.sessions.is_empty() && ev.scope.session_id.is_some() {
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
     let date = &ev.generated_at[..ev.generated_at.len().min(10)];
@@ -528,20 +554,71 @@ mod tests {
 pub struct Audit {
     rules: Vec<query::RuleSummary>,
     findings: Vec<query::FindingHit>,
+    /// Findings in range that someone marked or muted.
+    reviewed: usize,
 }
 
 pub async fn audit(State(st): Shared, Query(p): Query<Params>) -> Result<Json<Audit>, ApiError> {
     let f = p.filter(now_ms());
     let limit = p.limit.unwrap_or(200).min(500);
-    st.read(move |idx| {
-        let c = idx.conn();
-        Ok(Audit {
-            rules: query::audit_rules(c, &f)?,
-            findings: query::findings(c, &f, p.rule.as_deref(), p.severity.as_deref(), limit)?,
+    // `status=all` keeps findings someone marked or muted; the default list
+    // is what's left to review.
+    let all = p.status.as_deref() == Some("all");
+    let reviews = st.reviews();
+    let mut audit = st
+        .read(move |idx| {
+            let c = idx.conn();
+            Ok(Audit {
+                rules: query::audit_rules(c, &f)?,
+                findings: query::findings(
+                    c,
+                    &f,
+                    p.rule.as_deref(),
+                    p.severity.as_deref(),
+                    limit * 4,
+                )?,
+                reviewed: 0,
+            })
         })
-    })
-    .await
-    .map(Json)
+        .await?;
+    for r in &mut audit.rules {
+        r.muted = reviews.muted_everywhere(&r.rule_id);
+    }
+    for h in &mut audit.findings {
+        h.review = reviews.state(&h.session_id, h.seq, &h.rule_id, h.project_root.as_deref());
+    }
+    audit.reviewed = audit.findings.iter().filter(|h| h.review.is_some()).count();
+    if !all {
+        audit.findings.retain(|h| h.review.is_none());
+    }
+    audit.findings.truncate(limit as usize);
+    Ok(Json(audit))
+}
+
+/// `GET /api/reviews`: findings marked and rules muted.
+pub async fn reviews(State(st): Shared) -> Json<agentcam_core::reviews::Reviews> {
+    Json(st.reviews())
+}
+
+/// `POST /api/reviews`: mark a finding as looked at, or mute a rule for a
+/// project (or everywhere), or undo either.
+pub async fn reviews_save(
+    State(st): Shared,
+    Json(change): Json<agentcam_core::reviews::Change>,
+) -> Response {
+    let Some(path) = st.reviews_path.clone() else {
+        return bad("reviews are off for this index");
+    };
+    let mut r = agentcam_core::reviews::load(&path);
+    r.apply(change);
+    match agentcam_core::reviews::save(&path, &r) {
+        Ok(()) => Json(r).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("couldn't save reviews: {e}"),
+        )
+            .into_response(),
+    }
 }
 
 pub async fn tools(
@@ -835,6 +912,31 @@ pub struct SaveRules {
 }
 
 /// Validate and save the user's rules, then re-check every session.
+#[derive(Deserialize)]
+pub struct PreviewRules {
+    yaml: String,
+}
+
+/// `POST /api/rules/preview`: what the rules in `yaml` would find in the
+/// last 90 days (most recent 400 sessions), before saving. Reads only.
+pub async fn rules_preview(State(st): Shared, Json(b): Json<PreviewRules>) -> Response {
+    let rules = match agentcam_core::audit::Rules::with_user_text(&b.yaml) {
+        Ok(r) => r,
+        Err(e) => return bad(e),
+    };
+    let only = agentcam_core::preview::defined_ids(&b.yaml);
+    if only.is_empty() {
+        return bad("no rules in the YAML to preview");
+    }
+    match st
+        .read(move |idx| agentcam_core::preview::preview(idx.conn(), &rules, &only, 90, 400))
+        .await
+    {
+        Ok(p) => Json(p).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.0).into_response(),
+    }
+}
+
 pub async fn rules_save(State(st): Shared, Json(b): Json<SaveRules>) -> Response {
     let Some(path) = st.rules_path.clone() else {
         return guard_off();
