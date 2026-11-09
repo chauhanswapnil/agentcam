@@ -79,6 +79,8 @@ jobs:
       - run: npm --prefix web ci && npm --prefix web run build
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo package --workspace --locked
+      # --allow-dirty: ui-dist is built above and gitignored, so cargo
+      # sees it as uncommitted; it must ship in the server crate.
+      - run: cargo package --workspace --locked --allow-dirty
       - name: The server crate carries the built UI
         run: tar tzf target/package/agentcam-server-*.crate | grep -q 'ui-dist/assets/index-'

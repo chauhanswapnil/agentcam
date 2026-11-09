@@ -14,8 +14,13 @@ T=$(mktemp -d)
 PORT=47${RANDOM: -2}
 SERVER=
 cleanup() {
-  [ -n "$SERVER" ] && kill "$SERVER" 2>/dev/null || true
-  rm -rf "$T"
+  if [ -n "$SERVER" ]; then
+    kill "$SERVER" 2>/dev/null || true
+    wait "$SERVER" 2>/dev/null || true
+  fi
+  # On Windows the server can hold the index open a moment longer; a
+  # leftover temp folder isn't a failure.
+  rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
