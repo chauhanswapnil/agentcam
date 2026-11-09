@@ -38,6 +38,25 @@ pub struct IndexStatus {
     pub last_error: Option<String>,
     /// Bumped after every finished index run, so the UI knows to refetch.
     pub generation: u64,
+    /// Whether the index holds any session yet; false on a first run.
+    pub has_sessions: bool,
+    /// The log folders agentcam reads, and whether each exists now.
+    pub folders: Vec<Folder>,
+}
+
+/// A path with the home folder written as `~`, as people type it.
+fn tilde(p: &Path) -> String {
+    match dirs::home_dir().and_then(|h| p.strip_prefix(h).ok().map(Path::to_path_buf)) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => p.display().to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Folder {
+    pub agent: &'static str,
+    pub path: String,
+    pub exists: bool,
 }
 
 impl AppState {
@@ -102,7 +121,24 @@ impl AppState {
     }
 
     pub fn status(&self) -> IndexStatus {
-        self.status.lock().unwrap().clone()
+        let mut st = self.status.lock().unwrap().clone();
+        st.has_sessions = self
+            .reader
+            .lock()
+            .unwrap()
+            .conn()
+            .query_row("SELECT EXISTS (SELECT 1 FROM sessions)", [], |r| r.get(0))
+            .unwrap_or(true);
+        st.folders = self
+            .sources
+            .iter()
+            .map(|s| Folder {
+                agent: s.agent.as_str(),
+                path: tilde(&s.path),
+                exists: s.path.is_dir(),
+            })
+            .collect();
+        st
     }
 
     /// Start indexing in the background unless a run is already going.

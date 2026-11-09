@@ -45,9 +45,38 @@ async fn api_not_found() -> StatusCode {
     StatusCode::NOT_FOUND
 }
 
+/// Pages may not be framed by another site (a hidden frame could trick
+/// clicks on "Save" or "Block next time"), and load nothing from the
+/// network: fonts and scripts ship inside the binary.
+const PAGE_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+     img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; \
+     frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+
 /// Serve a built asset, or fall back to `index.html` so client-side
-/// routes work on reload.
+/// routes work on reload. Used by the team server too.
 pub async fn static_handler(uri: Uri) -> Response {
+    let mut res = asset(uri).await;
+    let h = res.headers_mut();
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        header::HeaderValue::from_static(PAGE_POLICY),
+    );
+    h.insert(
+        header::X_FRAME_OPTIONS,
+        header::HeaderValue::from_static("DENY"),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        header::HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        header::REFERRER_POLICY,
+        header::HeaderValue::from_static("no-referrer"),
+    );
+    res
+}
+
+async fn asset(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
@@ -118,14 +147,16 @@ async fn same_site_writes(req: Request, next: Next) -> Response {
         .get("sec-fetch-site")
         .and_then(|v| v.to_str().ok())
         .is_none_or(|v| v == "same-origin" || v == "none");
+    // The page's own origin: same host and port as this server. Another
+    // app on localhost (a dev server on :3000) is a different origin.
+    let host = h
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     let origin_ok = h
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
-        .is_none_or(|o| {
-            let host = o.split("://").nth(1).unwrap_or("");
-            let name = host.rsplit_once(':').map_or(host, |(n, _)| n);
-            matches!(name, "127.0.0.1" | "localhost" | "[::1]")
-        });
+        .is_none_or(|o| o.split_once("://").is_some_and(|(_, rest)| rest == host));
     if site_ok && origin_ok {
         next.run(req).await
     } else {
@@ -337,6 +368,25 @@ mod tests {
         assert_eq!(evil.status(), StatusCode::FORBIDDEN);
         let evil = send(&app, post(rule, Some(("sec-fetch-site", "cross-site")))).await;
         assert_eq!(evil.status(), StatusCode::FORBIDDEN);
+        // So is another app on localhost: same name, different port.
+        let other = send(&app, post(rule, Some(("origin", "http://localhost:3000")))).await;
+        assert_eq!(other.status(), StatusCode::FORBIDDEN);
+        let other = send(&app, post(rule, Some(("origin", "http://127.0.0.1:3000")))).await;
+        assert_eq!(other.status(), StatusCode::FORBIDDEN);
+        // Pages can't be framed by another site.
+        let page = send(
+            &app,
+            Request::get("/audit")
+                .header(header::HOST, "127.0.0.1:4747")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(page.headers()[header::X_FRAME_OPTIONS], "DENY");
+        let csp = page.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap();
+        assert!(csp.contains("frame-ancestors 'none'"), "{csp}");
         // Bad patterns are refused.
         let bad = send(
             &app,

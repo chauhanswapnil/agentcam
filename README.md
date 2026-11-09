@@ -194,7 +194,9 @@ The index keeps sessions after the agent deletes their logs. Claude Code prunes 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). [AGENTS.md](AGENTS.md) covers the layout, commands, design rules and how parsing, the audit and the guard work, for people and coding agents alike.
 
-To try agentcam without your own logs, or to retake these screenshots:
+### Try it with demo data
+
+To look around without your own logs, or to retake these screenshots, make a folder of made-up sessions and point agentcam at it:
 
 ```sh
 python3 scripts/demo-data.py /tmp/agentcam-demo

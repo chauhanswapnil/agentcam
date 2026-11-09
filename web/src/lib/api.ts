@@ -202,6 +202,10 @@ export type IndexStatus = {
   last_report: { files_seen: number; files_parsed: number; events_written: number; elapsed_ms: number } | null
   last_error: string | null
   generation: number
+  /** False until the index holds a session: a first run. */
+  has_sessions: boolean
+  /** The log folders agentcam reads, and whether each exists now. */
+  folders: { agent: string; path: string; exists: boolean }[]
 }
 
 export type Hit = {

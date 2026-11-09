@@ -1,0 +1,100 @@
+.box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+  max-width: 640px;
+  margin: var(--s-10) auto;
+  padding: var(--s-8);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-3);
+  background: var(--bg-1);
+}
+.title {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+}
+.lead {
+  margin: 0;
+  color: var(--text-2);
+}
+.folders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: 100%;
+  margin: var(--s-2) 0 0;
+  padding: var(--s-3);
+  border-radius: var(--r-2);
+  background: var(--bg-0);
+  list-style: none;
+}
+.folders li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.folders svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.ok {
+  color: var(--status-good);
+}
+.no {
+  color: var(--text-3);
+}
+.path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.state {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: var(--s-2) 0 0;
+  padding-left: var(--s-5);
+  color: var(--text-2);
+}
+.steps a {
+  color: var(--text-1);
+}
+.error {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.spin {
+  width: 20px;
+  height: 20px;
+  color: var(--text-3);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+@media (max-width: 600px) {
+  .box {
+    margin: var(--s-6) 0;
+    padding: var(--s-5);
+  }
+}

@@ -144,7 +144,9 @@ pub fn default_log_sources() -> Vec<LogSource> {
 /// Every session log file under `sources`, sorted by path.
 pub fn discover(sources: &[LogSource]) -> Vec<(Agent, PathBuf)> {
     let mut out = Vec::new();
-    for s in sources.iter().filter(|s| s.exists) {
+    // Checked on every run, not at startup: an agent used for the first
+    // time after agentcam started creates its folder then.
+    for s in sources.iter().filter(|s| s.path.is_dir()) {
         walk(&s.path, &mut |p| {
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
             let wanted = match s.agent {
@@ -242,6 +244,16 @@ mod tests {
         assert!(claude.exists);
         assert!(!codex.exists);
         assert_eq!(codex.path, home.join(".codex/sessions"));
+
+        // Codex is run for the first time after agentcam started: its
+        // folder shows up later and the next run finds it.
+        assert!(discover(&sources).is_empty());
+        let day = home.join(".codex/sessions/2026/11/09");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::write(day.join("rollout-1.jsonl"), "{}\n").unwrap();
+        let found = discover(&sources);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, Agent::Codex);
 
         std::fs::remove_dir_all(&home).unwrap();
     }

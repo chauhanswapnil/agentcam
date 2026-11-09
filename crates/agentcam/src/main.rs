@@ -221,7 +221,14 @@ enum ExportFormat {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        // Exit code 2 means "block" to an agent's hook. If the guard hook
+        // was set up with arguments this version doesn't know, let the
+        // call run rather than block every tool call.
+        Err(e) if std::env::args().any(|a| a == "guard") && e.use_stderr() => std::process::exit(0),
+        Err(e) => e.exit(),
+    };
     // The MCP server speaks JSON-RPC on stdout; nothing else may print there.
     if matches!(cli.command, Some(Command::Mcp)) {
         let db = cli
@@ -233,7 +240,11 @@ async fn main() -> anyhow::Result<()> {
     // The guard hook must print nothing but its verdict, and be fast.
     if matches!(cli.command, Some(Command::Guard)) {
         let db = cli.db.or_else(agentcam_core::default_db_path);
-        std::process::exit(guard(db.as_deref()));
+        // Fail open: a panic would exit 101, which agents report as a hook
+        // error; any surprise lets the call run instead.
+        std::panic::set_hook(Box::new(|_| {}));
+        let verdict = std::panic::catch_unwind(|| guard(db.as_deref())).unwrap_or(0);
+        std::process::exit(verdict);
     }
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)

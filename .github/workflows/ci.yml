@@ -40,3 +40,45 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all
+
+  # Install the binary the way `cargo install agentcam` will, with the real
+  # UI embedded, and run it against the synthetic fixtures on every OS.
+  install:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci && npm --prefix web run build
+        shell: bash
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install --path crates/agentcam --locked --root "$RUNNER_TEMP/inst"
+        shell: bash
+      - run: scripts/smoke.sh "$RUNNER_TEMP/inst/bin/agentcam"
+        shell: bash
+
+  # The four crates must package for crates.io, UI included, and build
+  # from the packaged sources alone.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci && npm --prefix web run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo package --workspace --locked
+      - name: The server crate carries the built UI
+        run: tar tzf target/package/agentcam-server-*.crate | grep -q 'ui-dist/assets/index-'

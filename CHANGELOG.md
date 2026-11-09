@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- First run: with no sessions yet, the Overview shows which log folders it checked and what to do next, and progress while the first index runs.
+- Upgrades keep history: the index migrates in place (after a backup to `index.db.bak-v<N>`) instead of being rebuilt, so sessions whose logs the agents pruned survive. An index from a newer build is refused rather than wiped.
+- An agent used for the first time after agentcam started shows up without a restart.
+- `scripts/smoke.sh` and CI jobs that install the binary and run it on macOS, Linux and Windows, and check that the crates package.
+
+### Security
+
+- Pages send a Content Security Policy and refuse to be framed by other sites; write requests must come from agentcam's own origin, not another app on localhost.
+- `agentcam guard` lets the call run (exit 0) on unknown arguments or a crash, instead of exit codes an agent reads as a block or a hook error.
+
 - Audit: mark a finding "looks fine" or mute its rule for a project, from the Audit page or the replay; a To review / All switch keeps the list to what you haven't seen, and everything can be undone. Marks are kept in `reviews.json` next to the index.
 - Rule editor: Preview matches runs draft rules over recent sessions before saving and shows the steps they'd flag.
 - Search: a "With findings" filter. Command palette: pages, recent sessions and actions, and a pasted file path opens its history or who wrote each line.

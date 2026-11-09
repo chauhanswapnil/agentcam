@@ -36,6 +36,7 @@ import { weekCard } from '../lib/reportCard'
 import { ListRow } from '../ui/ListRow'
 import { ResumeButton } from '../ui/SessionActions'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
+import { Welcome } from '../ui/Welcome'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import { Sparkline } from '../ui/Sparkline'
@@ -296,6 +297,19 @@ export function Overview() {
   const indexing = status?.indexing
   const firstRun = indexing && !status?.last_report
   const o = overview.data
+
+  if (status && !status.has_sessions) {
+    return (
+      <div className={s.page}>
+        <header className={s.head}>
+          <div>
+            <h1>Overview</h1>
+          </div>
+        </header>
+        <Welcome status={status} />
+      </div>
+    )
+  }
 
   return (
     <div className={s.page}>

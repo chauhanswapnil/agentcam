@@ -88,6 +88,7 @@ UI dev loop: run `cargo run -- serve --no-open` in one terminal and `npm run dev
 3. If you touched `web/`: `npm run lint` and `npm run build` pass.
 4. New behavior has a test. Parser changes have a fixture that shows the case.
 5. UI changes: open the app and look at them. Screenshots in the PR help.
+6. Install-path changes: `scripts/smoke.sh target/debug/agentcam` runs a built binary against the fixtures (index, search, guard, serve). CI runs it on macOS, Linux and Windows after `cargo install`, and checks `cargo package --workspace`.
 
 ## Privacy rules (important)
 
@@ -103,7 +104,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 
 | Route | What it returns |
 |---|---|
-| `GET /api/status` | Index state; `generation` goes up after each run, so the UI refetches |
+| `GET /api/status` | Index state; `generation` goes up after each run, so the UI refetches; `has_sessions` and `folders` (log folders and whether each exists) drive the first-run screen |
 | `POST /api/index` | Start indexing new and changed logs (202, or 409 if already running) |
 | `GET /api/overview` | Stats, the previous period's stats, and projects with weekly sparklines |
 | `GET /api/activity` | Agent time per local day for the last 371 days |
@@ -266,6 +267,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Don't push per-frame state through the router; the replay writes `?step=` with `history.replaceState` after the playhead rests.
 - Check big sessions (1,500+ steps): stepping should stay under ~10 ms.
 - Every request must use a loopback `Host` (`127.0.0.1`, `localhost`, `[::1]`). This blocks DNS rebinding; keep it.
+- Pages (both apps, via `static_handler`) send a Content Security Policy (`PAGE_POLICY`: only `'self'`, no framing) and `X-Frame-Options: DENY`, so another site can't frame agentcam and trick clicks. Write routes need an `Origin` equal to the request's `Host`, so another app on localhost can't post either.
 
 ## UI and design system
 
@@ -295,7 +297,8 @@ Open `/styleguide` in the running app to see every token and component. Before a
 - `index.rs` stores sessions in SQLite with an FTS5 table over event titles and bodies. It re-parses a file only when its size or modified time changes. Sessions stay after their log file is deleted (agents prune old logs; agentcam keeps the history).
 - `shell.rs` reads file changes out of shell commands (`>`, `>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `touch`, `cd` chains, skipping heredoc bodies). It is a careful reader, not a shell: when unsure (globs, variables, `~`), it records nothing. Files written by scripts it runs (say `python script.py`) are not seen.
 - Long text is cut to 32 KB in the index. `source_offset` points back at the original record.
-- Change the schema → bump `SCHEMA_VERSION` in `index.rs`; every table of an old index is dropped and rebuilt.
+- **Schema changes are migrations.** `SCHEMA` in `index.rs` is the 0.1.0 schema (`BASE_VERSION`, 14) and never changes. To change it, append a `Migration` to `MIGRATIONS`: SQL run in one transaction, and `reparse: true` when new fields can only come from the logs (the next run re-reads every log; sessions whose logs are gone keep what they had). Never edit a released step. Before migrating, the index is copied to `index.db.bak-v<N>`. An index from a newer build is refused, never wiped. Pre-release indexes (below 14) are still dropped and rebuilt.
+- Log folders are looked up on every index run, and the watcher checks every 5 s for one that didn't exist at start, so an agent used for the first time after agentcam started shows up without a restart.
 
 ## Log formats
 

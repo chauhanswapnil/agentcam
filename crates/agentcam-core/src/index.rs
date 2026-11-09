@@ -15,8 +15,26 @@ use serde::Serialize;
 use crate::model::ParsedSession;
 use crate::{Agent, LogSource, discover, parse_file};
 
-/// Bump when the schema changes. A mismatch drops and rebuilds the index.
-const SCHEMA_VERSION: i64 = 14;
+/// The schema `SCHEMA` creates, the first one released (0.1.0). Never
+/// change it: add a step to `MIGRATIONS` instead, so an index from an older
+/// release keeps the sessions whose logs the agents have since deleted.
+const BASE_VERSION: i64 = 14;
+
+/// One upgrade step, from `BASE_VERSION + i` to `BASE_VERSION + i + 1`.
+pub struct Migration {
+    /// SQL run in one transaction: `ALTER TABLE ... ADD COLUMN`, new tables,
+    /// backfills from data already in the index.
+    pub sql: &'static str,
+    /// Re-read every log on the next run, to fill in what only the logs
+    /// hold. Sessions whose logs are gone keep what they had.
+    pub reparse: bool,
+}
+
+/// Upgrade steps, oldest first. Append only; never edit a released step.
+const MIGRATIONS: &[Migration] = &[];
+
+/// The schema this build reads and writes.
+pub const SCHEMA_VERSION: i64 = BASE_VERSION + MIGRATIONS.len() as i64;
 
 /// Gaps between steps longer than this count as idle, not agent time.
 pub const IDLE_CAP_MS: i64 = 5 * 60 * 1000;
@@ -256,6 +274,11 @@ pub enum IndexError {
     Sqlite(#[from] rusqlite::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error(
+        "this index was made by a newer agentcam (schema {found}, this build reads up to {supported}). \
+         Update agentcam, or pass --db to use another index file."
+    )]
+    NewerSchema { found: i64, supported: i64 },
 }
 
 pub type Result<T> = std::result::Result<T, IndexError>;
@@ -302,6 +325,96 @@ pub fn default_db_path() -> Option<PathBuf> {
     Some(dirs::data_local_dir()?.join("agentcam").join("index.db"))
 }
 
+/// The file behind the main database, if it isn't in memory.
+fn path_of(conn: &Connection) -> Option<PathBuf> {
+    conn.path().filter(|p| !p.is_empty()).map(PathBuf::from)
+}
+
+/// Bring the index at `db` up to the schema `migrations` lead to.
+///
+/// - Empty: create the schema.
+/// - Older than the first release (a development build): drop and rebuild,
+///   as before migrations existed.
+/// - Older release: copy the file to `index.db.bak-v<N>`, then run each
+///   step in its own transaction. A step that needs the logs clears the
+///   rules fingerprint, so the next `update` re-reads every log.
+/// - Newer than this build: refuse, rather than drop someone's history.
+fn upgrade(conn: &Connection, db: Option<&Path>, migrations: &[Migration]) -> Result<()> {
+    let target = BASE_VERSION + migrations.len() as i64;
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version == target {
+        return Ok(());
+    }
+    if version > target {
+        return Err(IndexError::NewerSchema {
+            found: version,
+            supported: target,
+        });
+    }
+    let has_tables: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%')",
+        [],
+        |r| r.get(0),
+    )?;
+    if version < BASE_VERSION {
+        if has_tables {
+            // Drop every table an older version made, whatever it was.
+            // Virtual tables first: they take their shadow tables with them.
+            let tables: Vec<String> = conn
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                     ORDER BY sql NOT LIKE 'CREATE VIRTUAL%'",
+                )?
+                .query_map([], |r| r.get(0))?
+                .collect::<std::result::Result<_, _>>()?;
+            for t in tables {
+                conn.execute_batch(&format!(
+                    "DROP TABLE IF EXISTS \"{}\"",
+                    t.replace('"', "\"\"")
+                ))?;
+            }
+        }
+        conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(&format!("PRAGMA user_version = {BASE_VERSION}"))?;
+        if migrations.is_empty() {
+            return Ok(());
+        }
+        // A fresh schema runs the steps too, so new and upgraded indexes
+        // end up the same.
+        return upgrade(conn, None, migrations);
+    }
+    if let Some(db) = db {
+        let backup = db.with_file_name(format!(
+            "{}.bak-v{version}",
+            db.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("index.db")
+        ));
+        let _ = std::fs::remove_file(&backup);
+        conn.execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()])?;
+    }
+    let mut reparse = false;
+    for (i, step) in migrations
+        .iter()
+        .enumerate()
+        .skip((version - BASE_VERSION) as usize)
+    {
+        let next = BASE_VERSION + i as i64 + 1;
+        conn.execute_batch(&format!(
+            "BEGIN; {} PRAGMA user_version = {next}; COMMIT;",
+            step.sql
+        ))
+        .inspect_err(|_| {
+            let _ = conn.execute_batch("ROLLBACK");
+        })?;
+        reparse |= step.reparse;
+    }
+    if reparse {
+        conn.execute("DELETE FROM meta WHERE key = 'rules'", [])?;
+    }
+    Ok(())
+}
+
 impl Index {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
@@ -324,26 +437,7 @@ impl Index {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = OFF;",
         )?;
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version != SCHEMA_VERSION {
-            // Drop every table an older version made, whatever it was.
-            // Virtual tables first: they take their shadow tables with them.
-            let tables: Vec<String> = conn
-                .prepare(
-                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
-                     ORDER BY sql NOT LIKE 'CREATE VIRTUAL%'",
-                )?
-                .query_map([], |r| r.get(0))?
-                .collect::<std::result::Result<_, _>>()?;
-            for t in tables {
-                conn.execute_batch(&format!(
-                    "DROP TABLE IF EXISTS \"{}\"",
-                    t.replace('"', "\"\"")
-                ))?;
-            }
-            conn.execute_batch(SCHEMA)?;
-            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
-        }
+        upgrade(&conn, path_of(&conn).as_deref(), MIGRATIONS)?;
         Ok(Index {
             conn,
             rules: crate::audit::Rules::builtin(),
@@ -916,4 +1010,136 @@ fn remove_session_rows(tx: &rusqlite::Transaction, id: &str) -> Result<()> {
     }
     tx.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("agentcam-migrate-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("index.db")
+    }
+
+    /// A released index with one session whose log is gone.
+    fn released_index(db: &Path) {
+        let idx = Index::open(db).unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path) VALUES ('kept', 'claude-code', '/Users/dev/gone.jsonl');
+                 INSERT INTO meta (key, value) VALUES ('rules', 'old');",
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn upgrade_keeps_sessions_whose_logs_are_gone() {
+        let db = temp_db("keep");
+        released_index(&db);
+        let steps = [Migration {
+            sql: "ALTER TABLE sessions ADD COLUMN note TEXT; UPDATE sessions SET note = 'upgraded';",
+            reparse: true,
+        }];
+        let conn = Connection::open(&db).unwrap();
+        upgrade(&conn, Some(&db), &steps).unwrap();
+        let note: String = conn
+            .query_row("SELECT note FROM sessions WHERE id = 'kept'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(note, "upgraded");
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, BASE_VERSION + 1);
+        // The step needed the logs, so the next run re-reads them all.
+        let rules: Option<String> = conn
+            .query_row("SELECT value FROM meta WHERE key = 'rules'", [], |r| {
+                r.get(0)
+            })
+            .optional()
+            .unwrap();
+        assert_eq!(rules, None);
+        // The old file was copied first, and still opens at the old version.
+        let backup = db.with_file_name(format!("index.db.bak-v{BASE_VERSION}"));
+        let old = Connection::open(&backup).unwrap();
+        let v: i64 = old
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, BASE_VERSION);
+        // Running again does nothing.
+        upgrade(&conn, Some(&db), &steps).unwrap();
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
+
+    #[test]
+    fn a_failed_step_leaves_the_index_as_it_was() {
+        let db = temp_db("fail");
+        released_index(&db);
+        let steps = [Migration {
+            sql: "ALTER TABLE sessions ADD COLUMN x TEXT; SELECT * FROM no_such_table;",
+            reparse: false,
+        }];
+        let conn = Connection::open(&db).unwrap();
+        assert!(upgrade(&conn, Some(&db), &steps).is_err());
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, BASE_VERSION);
+        let cols: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('sessions') WHERE name = 'x'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cols, 0, "the half-run step was rolled back");
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
+
+    #[test]
+    fn a_newer_index_is_refused_not_wiped() {
+        let db = temp_db("newer");
+        released_index(&db);
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch(&format!("PRAGMA user_version = {}", SCHEMA_VERSION + 3))
+            .unwrap();
+        let err = Index::open(&db).err().expect("refused");
+        assert!(matches!(err, IndexError::NewerSchema { .. }), "{err}");
+        let n: i64 = Connection::open(&db)
+            .unwrap()
+            .query_row("SELECT count(*) FROM sessions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
+
+    #[test]
+    fn a_development_index_is_rebuilt() {
+        let db = temp_db("dev");
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE sessions (id TEXT); PRAGMA user_version = 9;")
+            .unwrap();
+        drop(conn);
+        let idx = Index::open(&db).unwrap();
+        let v: i64 = idx
+            .conn()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+        let n: i64 = idx
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('sessions')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(n > 1, "the current sessions table replaced the old one");
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
 }

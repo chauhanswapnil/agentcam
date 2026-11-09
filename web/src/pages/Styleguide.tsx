@@ -18,6 +18,7 @@ import { CsvButton } from '../ui/CsvButton'
 import { CopyButton } from '../ui/CopyButton'
 import { FindingReview } from '../ui/FindingReview'
 import { SortTh } from '../ui/SortTh'
+import { Welcome } from '../ui/Welcome'
 import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
 import { SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
@@ -365,6 +366,22 @@ export function Styleguide() {
               </div>
             </Panel>
           </div>
+
+          <span className={s.sub}>First run</span>
+          <p className={s.rule}>Before any session is indexed, the Overview says which log folders it checked and what to do next.</p>
+          <Welcome
+            status={{
+              indexing: false,
+              last_report: null,
+              last_error: null,
+              generation: 1,
+              has_sessions: false,
+              folders: [
+                { agent: 'claude-code', path: '/Users/dev/.claude/projects', exists: true },
+                { agent: 'codex', path: '/Users/dev/.codex/sessions', exists: false },
+              ],
+            }}
+          />
 
           <span className={s.sub}>Loading and empty</span>
           <div className={s.grid2}>
