@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
@@ -14,9 +14,9 @@ keywords = ["ai", "agents", "claude", "codex", "observability"]
 categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
-agentcam-core = { path = "crates/agentcam-core", version = "=0.1.0-rc.1" }
-agentcam-server = { path = "crates/agentcam-server", version = "=0.1.0-rc.1" }
-agentcam-team = { path = "crates/agentcam-team", version = "=0.1.0-rc.1" }
+agentcam-core = { path = "crates/agentcam-core", version = "=0.1.0-rc.2" }
+agentcam-server = { path = "crates/agentcam-server", version = "=0.1.0-rc.2" }
+agentcam-team = { path = "crates/agentcam-team", version = "=0.1.0-rc.2" }
 anyhow = "1"
 axum = "0.8"
 clap = { version = "4.6", features = ["derive", "env"] }
