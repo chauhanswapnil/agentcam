@@ -327,3 +327,21 @@
   min-width: 200px;
   white-space: normal;
 }
+
+/* A name in a table that sets a filter: looks like text until you point at it. */
+.linkBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.linkBtn:hover {
+  text-decoration: underline;
+}
+.linkBtn:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}

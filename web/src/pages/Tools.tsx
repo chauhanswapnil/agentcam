@@ -161,8 +161,25 @@ export function Tools() {
               </thead>
               <tbody>
                 {sources.data.map((x) => (
-                  <tr key={`${x.kind}:${x.name}`}>
-                    <td className={s.mono}>{x.name}</td>
+                  <tr key={`${x.kind}:${x.name}`} className={x.kind === 'mcp' && f.tool === `mcp__${x.name}` ? s.rowOn : undefined}>
+                    <td className={s.mono}>
+                      {x.kind === 'mcp' ? (
+                        // An MCP server's calls are its tools: the same filter a tool row sets.
+                        <button
+                          type="button"
+                          className={s.linkBtn}
+                          title="Show this server's latest calls"
+                          onClick={() => {
+                            set({ tool: `mcp__${x.name}` })
+                            window.scrollTo({ top: 0 })
+                          }}
+                        >
+                          {x.name}
+                        </button>
+                      ) : (
+                        x.name
+                      )}
+                    </td>
                     <td>{SOURCE_KIND[x.kind] ?? x.kind}</td>
                     <td className={s.num}>{formatNumber(x.steps)}</td>
                     <td className={s.num}>{x.errors ? formatNumber(x.errors) : '–'}</td>
