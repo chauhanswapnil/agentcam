@@ -34,7 +34,8 @@ import {
 } from 'lucide-react'
 import { Fragment, createElement, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { query, useApi, useIndexStatus, type Cache, type Costs, type EventRow, type Lasted, type TurnRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { query, useApi, useIndexStatus, type Cache, type Costs, type EventRow, type TimeBar as TimeBarData, type Lasted, type TurnRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { TimeStrip } from '../ui/TimeBar'
 import { describeRebuild } from '../lib/cache'
 import { costSummary } from '../lib/cost'
 import { baseName, formatCompact, formatCost, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
@@ -116,6 +117,7 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
   // Refetched when the session gains steps, so a live session's split keeps up.
   const cost = useApi<Costs>(`/api/cost${query({ session: id })}`, data.events.length)
   const cache = useApi<Cache>(`/api/cache${query({ session: id })}`, data.events.length)
+  const time = useApi<TimeBarData>(`/api/profile${query({ session: id })}`, data.events.length)
   const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs, follow, plan } = data
   const [view, setView] = useState<'transcript' | 'turns' | 'trace'>('transcript')
   const [, navigate] = useLocation()
@@ -327,6 +329,7 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
           )}
         </div>
       </header>
+      {time.data && <TimeStrip data={time.data} />}
 
       {events.length === 0 ? (
         <Panel>

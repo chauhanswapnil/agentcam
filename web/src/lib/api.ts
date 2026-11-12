@@ -485,16 +485,20 @@ export type TimeBar = {
   orienting_ms: number
   approved_by_hand: number
   sessions: number
+  start_tokens: number | null
+  start_skills_tokens: number | null
+  start_mcp_tokens: number | null
 }
 
 export type Fix = {
   id: string
-  kind: 'approval' | 'slow_command' | 'cache'
+  kind: 'approval' | 'slow_command' | 'loud_command' | 'cache'
   title: string
   detail: string
   count: number
   ms_per_week: number | null
   usd_per_week: number | null
+  tokens_per_week: number | null
   share: number
   fix: string | null
   fix_where: string | null
@@ -506,7 +510,7 @@ export type Fix = {
 
 export type Fixes = { fixes: Fix[]; weeks: number; enough_data: boolean }
 
-export type FixWindow = { days: number; count: number; ms: number; usd: number; agent_ms: number; sessions: number }
+export type FixWindow = { days: number; count: number; ms: number; usd: number; tokens?: number; agent_ms: number; sessions: number }
 
 export type FixMark = { id: string; kind: string; title: string; state: 'applied' | 'dismissed'; at: string; before?: FixWindow }
 

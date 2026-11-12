@@ -233,6 +233,9 @@ pub struct Event {
     pub input: Option<Value>,
     pub is_error: bool,
     pub duration_ms: Option<u64>,
+    /// How long a tool's output was before it was cut to fit the index,
+    /// in bytes. What the agent had to read.
+    pub out_chars: Option<u64>,
     /// Byte offset of the record in the source file that started this event.
     pub source_offset: u64,
     /// Agent's own id for the call, used to pair results.
@@ -261,6 +264,7 @@ impl Event {
             input: None,
             is_error: false,
             duration_ms: None,
+            out_chars: None,
             source_offset,
             call_id: None,
             usage: None,

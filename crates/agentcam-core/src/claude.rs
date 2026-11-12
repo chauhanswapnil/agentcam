@@ -257,6 +257,7 @@ impl State {
         if body.is_empty() && content.to_string().contains(r#""type":"image""#) {
             body = "[image]".to_string();
         }
+        ev.out_chars = Some(body.len() as u64);
         ev.body = truncate(&body, MAX_TEXT);
         ev.is_error = block.get("is_error").and_then(Value::as_bool) == Some(true);
         ev.duration_ms = duration_ms(ev.timestamp.as_deref(), ts);

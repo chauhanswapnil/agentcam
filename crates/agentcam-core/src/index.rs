@@ -40,6 +40,12 @@ const MIGRATIONS: &[Migration] = &[
               ALTER TABLE events ADD COLUMN tier TEXT;",
         reparse: true,
     },
+    // 16: how much a tool printed, before the 32 KB cut. Loud commands are
+    // found from it.
+    Migration {
+        sql: "ALTER TABLE events ADD COLUMN out_chars INTEGER;",
+        reparse: true,
+    },
 ];
 
 /// The schema this build reads and writes.
@@ -917,9 +923,9 @@ fn write_session(
         "INSERT INTO events (session_id, seq, ts, kind, tool_name, category, title, body, input,
             is_error, duration_ms, source_offset, gap_ms, model, tok_in, tok_out, tok_cache_read,
             tok_cache_write, context_tokens, cost_usd, wasted, tok_reasoning, approval, via,
-            tok_cache_write_1h, tier)
+            tok_cache_write_1h, tier, out_chars)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                 ?22, ?23, ?24, ?25, ?26)",
+                 ?22, ?23, ?24, ?25, ?26, ?27)",
     )?;
     let mut fts =
         tx.prepare_cached("INSERT INTO events_fts (rowid, title, body) VALUES (?, ?, ?)")?;
@@ -958,6 +964,7 @@ fn write_session(
                 .as_ref()
                 .filter(|u| u.tier != crate::model::Tier::Standard)
                 .map(|u| u.tier.as_str()),
+            e.out_chars.map(|n| n as i64),
         ])?;
         fts.execute(params![tx.last_insert_rowid(), e.title, e.body])?;
     }
@@ -1207,12 +1214,12 @@ mod tests {
             .conn()
             .query_row(
                 "SELECT count(*) FROM pragma_table_info('events')
-                 WHERE name IN ('tok_cache_write_1h', 'tier')",
+                 WHERE name IN ('tok_cache_write_1h', 'tier', 'out_chars')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(cols, 2);
+        assert_eq!(cols, 3);
         let kept: i64 = idx
             .conn()
             .query_row("SELECT count(*) FROM sessions WHERE id = 'kept'", [], |r| {

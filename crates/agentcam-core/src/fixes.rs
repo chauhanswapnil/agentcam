@@ -26,6 +26,25 @@ const FLOOR_MS_PER_WEEK: i64 = 10 * 60_000;
 const FLOOR_ASKS_PER_WEEK: f64 = 10.0;
 /// A cost fix must be this share of the estimated cost.
 const FLOOR_COST_SHARE: f64 = 0.05;
+/// A loud command must add this many tokens a week, and a typical run
+/// this many, to be shown. Tokens are estimated at four bytes each.
+const FLOOR_TOKENS_PER_WEEK: i64 = 200_000;
+const LOUD_RUN_TOKENS: i64 = 5_000;
+const BYTES_PER_TOKEN: i64 = 4;
+/// Quieter forms of common commands, offered as an example in the prompt.
+const QUIET: &[(&str, &str)] = &[
+    ("cargo test", "cargo test -q"),
+    ("cargo build", "cargo build -q"),
+    ("cargo check", "cargo check -q"),
+    ("cargo clippy", "cargo clippy -q"),
+    ("pytest", "pytest -q"),
+    ("npm test", "npm test --silent"),
+    ("npm install", "npm install --silent"),
+    ("pnpm test", "pnpm test --silent"),
+    ("pnpm install", "pnpm install --silent"),
+    ("go test", "go test (without -v)"),
+    ("xcodebuild", "xcodebuild -quiet"),
+];
 /// A command is "slow" only if a typical run takes this long.
 const SLOW_RUN_MS: i64 = 20_000;
 const MAX_FIXES: usize = 5;
@@ -49,7 +68,7 @@ pub struct Example {
 pub struct Fix {
     /// Stable across runs: the kind and what it is about.
     pub id: String,
-    /// `approval`, `slow_command` or `cache`.
+    /// `approval`, `slow_command`, `loud_command` or `cache`.
     pub kind: &'static str,
     pub title: String,
     /// One or two plain sentences: what the logs show.
@@ -60,6 +79,9 @@ pub struct Fix {
     pub total_ms: Option<i64>,
     /// Estimated dollars over the whole range, for cost fixes.
     pub total_usd: Option<f64>,
+    /// Estimated tokens printed over the whole range, for loud commands.
+    pub total_tokens: Option<i64>,
+    pub tokens_per_week: Option<i64>,
     /// Time it takes a week, for time fixes.
     pub ms_per_week: Option<i64>,
     /// Estimated dollars a week at list prices, for cost fixes.
@@ -164,6 +186,7 @@ struct Row {
     duration: Option<i64>,
     approval: Option<String>,
     title: Option<String>,
+    out_chars: Option<i64>,
 }
 
 #[derive(Default)]
@@ -173,6 +196,8 @@ struct Group {
     runs: Vec<i64>,
     /// Ran again with no file change since the last run.
     reruns: i64,
+    /// Estimated tokens each run printed.
+    outs: Vec<i64>,
     examples: Vec<Example>,
     stamps: Vec<i64>,
 }
@@ -224,7 +249,7 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
     let mut stmt = conn.prepare(&format!(
         "SELECT e.session_id, e.seq, e.ts, e.tool_name, e.category,
                 CASE WHEN e.category = 'command' OR e.approval IN ('you', 'rejected') THEN e.input END,
-                e.duration_ms, e.approval, s.title
+                e.duration_ms, e.approval, s.title, e.out_chars
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE e.kind = 'tool_call' AND {cond} ORDER BY e.session_id, e.seq"
     ))?;
@@ -243,6 +268,7 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
                 duration: r.get(6)?,
                 approval: r.get(7)?,
                 title: r.get(8)?,
+                out_chars: r.get(9)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -318,6 +344,9 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
         {
             let g = commands.entry(key.clone()).or_default();
             g.add(r, d);
+            if let Some(n) = r.out_chars {
+                g.outs.push(n / BYTES_PER_TOKEN);
+            }
             if since_change.contains(&key) {
                 g.reruns += 1;
             } else {
@@ -358,7 +387,59 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
         });
     }
 
+    // Tokens that entered a prompt fresh in the range: what a loud
+    // command's output is a share of.
+    let costs = crate::cost::costs(conn, prices, f)?;
+    let new_tokens: i64 = costs
+        .models
+        .iter()
+        .map(|m| m.input_tokens + m.cache_write_tokens)
+        .sum::<i64>()
+        .max(1);
+
     for (key, mut g) in commands {
+        // Loud: what it prints is read by the model, run after run.
+        let tokens: i64 = g.outs.iter().sum();
+        let typical_out = median(&mut g.outs);
+        let tokens_week = (tokens as f64 / weeks) as i64;
+        if tokens > 0
+            && (!floors || (tokens_week >= FLOOR_TOKENS_PER_WEEK && typical_out >= LOUD_RUN_TOKENS))
+        {
+            let k = |n: i64| {
+                if n >= 1_000_000 {
+                    format!("{:.1}M", n as f64 / 1e6)
+                } else {
+                    format!("{}K", (n as f64 / 1000.0).round() as i64)
+                }
+            };
+            let hint = QUIET
+                .iter()
+                .find(|(c, _)| *c == key)
+                .map(|(_, q)| format!(" For this one, `{q}` is the usual quiet form."))
+                .unwrap_or_default();
+            out.fixes.push(Fix {
+                id: format!("loud:{key}"),
+                kind: "loud_command",
+                title: format!("`{key}` printed about {} tokens over {} runs", k(tokens), g.count),
+                detail: format!(
+                    "A typical run prints about {} tokens, and the model reads all of it and carries it for the rest of the session (an estimate, at four bytes a token). A quiet flag, or only the last lines, keeps what matters.",
+                    k(typical_out)
+                ),
+                count: g.count,
+                total_tokens: Some(tokens),
+                tokens_per_week: Some(tokens_week),
+                share: tokens as f64 / new_tokens as f64,
+                prompt: Some(format!(
+                    "In this repo `{key}` prints about {} tokens on a typical run, which fills the context. Find a quieter form for everyday runs (a quiet flag, a short reporter, or piping through `tail`) that still shows errors in full, and add it to AGENTS.md under the commands section.{hint}",
+                    k(typical_out)
+                )),
+                fix_where: Some("AGENTS.md"),
+                weekly: weekly(&g.stamps, last, whole_weeks),
+                examples: g.examples.clone(),
+                ..Default::default()
+            });
+        }
+
         let per_week = (g.ms as f64 / weeks) as i64;
         let typical = median(&mut g.runs);
         if floors && (per_week < FLOOR_MS_PER_WEEK || typical < SLOW_RUN_MS) {
@@ -395,7 +476,7 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
 
     // Cache rebuilds, by cause.
     let cache = crate::cache::cache_in_full(conn, prices, f)?;
-    let cost = crate::cost::costs(conn, prices, f)?.usd;
+    let cost = costs.usd;
     for c in &cache.by_cause {
         let Some(cause) = c.cause else { continue };
         if cost <= 0.0 || (floors && c.usd / cost < FLOOR_COST_SHARE) {
@@ -482,6 +563,8 @@ mod tests {
         command: &'static str,
         secs: i64,
         approval: Option<&'static str>,
+        /// Bytes of output.
+        out: i64,
     }
 
     fn cmd(min: i64, command: &'static str, secs: i64) -> Step {
@@ -492,6 +575,7 @@ mod tests {
             command,
             secs,
             approval: Some("rule"),
+            out: 400,
         }
     }
 
@@ -503,6 +587,7 @@ mod tests {
             command: "",
             secs: 1,
             approval: None,
+            out: 2,
         }
     }
 
@@ -525,9 +610,9 @@ mod tests {
             idx.conn()
                 .execute(
                     "INSERT INTO events (session_id, seq, ts, kind, category, tool_name, title, body,
-                        source_offset, gap_ms, duration_ms, approval, input)
-                     VALUES ('s', ?1, ?2, 'tool_call', ?3, ?4, '', '', 0, 60000, ?5, ?6, ?7)",
-                    rusqlite::params![seq as i64, ts, s.category, s.tool, s.secs * 1000, s.approval, input],
+                        source_offset, gap_ms, duration_ms, approval, input, out_chars)
+                     VALUES ('s', ?1, ?2, 'tool_call', ?3, ?4, '', '', 0, 60000, ?5, ?6, ?7, ?8)",
+                    rusqlite::params![seq as i64, ts, s.category, s.tool, s.secs * 1000, s.approval, input, s.out],
                 )
                 .unwrap();
         }
@@ -641,6 +726,34 @@ mod tests {
             });
         }
         assert!(run(&steps).fixes.iter().all(|x| x.kind != "approval"));
+    }
+
+    #[test]
+    fn a_command_that_prints_a_lot_is_a_fix() {
+        let mut steps = vec![edit(0)];
+        // Twelve quick runs over eight days, 120 KB of output each: about
+        // 30K tokens a run, 360K in all.
+        for i in 0..12 {
+            steps.push(Step {
+                out: 120_000,
+                ..cmd(i * 960 + 10, "cargo test --all", 5)
+            });
+            steps.push(edit(i * 960 + 20));
+        }
+        // A near miss: as many runs of something that prints little.
+        for i in 0..12 {
+            steps.push(cmd(i * 960 + 30, "cargo fmt --check", 5));
+        }
+        let f = run(&steps);
+        assert_eq!(f.fixes.len(), 1, "{:#?}", f.fixes);
+        let x = &f.fixes[0];
+        assert_eq!((x.id.as_str(), x.kind), ("loud:cargo test", "loud_command"));
+        assert_eq!(
+            x.title,
+            "`cargo test` printed about 360K tokens over 12 runs"
+        );
+        assert_eq!(x.total_tokens, Some(360_000));
+        assert!(x.prompt.as_deref().unwrap().contains("`cargo test -q`"));
     }
 
     #[test]

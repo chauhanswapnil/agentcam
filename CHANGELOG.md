@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Profiler
 
+- Loud commands are a fix kind: a command whose output fills the context run after run, with a prompt that asks your agent for a quieter form. The index now keeps each tool output's full size (schema 16; the first run reads the logs again).
+- The time bar says how big a session is before any work starts, and the replay header shows where one session's time went.
 - A ledger on the Profile page: mark a fix "I did this" and agentcam sets the four weeks before against the time since, per 10 hours of agent time. It states the change only after a full week, and says so when a fix made no difference. "Not for me" sets a fix aside; both can be undone. Marks are kept in `profile.json` next to the index.
 - A Profile page with fix cards: the few changes most likely to give time or money back (a slow command run often, a call you allow by hand every time, a prompt cache lost after a break), each with the steps behind it and a setting or a prompt to copy. The Overview shows the top one.
 - "Where the time went" on the Overview: agent time split into the model working, tools running, waiting on approval (an estimate), ready for you, and redoing. It also says how much went on reading and searching before the first change of a turn.

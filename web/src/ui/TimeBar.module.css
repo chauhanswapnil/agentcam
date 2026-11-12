@@ -72,3 +72,9 @@
   color: var(--text-2);
   font-weight: var(--fw-medium);
 }
+.strip {
+  height: var(--s-1-5);
+}
+.note + .note {
+  margin-top: var(--s-1);
+}

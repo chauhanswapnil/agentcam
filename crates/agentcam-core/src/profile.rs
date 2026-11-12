@@ -39,6 +39,15 @@ pub struct TimeBar {
     /// Calls you allowed by hand that the approval estimate rests on.
     pub approved_by_hand: i64,
     pub sessions: i64,
+    /// How big a typical top-level session's prompt is on its first model
+    /// call, before any work: the agent's own prompt, tool definitions,
+    /// instruction files, listings and your first message. Exact, from the
+    /// log's token counts (the median over sessions).
+    pub start_tokens: Option<i64>,
+    /// The parts of that the logs let us size, estimated at four bytes a
+    /// token: the skill listing, and MCP server instructions.
+    pub start_skills_tokens: Option<i64>,
+    pub start_mcp_tokens: Option<i64>,
 }
 
 struct Step {
@@ -65,7 +74,9 @@ pub fn time_bar(conn: &Connection, f: &Filter) -> Result<TimeBar> {
         "SELECT {COLUMNS} FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE {cond} ORDER BY e.session_id, e.seq"
     );
-    split(&load(conn, &sql, &args)?)
+    let mut bar = split(&load(conn, &sql, &args)?)?;
+    start_load(conn, &cond, &args, &mut bar)?;
+    Ok(bar)
 }
 
 /// The time bar of one session and its subagents.
@@ -74,7 +85,47 @@ pub fn session_time_bar(conn: &Connection, id: &str) -> Result<TimeBar> {
         "SELECT {COLUMNS} FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE s.id = ?1 OR s.parent_id = ?1 ORDER BY e.session_id, e.seq"
     );
-    split(&load(conn, &sql, &[id.to_string()])?)
+    let mut bar = split(&load(conn, &sql, &[id.to_string()])?)?;
+    start_load(conn, "s.id = ?1", &[id.to_string()], &mut bar)?;
+    Ok(bar)
+}
+
+/// Fill in what sessions start with: the first model call of each
+/// top-level session matching `cond`.
+fn start_load(conn: &Connection, cond: &str, args: &[String], bar: &mut TimeBar) -> Result<()> {
+    // One pass to find each session's first model call, then join: a
+    // per-row lookup here is slow on a big index.
+    let sql = format!(
+        "SELECT e.context_tokens, s.skills_listing_chars,
+                (SELECT sum(length(t.text)) FROM session_tools st JOIN tool_texts t ON t.hash = st.hash
+                 WHERE st.session_id = s.id AND st.tool = '(instructions)')
+         FROM (SELECT session_id, min(seq) AS seq FROM events WHERE context_tokens > 0 GROUP BY session_id) f
+         JOIN events e ON e.session_id = f.session_id AND e.seq = f.seq
+         JOIN sessions s ON s.id = e.session_id
+         WHERE s.parent_id IS NULL AND {cond}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows: Vec<(i64, i64, i64)> = stmt
+        .query_map(params_from_iter(args), |r| {
+            Ok((
+                r.get(0)?,
+                r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let median = |pick: fn(&(i64, i64, i64)) -> i64| {
+        let mut v: Vec<i64> = rows.iter().map(pick).collect();
+        v.sort_unstable();
+        v[v.len() / 2]
+    };
+    bar.start_tokens = Some(median(|r| r.0));
+    bar.start_skills_tokens = Some(median(|r| r.1) / 4).filter(|n| *n > 0);
+    bar.start_mcp_tokens = Some(median(|r| r.2) / 4).filter(|n| *n > 0);
+    Ok(())
 }
 
 fn load(conn: &Connection, sql: &str, args: &[String]) -> Result<Vec<Step>> {
@@ -321,6 +372,9 @@ mod tests {
         assert_eq!(b.orienting_ms, 20_000);
         assert_eq!((b.approved_by_hand, b.sessions), (1, 1));
         assert_eq!(session_time_bar(idx.conn(), "s1").unwrap(), b);
+        // No model call recorded tokens here, so nothing is said about how
+        // sessions start.
+        assert_eq!(b.start_tokens, None);
     }
 
     #[test]
@@ -358,6 +412,36 @@ mod tests {
         assert_eq!(b.tools_ms, 20_000);
         assert_eq!(b.model_ms, 5_000 + 6_000);
         assert_eq!(b.total_ms, 31_000);
+    }
+
+    #[test]
+    fn sessions_start_with_a_prompt_of_a_known_size() {
+        let idx = index(
+            "s5",
+            &[
+                row(0, "prompt", 0),
+                row(5, "response", 5),
+                row(9, "response", 4),
+            ],
+        );
+        idx.conn()
+            .execute_batch(
+                "UPDATE events SET context_tokens = 41000 WHERE seq = 1;
+                 UPDATE events SET context_tokens = 90000 WHERE seq = 2;
+                 UPDATE sessions SET skills_listing_chars = 8000;
+                 INSERT INTO tool_texts (hash, text) VALUES ('h', 'Use the docs tools for questions about the API.');
+                 INSERT INTO session_tools (session_id, server, tool, hash) VALUES ('s5', 'docs', '(instructions)', 'h');
+                 -- A subagent's first call isn't a session start.
+                 INSERT INTO sessions (id, agent, source_path, parent_id) VALUES ('sub', 'claude-code', '/Users/dev/y.jsonl', 's5');
+                 INSERT INTO events (session_id, seq, ts, kind, title, body, source_offset, context_tokens)
+                 VALUES ('sub', 0, '2026-11-03T10:00:01.000Z', 'response', '', '', 0, 5000);",
+            )
+            .unwrap();
+        let b = time_bar(idx.conn(), &Filter::default()).unwrap();
+        // The first call's size, not the later one's or the subagent's.
+        assert_eq!(b.start_tokens, Some(41_000));
+        assert_eq!(b.start_skills_tokens, Some(2_000));
+        assert_eq!(b.start_mcp_tokens, Some(11));
     }
 
     #[test]

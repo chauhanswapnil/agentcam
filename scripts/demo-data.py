@@ -425,6 +425,8 @@ def habits_session(project, task, start, sid, e2e=False):
         if i % 2:
             # Ran again with nothing changed in between.
             call("Bash", {"command": "pnpm test"}, "ok: 212 passed", 85)
+        # A linter that prints every file it looked at: a lot for the model to read.
+        call("Bash", {"command": "pnpm lint"}, "".join(f"src/components/part{j % 97}.tsx: ok (0 problems)\n" for j in range(3200)), 6)
         if e2e and i < 3:
             # The whole end-to-end suite after a small change: the habit the
             # demo's ledger shows as fixed.

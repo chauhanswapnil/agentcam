@@ -1,12 +1,13 @@
 import { ListChecks } from 'lucide-react'
 import type { Ledger, Measured } from '../lib/api'
-import { formatCost, formatDate, formatHours } from '../lib/format'
+import { formatCompact, formatCost, formatDate, formatHours } from '../lib/format'
 import { Button } from './Button'
 import { CodeText } from './Code'
 import { Panel } from './Panel'
 import s from './LedgerPanel.module.css'
 
-const rate = (m: Measured, v: number | null) => (v == null ? '–' : m.kind === 'cache' ? formatCost(v) : formatHours(v))
+const rate = (m: Measured, v: number | null) =>
+  v == null ? '–' : m.kind === 'cache' ? formatCost(v) : m.kind === 'loud_command' ? `${formatCompact(v)} tokens` : formatHours(v)
 
 /** What a measured fix came to, in plain words. Never a score. */
 function outcome(m: Measured): string {

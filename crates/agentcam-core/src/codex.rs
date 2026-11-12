@@ -301,7 +301,9 @@ impl State {
             "CommandExecution" => {
                 let cmd = command_text(item.get("command"));
                 let mut e = tool(ToolCategory::Command, "exec_command", &cmd, offset, ts);
-                e.body = truncate(str_of(item, "aggregated_output").unwrap_or(""), MAX_TEXT);
+                let output = str_of(item, "aggregated_output").unwrap_or("");
+                e.out_chars = Some(output.len() as u64);
+                e.body = truncate(output, MAX_TEXT);
                 e.is_error = exit_code(item).is_some_and(|c| c != 0) || failed(item);
                 e.duration_ms = rust_duration(item.get("duration"));
                 e.input = Some(item.get("command").cloned().unwrap_or(Value::Null));

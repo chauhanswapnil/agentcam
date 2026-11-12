@@ -123,7 +123,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/limits` | Usage windows (latest reading, last 7 days), limits reached, and `claude`: Claude Code's 5-hour blocks estimated from tokens |
 | `GET /api/lasted` | Which agent-written lines are still in the code: by age, week, agent and model, project, file |
 | `GET /api/cost` | Estimated cost by kind of token and by model, what the prompt cache saved, models with no price; takes `session` for one session and its subagents (`cost.rs`) |
-| `GET /api/profile` | Where agent time went: model, tools, waiting on approval (estimate), ready for you, redoing; takes `session` (`profile.rs`) |
+| `GET /api/profile` | Where agent time went: model, tools, waiting on approval (estimate), ready for you, redoing, and how big sessions are when they start; takes `session` (`profile.rs`) |
 | `GET /api/cache` | Share of prompt tokens read from the prompt cache, and cache rebuilds with their cause and cost; takes `session` (`cache.rs`) |
 | `GET/POST /api/fixes` | The few changes most likely to give time or money back: slow commands, calls allowed by hand, cache rebuilds; each with examples and text to copy (`fixes.rs`). `POST {id, state}` marks one `applied` or `dismissed`, or clears the mark with `null` |
 | `GET /api/ledger` | Fixes marked done with the four weeks before and the time since, per 10 hours of agent time, and fixes set aside (`ledger.rs`, kept in `profile.json`) |
@@ -262,6 +262,9 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - `profile.rs` splits agent time (the capped `gap_ms` sums) into parts that always add up to it. A gap before a step holds the tool call that was still running (read from its `duration_ms`; calls in flight together count once) and the model working out the step.
 - Parts: `model_ms`, `tools_ms`, `approval_ms`, `you_ms` (gaps before a prompt: the agent had replied), `redo_ms` (steps with `events.wasted`). `orienting_ms` is a slice of model and tool time, not a part: reading and searching before the first edit of a turn that went on to edit.
 - Approval wait is an estimate. Claude Code times a call from request to result, wait included. For calls with approval `you`, the usual run of that tool (median over calls nobody had to allow) is taken off; a `rejected` call is all wait. Always label it "est." in the UI.
+- `start_tokens` is the prompt size on the first model call of a typical top-level session (exact, the median). `start_skills_tokens` and `start_mcp_tokens` are the parts the logs let us size, estimated; on real logs they explain about a tenth, so this is shown as a note, not a fix. Find first calls with one grouped pass and a join: a per-row lookup took seconds on a real index.
+- The approval estimate leans low: a command only ever run by hand has no usual run of its own, so the tool's median stands in and the wait can come out as zero.
+- The replay header shows one session's bar as a strip (`TimeStrip`, `GET /api/profile?session=`).
 - Wording: "ready for you", "redoing". Never "wasted" or anything that grades the person or the agent.
 
 ### Fixes (profiler)
@@ -273,7 +276,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Titles and details are written in Rust so tests pin the wording. Describe the repo and the setup, never the agent or the person.
 - **Ledger** (`ledger.rs`): a fix marked "I did this" or "Not for me" drops out of `/api/fixes`. Marks live in `profile.json` next to the index, not in it, so they survive a rebuild. Marking one done measures the four weeks before, once, and stores it; the time since is measured on demand with `fixes::find` (floors off, so a fix is still measured when little is left of it). Both are rates per 10 hours of agent time. A change is stated only after 7 days and 5 sessions, and "no change yet" or "more" are said as plainly as "less".
 - agentcam does not yet notice a fix on its own (an allow rule added, AGENTS.md changed): the person marks it.
-- Not built yet: loud commands (needs output size stored) and standing load.
+- `loud_command`: commands by the size of what they print (`events.out_chars`, the output before the 32 KB cut, at four bytes a token). Floors: 200k tokens a week and 5k on a typical run. `share` is of the tokens that entered a prompt fresh. The prompt names a quiet form only for the well-known tools in `QUIET`. The ledger measures these in tokens.
 
 ### Prompt cache (profiler)
 

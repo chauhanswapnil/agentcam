@@ -41,15 +41,22 @@ pub struct Window {
     pub count: i64,
     pub ms: i64,
     pub usd: f64,
+    /// Estimated tokens printed, for loud commands.
+    #[serde(default)]
+    pub tokens: i64,
     pub agent_ms: i64,
     pub sessions: i64,
 }
 
 impl Window {
-    /// The fix's measure (time, or dollars for a cost fix) per 10 hours of
-    /// agent time.
-    fn rate(&self, cost: bool) -> Option<f64> {
-        let amount = if cost { self.usd } else { self.ms as f64 };
+    /// The fix's measure (time, dollars for a cost fix, tokens for a loud
+    /// command) per 10 hours of agent time.
+    fn rate(&self, kind: &str) -> Option<f64> {
+        let amount = match kind {
+            "cache" => self.usd,
+            "loud_command" => self.tokens as f64,
+            _ => self.ms as f64,
+        };
         (self.agent_ms > 0).then(|| amount * TEN_HOURS_MS / self.agent_ms as f64)
     }
 }
@@ -105,6 +112,7 @@ fn kind_of(id: &str) -> &str {
     match id.split(':').next() {
         Some("approval") => "approval",
         Some("slow") => "slow_command",
+        Some("loud") => "loud_command",
         Some("cache") => "cache",
         _ => "other",
     }
@@ -131,6 +139,7 @@ fn measure(
             count: fix.map_or(0, |x| x.count),
             ms: fix.and_then(|x| x.total_ms).unwrap_or(0),
             usd: fix.and_then(|x| x.total_usd).unwrap_or(0.0),
+            tokens: fix.and_then(|x| x.total_tokens).unwrap_or(0),
             agent_ms: found.agent_ms,
             sessions: found.sessions,
         },
@@ -174,7 +183,8 @@ pub struct Measured {
     #[serde(flatten)]
     pub mark: Mark,
     pub after: Window,
-    /// Per 10 hours of agent time: milliseconds, or dollars for a cost fix.
+    /// Per 10 hours of agent time: milliseconds, dollars for a cost fix, or
+    /// tokens for a loud command.
     pub before_rate: Option<f64>,
     pub after_rate: Option<f64>,
     /// `after_rate / before_rate - 1`, once there is enough to go on.
@@ -201,9 +211,8 @@ pub fn ledger(conn: &Connection, prices: &Prices, store: &Store, now: i64) -> Re
         }
         let at = parse_ts_ms(&m.at).unwrap_or(now).min(now);
         let (after, _) = measure(conn, prices, &m.id, at, now)?;
-        let cost = m.kind == "cache";
-        let before_rate = m.before.as_ref().and_then(|w| w.rate(cost));
-        let after_rate = after.rate(cost);
+        let before_rate = m.before.as_ref().and_then(|w| w.rate(&m.kind));
+        let after_rate = after.rate(&m.kind);
         let enough = after.days >= ENOUGH_DAYS && after.sessions >= ENOUGH_SESSIONS;
         let change = match (before_rate, after_rate) {
             (Some(b), Some(a)) if enough && b > 0.0 => Some(a / b - 1.0),

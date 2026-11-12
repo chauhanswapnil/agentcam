@@ -1,6 +1,6 @@
 import { Timer } from 'lucide-react'
 import type { TimeBar as Bar } from '../lib/api'
-import { formatHours, formatNumber } from '../lib/format'
+import { formatCompact, formatHours, formatNumber } from '../lib/format'
 import { GROUPS } from '../lib/kinds'
 import { Panel } from './Panel'
 import s from './TimeBar.module.css'
@@ -18,8 +18,26 @@ const PARTS: Part[] = [
 
 const share = (v: number, total: number) => (total > 0 ? Math.round((v / total) * 100) : 0)
 
+/** The bar alone, for a tight spot: one session's time in the replay header. */
+export function TimeStrip({ data }: { data: Bar }) {
+  const total = data.total_ms
+  const shown = PARTS.filter((p) => (data[p.key] as number) > 0)
+  if (total <= 0) return null
+  const label = shown.map((p) => `${p.label} ${formatHours(data[p.key] as number)} (${share(data[p.key] as number, total)}%)`).join(' · ')
+  return (
+    <div className={`${s.bar} ${s.strip}`} role="img" aria-label={`Where this session's time went: ${label}`} title={label}>
+      {shown.map((p) => (
+        <span key={p.key} className={p.soft ? s.soft : undefined} style={{ flexGrow: data[p.key] as number, background: p.color }} />
+      ))}
+    </div>
+  )
+}
+
 /** Where agent time went, as one split bar with a legend. */
 export function TimeBar({ data, title = 'Where the time went' }: { data: Bar; title?: string }) {
+  // Parts of the start too small to matter aren't worth a sentence.
+  const skills = (data.start_skills_tokens ?? 0) >= 1000 ? data.start_skills_tokens : null
+  const mcp = (data.start_mcp_tokens ?? 0) >= 1000 ? data.start_mcp_tokens : null
   const total = data.total_ms
   const shown = PARTS.filter((p) => (data[p.key] as number) > 0)
   const label = shown.map((p) => `${p.label} ${share(data[p.key] as number, total)}%`).join(', ')
@@ -60,6 +78,21 @@ export function TimeBar({ data, title = 'Where the time went' }: { data: Bar; ti
           {data.approved_by_hand > 0 && (
             <>
               You allowed or turned down {formatNumber(data.approved_by_hand)} {data.approved_by_hand === 1 ? 'call' : 'calls'} by hand.
+            </>
+          )}
+        </p>
+      )}
+      {data.start_tokens != null && data.start_tokens > 0 && (
+        <p className={s.note}>
+          A session starts at about <b>{formatCompact(data.start_tokens)} tokens</b> before any work: the agent's own prompt, tool definitions, your
+          instruction files and your first message.
+          {(skills || mcp) && (
+            <>
+              {' '}
+              Of that, an estimated
+              {skills ? ` ${formatCompact(skills)} is the skill listing` : ''}
+              {skills && mcp ? ' and' : ''}
+              {mcp ? ` ${formatCompact(mcp)} is MCP server instructions` : ''}.
             </>
           )}
         </p>

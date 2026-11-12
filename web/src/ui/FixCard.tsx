@@ -1,7 +1,7 @@
 import { Check, Lightbulb } from 'lucide-react'
 import { Link } from 'wouter'
 import type { Fix } from '../lib/api'
-import { formatCost, formatHours, oneLine } from '../lib/format'
+import { formatCompact, formatCost, formatHours, oneLine } from '../lib/format'
 import { Button } from './Button'
 import { CodeText } from './Code'
 import { CopyButton } from './CopyButton'
@@ -12,6 +12,7 @@ import s from './FixCard.module.css'
 function fixSize(f: Fix): string | null {
   if (f.ms_per_week != null) return `about ${formatHours(f.ms_per_week)} a week`
   if (f.usd_per_week != null) return `about ${formatCost(f.usd_per_week)} a week`
+  if (f.tokens_per_week != null) return `about ${formatCompact(f.tokens_per_week)} tokens a week`
   return null
 }
 

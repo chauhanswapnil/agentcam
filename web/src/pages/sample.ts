@@ -99,6 +99,9 @@ export const SAMPLE_TIME: import('../lib/api').TimeBar = {
   orienting_ms: 2.3 * 3_600_000,
   approved_by_hand: 64,
   sessions: 31,
+  start_tokens: 58_000,
+  start_skills_tokens: 4_200,
+  start_mcp_tokens: 1_100,
 }
 
 export const SAMPLE_CACHE: import('../lib/api').Cache = {
@@ -123,7 +126,7 @@ export const SAMPLE_FIXES: import('../lib/api').Fix[] = [
   {
     id: 'slow:cargo test', kind: 'slow_command', title: '`cargo test` ran 41 times and took 1h 2m',
     detail: 'A typical run takes 1 min. It ran again with no file changed since the last run 12 times. A narrower or quieter form for everyday edits would give most of that back.',
-    count: 41, ms_per_week: 50 * 60_000, usd_per_week: null, share: 0.07, fix: null, fix_where: 'AGENTS.md',
+    count: 41, ms_per_week: 50 * 60_000, usd_per_week: null, tokens_per_week: null, share: 0.07, fix: null, fix_where: 'AGENTS.md',
     prompt: 'Find a faster check for everyday edits and add it to AGENTS.md.', advice: null,
     examples: [{ session_id: 'demo', seq: 12, title: 'Fix the cart total rounding bug' }, { session_id: 'demo', seq: 40, title: 'Upgrade the Stripe client' }],
     weekly: [4, 9, 12, 16],
@@ -131,14 +134,14 @@ export const SAMPLE_FIXES: import('../lib/api').Fix[] = [
   {
     id: 'approval:Bash(npm test:*)', kind: 'approval', title: 'You allowed `Bash(npm test:*)` by hand 38 times',
     detail: 'Each one held the agent until you answered, about 40 s at a time and 25 min in all (an estimate). You allowed every one.',
-    count: 38, ms_per_week: 12 * 60_000, usd_per_week: null, share: 0.02,
+    count: 38, ms_per_week: 12 * 60_000, usd_per_week: null, tokens_per_week: null, share: 0.02,
     fix: JSON.stringify({ permissions: { allow: ['Bash(npm test:*)'] } }, null, 2), fix_where: 'Claude Code settings, under permissions.allow',
     prompt: 'Add `Bash(npm test:*)` to permissions.allow.', advice: null, examples: [{ session_id: 'demo', seq: 7, title: 'Add partial refunds' }], weekly: [6, 11, 9, 12],
   },
   {
     id: 'cache:break', kind: 'cache', title: 'The prompt cache was written again after a break 5 times',
     detail: '1.2M tokens were written to the cache a second time, about $9.40 at API list prices. This is how the cache works, not a fault; the cost is yours to weigh.',
-    count: 5, ms_per_week: null, usd_per_week: 2.3, share: 0.06, fix: null, fix_where: null, prompt: null,
+    count: 5, ms_per_week: null, usd_per_week: 2.3, tokens_per_week: null, share: 0.06, fix: null, fix_where: null, prompt: null,
     advice: 'At the end of a task, start a fresh session rather than returning to a big one. Compacting before a long break also makes the return cheaper.',
     examples: [{ session_id: 'demo', seq: 41, title: 'Migrate checkout to server actions' }], weekly: [1, 0, 2, 2],
   },
