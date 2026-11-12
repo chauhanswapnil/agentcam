@@ -91,8 +91,8 @@ export function Profile() {
       {ledger.data && <LedgerPanel data={ledger.data} onClear={(id) => mark(id, null)} />}
 
       <div className={s.cols}>
-        {cache.data && cache.data.calls > 0 && <CachePanel data={cache.data} />}
-        {cost.data && cost.data.calls > 0 && <CostPanel data={cost.data} />}
+        {cache.data && cache.data.calls > 0 && <CachePanel data={cache.data} onPick={openBehind} />}
+        {cost.data && cost.data.calls > 0 && <CostPanel data={cost.data} onPick={openBehind} cacheLink={!!cache.data && cache.data.calls > 0} />}
       </div>
       {behind && <StepsDrawer what={behind} filter={f} onClose={closeBehind} />}
     </div>

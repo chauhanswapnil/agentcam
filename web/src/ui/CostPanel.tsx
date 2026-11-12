@@ -1,12 +1,26 @@
 import { CircleDollarSign, TriangleAlert } from 'lucide-react'
+import { Link } from 'wouter'
 import type { Costs } from '../lib/api'
 import { COST_PARTS as PARTS } from '../lib/cost'
 import { formatCompact, formatCost, formatDate, formatNumber } from '../lib/format'
 import { Panel } from './Panel'
 import s from './CostPanel.module.css'
 
-/** Where the estimated cost comes from: kinds of token, the cache, models. */
-export function CostPanel({ data }: { data: Costs }) {
+/**
+ * Where the estimated cost comes from: kinds of token, the cache, models.
+ * With `onPick`, token rows and model rows open the sessions that cost most;
+ * `cacheLink` makes "The cache saved" jump to the prompt cache panel.
+ */
+export function CostPanel({
+  data,
+  onPick,
+  cacheLink,
+}: {
+  data: Costs
+  /** Called with a key for `/api/behind`, like `cost:output` or `model:<id>`. */
+  onPick?: (what: string) => void
+  cacheLink?: boolean
+}) {
   const saved = data.without_cache_usd - data.usd
   const max = Math.max(...PARTS.map((p) => data.parts[p.key]), 0.000001)
   const tokens = (m: Costs['models'][number]) => m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_write_tokens
@@ -28,8 +42,17 @@ export function CostPanel({ data }: { data: Costs }) {
         )}
         {saved >= 0.01 && (
           <div className={s.stat} title="Cache reads cost a fraction of fresh input; cache writes cost a little more">
-            <span>The cache saved</span>
-            <b>{formatCost(saved)}</b>
+            {cacheLink ? (
+              <button type="button" className={`${s.statBtn}`} onClick={() => document.getElementById('prompt-cache')?.scrollIntoView({ block: 'start' })}>
+                <span>The cache saved</span>
+                <b>{formatCost(saved)}</b>
+              </button>
+            ) : (
+              <>
+                <span>The cache saved</span>
+                <b>{formatCost(saved)}</b>
+              </>
+            )}
           </div>
         )}
         {data.cache_hit_rate != null && (
@@ -44,14 +67,25 @@ export function CostPanel({ data }: { data: Costs }) {
         <ul className={s.parts} aria-label="Estimated cost by kind of token">
           {PARTS.map((p) => {
             const v = data.parts[p.key]
-            return (
-              <li key={p.key} title={p.hint}>
+            const inner = (
+              <>
                 <span className={s.partLabel}>{p.label}</span>
                 <span className={s.track}>
                   <span className={s.bar} style={{ width: `${(v / max) * 100}%` }} />
                 </span>
                 <span className={s.partNum}>{formatCost(v)}</span>
                 <span className={s.partShare}>{Math.round((v / data.usd) * 100)}%</span>
+              </>
+            )
+            return (
+              <li key={p.key} title={p.hint}>
+                {onPick && v > 0 ? (
+                  <button type="button" className={`${s.partRow} ${s.pick}`} onClick={() => onPick(`cost:${p.key}`)} aria-label={`${p.label}, ${formatCost(v)}: show the sessions`}>
+                    {inner}
+                  </button>
+                ) : (
+                  <span className={s.partRow}>{inner}</span>
+                )}
               </li>
             )
           })}
@@ -66,15 +100,33 @@ export function CostPanel({ data }: { data: Costs }) {
               <th className={s.num}>Calls</th>
               <th className={s.num}>Tokens</th>
               <th className={s.num}>Est. cost</th>
+              {onPick && <th />}
             </tr>
           </thead>
           <tbody>
             {data.models.slice(0, 8).map((m) => (
               <tr key={m.model ?? '-'}>
-                <td className={m.model == null ? s.muted : s.model}>{m.model ?? 'Not recorded'}</td>
+                <td className={m.model == null ? s.muted : s.model}>
+                  {onPick && m.model != null ? (
+                    <button type="button" className={s.modelBtn} onClick={() => onPick(`model:${m.model}`)} title="Show the sessions on this model">
+                      {m.model}
+                    </button>
+                  ) : (
+                    (m.model ?? 'Not recorded')
+                  )}
+                </td>
                 <td className={s.num}>{formatNumber(m.calls)}</td>
                 <td className={s.num}>{formatCompact(tokens(m))}</td>
                 <td className={`${s.num} ${m.usd == null ? s.muted : ''}`}>{m.usd == null ? 'no price' : formatCost(m.usd)}</td>
+                {onPick && (
+                  <td className={s.num}>
+                    {m.model != null && (
+                      <Link href={`/compare?dim=model&a=${encodeURIComponent(m.model)}`} className={s.link}>
+                        compare
+                      </Link>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

@@ -458,8 +458,14 @@ export function Overview() {
               <AgentSplit filterAgent={f.agent as AgentId | ''} onSelect={(agent) => setF({ agent })} range={f.range} project={f.project} day={f.day} gen={gen} />
             </Panel>
           )}
-          {cost.data && cost.data.calls > 0 && <CostPanel data={cost.data} />}
-          {cache.data && cache.data.calls > 0 && cache.data.hit_rate != null && cache.data.hit_rate > 0 && <CachePanel data={cache.data} />}
+          {cost.data && cost.data.calls > 0 && (
+            <CostPanel
+              data={cost.data}
+              onPick={openBehind}
+              cacheLink={!!cache.data && cache.data.calls > 0 && cache.data.hit_rate != null && cache.data.hit_rate > 0}
+            />
+          )}
+          {cache.data && cache.data.calls > 0 && cache.data.hit_rate != null && cache.data.hit_rate > 0 && <CachePanel data={cache.data} onPick={openBehind} />}
           {turns.data && turns.data.turns > 0 && <TurnsPanel data={turns.data} />}
         </div>
       </div>

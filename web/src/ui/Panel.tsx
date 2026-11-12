@@ -9,11 +9,13 @@ type Props = {
   flush?: boolean
   children: ReactNode
   className?: string
+  /** For a link that jumps here (`#prompt-cache`). */
+  id?: string
 }
 
-export function Panel({ title, icon, actions, flush, children, className }: Props) {
+export function Panel({ title, icon, actions, flush, children, className, id }: Props) {
   return (
-    <section className={`${s.panel} ${className ?? ''}`}>
+    <section id={id} className={`${s.panel} ${className ?? ''}`}>
       {(title || actions) && (
         <header className={s.header}>
           <h3 className={s.title}>

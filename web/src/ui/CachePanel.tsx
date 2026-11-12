@@ -6,10 +6,20 @@ import { formatAgo, formatCompact, formatCost, formatNumber, oneLine } from '../
 import { Panel } from './Panel'
 import s from './CachePanel.module.css'
 
-/** How much of each prompt came from the cache, and where it was written again. */
-export function CachePanel({ data }: { data: Cache }) {
+/**
+ * How much of each prompt came from the cache, and where it was written
+ * again. With `onPick`, each cause opens every rebuild it caused.
+ */
+export function CachePanel({
+  data,
+  onPick,
+}: {
+  data: Cache
+  /** Called with a key for `/api/behind`, like `cache:break`. */
+  onPick?: (what: string) => void
+}) {
   return (
-    <Panel title="Prompt cache" icon={<DatabaseZap />}>
+    <Panel id="prompt-cache" title="Prompt cache" icon={<DatabaseZap />}>
       <div className={s.top}>
         {data.hit_rate != null && (
           <div className={s.stat} title="Share of prompt tokens read from the cache, at a fraction of the input price">
@@ -36,12 +46,26 @@ export function CachePanel({ data }: { data: Cache }) {
           <ul className={s.causes}>
             {data.by_cause.map((c) => (
               <li key={c.cause}>
-                <div className={s.causeHead}>
-                  <span>{CAUSES[c.cause].label}</span>
-                  <span className={s.num}>
-                    {formatNumber(c.count)} · {formatCompact(c.tokens)} tokens · {formatCost(c.usd)}
-                  </span>
-                </div>
+                {onPick ? (
+                  <button
+                    type="button"
+                    className={`${s.causeHead} ${s.pick}`}
+                    onClick={() => onPick(`cache:${c.cause}`)}
+                    aria-label={`${CAUSES[c.cause].label}, ${formatNumber(c.count)} ${c.count === 1 ? 'rebuild' : 'rebuilds'}: show ${c.count === 1 ? 'it' : 'them all'}`}
+                  >
+                    <span>{CAUSES[c.cause].label}</span>
+                    <span className={s.num}>
+                      {formatNumber(c.count)} · {formatCompact(c.tokens)} tokens · {formatCost(c.usd)}
+                    </span>
+                  </button>
+                ) : (
+                  <div className={s.causeHead}>
+                    <span>{CAUSES[c.cause].label}</span>
+                    <span className={s.num}>
+                      {formatNumber(c.count)} · {formatCompact(c.tokens)} tokens · {formatCost(c.usd)}
+                    </span>
+                  </div>
+                )}
                 <p>{CAUSES[c.cause].next}</p>
               </li>
             ))}
@@ -60,6 +84,11 @@ export function CachePanel({ data }: { data: Cache }) {
               </li>
             ))}
           </ul>
+          {onPick && data.rebuilds > 5 && data.by_cause[0] && (
+            <button type="button" className={s.seeAll} onClick={() => onPick(`cache:${data.by_cause[0].cause}`)}>
+              See all {formatNumber(data.by_cause[0].count)} rebuilds: {CAUSES[data.by_cause[0].cause].label.toLowerCase()}
+            </button>
+          )}
         </>
       )}
       <p className={s.note}>

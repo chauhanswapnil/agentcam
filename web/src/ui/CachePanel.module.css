@@ -38,6 +38,41 @@
   color: var(--text-1);
   font-size: var(--fs-sm);
 }
+.pick,
+.seeAll {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pick {
+  width: calc(100% + var(--s-3));
+  margin: calc(var(--s-1) * -1) calc(var(--s-1-5) * -1) 0;
+  padding: var(--s-1) var(--s-1-5);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm);
+  transition: background var(--dur-1) var(--ease-out);
+}
+.pick:hover {
+  background: var(--bg-2);
+}
+.seeAll {
+  margin-top: var(--s-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.seeAll:hover {
+  color: var(--text-1);
+}
+.pick:focus-visible,
+.seeAll:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
 .num {
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
