@@ -275,7 +275,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - agentcam does not invent commands: a slow command gets a prompt to hand the agent, never a made-up narrower form. `fix` is text for a file, `prompt` is a request for the agent, `advice` is a habit.
 - Titles and details are written in Rust so tests pin the wording. Describe the repo and the setup, never the agent or the person.
 - **Ledger** (`ledger.rs`): a fix marked "I did this" or "Not for me" drops out of `/api/fixes`. Marks live in `profile.json` next to the index, not in it, so they survive a rebuild. Marking one done measures the four weeks before, once, and stores it; the time since is measured on demand with `fixes::find` (floors off, so a fix is still measured when little is left of it). Both are rates per 10 hours of agent time. A change is stated only after 7 days and 5 sessions, and "no change yet" or "more" are said as plainly as "less".
-- agentcam does not yet notice a fix on its own (an allow rule added, AGENTS.md changed): the person marks it.
+- The person marks a fix done. agentcam does not watch settings or AGENTS.md to notice one by itself; that was considered and dropped.
 - `loud_command`: commands by the size of what they print (`events.out_chars`, the output before the 32 KB cut, at four bytes a token). Floors: 200k tokens a week and 5k on a typical run. `share` is of the tokens that entered a prompt fresh. The prompt names a quiet form only for the well-known tools in `QUIET`. The ledger measures these in tokens.
 
 ### Prompt cache (profiler)
