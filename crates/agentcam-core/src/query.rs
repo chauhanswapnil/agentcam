@@ -843,7 +843,8 @@ pub fn search(
 
 #[cfg(test)]
 mod tests {
-    use super::fts_query;
+    use super::{Filter, fts_query, tool_calls};
+    use crate::Index;
 
     #[test]
     fn fts_query_is_always_safe() {
@@ -856,6 +857,30 @@ mod tests {
             Some("\"rm\" \"-rf\" \"x\"*")
         );
         assert_eq!(fts_query("   "), None);
+    }
+
+    #[test]
+    fn a_server_name_finds_all_its_calls() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path, title) VALUES ('a', 'claude-code', '/Users/dev/a.jsonl', 'Fix it');
+                 INSERT INTO events (session_id, seq, ts, kind, tool_name, title, body, source_offset) VALUES
+                    ('a', 0, '2026-11-03T10:00:00.000Z', 'tool_call', 'mcp__github__get_issue', 'get issue', '', 0),
+                    ('a', 1, '2026-11-03T10:01:00.000Z', 'tool_call', 'mcp__github__list_prs', 'list prs', '', 0),
+                    ('a', 2, '2026-11-03T10:02:00.000Z', 'tool_call', 'mcp__githubx__other', 'other server', '', 0),
+                    ('a', 3, '2026-11-03T10:03:00.000Z', 'tool_call', 'Bash', 'ls', '', 0);",
+            )
+            .unwrap();
+        let f = Filter::default();
+        let calls = |t: &str| tool_calls(idx.conn(), &f, t, 10).unwrap().len();
+        // The server's own tools, and not another server with a longer name.
+        assert_eq!(calls("mcp__github"), 2);
+        // One tool still matches by its exact name; `_` and `%` aren't wildcards.
+        assert_eq!(calls("mcp__github__get_issue"), 1);
+        assert_eq!(calls("Bash"), 1);
+        assert_eq!(calls("mcp_github"), 0);
+        assert_eq!(calls("%"), 0);
     }
 }
 
@@ -1031,15 +1056,21 @@ fn step_ref(r: &Row, action: bool) -> rusqlite::Result<StepRef> {
     })
 }
 
-/// Most recent calls of one tool.
+/// Most recent calls of one tool. A name also matches the tools under it,
+/// so `mcp__github` finds `mcp__github__get_issue` (a server's calls).
 pub fn tool_calls(conn: &Connection, f: &Filter, tool: &str, limit: u32) -> Result<Vec<StepRef>> {
     let (cond, mut args) = conditions(f);
+    let escaped = tool
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    args.insert(0, format!("{escaped}\\_\\_%"));
     args.insert(0, tool.to_string());
     let sql = format!(
         "SELECT {STEP_REF}, NULL, s.agent, coalesce(r.title, r.first_prompt)
          FROM events e JOIN sessions s ON s.id = e.session_id
          LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
-         WHERE e.tool_name = ? AND {cond}
+         WHERE (e.tool_name = ? OR e.tool_name LIKE ? ESCAPE '\\') AND {cond}
          ORDER BY e.ts DESC LIMIT {limit}"
     );
     let mut stmt = conn.prepare(&sql)?;

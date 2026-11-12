@@ -1,5 +1,7 @@
 import { Blocks, CircleAlert, FileText, Info, Plug, Settings2, Webhook, Wrench } from 'lucide-react'
-import { useApi, useIndexStatus } from '../lib/api'
+import { useCallback, useRef, useState } from 'react'
+import { Link } from 'wouter'
+import { query, useApi, useIndexStatus } from '../lib/api'
 import { formatNumber } from '../lib/format'
 import { formatAgo } from '../lib/format'
 import { Badge } from '../ui/Badge'
@@ -83,9 +85,42 @@ const base = (p: string) => p.split('/').pop() ?? p
  * servers, hooks and skills, with checks worth a look. agentcam only reads
  * these files; change them in the agent's own settings.
  */
+/** The id of the row a check is about, when it names one. */
+function targetOf(data: SetupData, c: SetupData['checks'][number]): string | null {
+  if (c.path) {
+    const si = data.settings.findIndex((f) => f.path === c.path)
+    if (si >= 0) return `setup-file-${si}`
+    const mi = data.memory.findIndex((m) => m.path === c.path)
+    if (mi >= 0) return `setup-memory-${mi}`
+    const skill = data.skills.find((k) => c.path!.endsWith(`/skills/${k.name}`))
+    if (skill) return `setup-skill-${skill.name}`
+  }
+  // "github has a secret written in its config": a server named first.
+  if (c.id.startsWith('mcp_')) {
+    const server = data.mcp.find((m) => c.title.startsWith(`${m.name} `))
+    if (server) return `setup-mcp-${server.name}`
+  }
+  // "Stop hook points at a file that isn't there": the event named first.
+  if (c.id.startsWith('hook_')) {
+    const hi = data.hooks.findIndex((h) => c.title.startsWith(`${h.event} `) && (h.missing || !c.id.includes('missing')))
+    if (hi >= 0) return `setup-hook-${hi}`
+  }
+  return null
+}
+
 export function Setup() {
   const gen = useIndexStatus().status?.generation ?? 0
   const { data } = useApi<SetupData>('/api/setup', gen)
+  // The row a check pointed at, lit for a moment.
+  const [lit, setLit] = useState<string | null>(null)
+  const timer = useRef<number | undefined>(undefined)
+  const show = useCallback((id: string) => {
+    document.getElementById(id)?.scrollIntoView({ block: 'center' })
+    setLit(id)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setLit(null), 1800)
+  }, [])
+  const row = (id: string) => (lit === id ? s.lit : undefined)
   return (
     <div className={v.page}>
       <header className={v.head}>
@@ -121,6 +156,16 @@ export function Setup() {
                           <span className="sr-only">{c.level === 'look' ? ' (worth a look)' : ' (for your information)'}</span>
                         </span>
                         <span className={s.checkDetail}>{c.detail}</span>
+                        {(() => {
+                          const target = targetOf(data, c)
+                          return (
+                            target && (
+                              <button type="button" className={s.showRow} onClick={() => show(target)}>
+                                Show the row
+                              </button>
+                            )
+                          )
+                        })()}
                         {c.path && (
                           <span className={s.checkPathRow}>
                             <span className={s.checkPath}>{home(c.path)}</span>
@@ -150,8 +195,8 @@ export function Setup() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.settings.map((f) => (
-                    <tr key={f.path}>
+                  {data.settings.map((f, i) => (
+                    <tr key={f.path} id={`setup-file-${i}`} className={row(`setup-file-${i}`)}>
                       <td>
                         <span className={v.name}>
                           <AgentLabel agent={f.agent} hideName />
@@ -196,8 +241,8 @@ export function Setup() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.memory.map((m) => (
-                      <tr key={m.path}>
+                    {data.memory.map((m, i) => (
+                      <tr key={m.path} id={`setup-memory-${i}`} className={row(`setup-memory-${i}`)}>
                         <td className={v.mono} title={m.path}>
                           {m.project ? `${base(m.project)}/` : '~/'}
                           {base(m.path)}
@@ -223,11 +268,21 @@ export function Setup() {
                   </thead>
                   <tbody>
                     {data.mcp.map((m, i) => (
-                      <tr key={i}>
+                      <tr key={i} id={`setup-mcp-${m.name}`} className={row(`setup-mcp-${m.name}`)}>
                         <td>
                           <span className={v.name}>
                             <AgentLabel agent={m.agent} hideName />
-                            {m.name}
+                            {m.calls_30d > 0 ? (
+                              <Link
+                                href={`/tools${query({ tool: `mcp__${m.name}`, agent: m.agent, range: '30d' })}`}
+                                className={s.cellLink}
+                                title="Show this server's latest calls"
+                              >
+                                {m.name}
+                              </Link>
+                            ) : (
+                              m.name
+                            )}
                           </span>
                           {(m.outside_content || m.unpinned || m.secret_keys.length > 0 || m.plain_http) && (
                             <span className={s.tags}>
@@ -290,7 +345,7 @@ export function Setup() {
                   </thead>
                   <tbody>
                     {data.hooks.map((h, i) => (
-                      <tr key={i}>
+                      <tr key={i} id={`setup-hook-${i}`} className={row(`setup-hook-${i}`)}>
                         <td>
                           <span className={v.name}>
                             <AgentLabel agent={h.agent} hideName />
@@ -338,7 +393,7 @@ export function Setup() {
                     .sort((a, b) => b.uses_90d - a.uses_90d || a.name.localeCompare(b.name))
                     .slice(0, 80)
                     .map((k, i) => (
-                      <tr key={i}>
+                      <tr key={i} id={`setup-skill-${k.name}`} className={row(`setup-skill-${k.name}`)}>
                         <td className={v.mono}>
                           {k.name}
                           {data.tools.skills.some((f) => f.name === k.name) && (
