@@ -1340,9 +1340,12 @@ pub async fn thinking(
     let f = p.filter(now_ms());
     let sort = p.sort.clone().unwrap_or_default();
     let limit = p.limit.unwrap_or(50).min(200);
-    st.read(move |idx| agentcam_core::approvals::thinking(idx.conn(), &f, &sort, limit))
-        .await
-        .map(Json)
+    let model = p.model.clone().filter(|m| !m.is_empty());
+    st.read(move |idx| {
+        agentcam_core::approvals::thinking(idx.conn(), &f, &sort, model.as_deref(), limit)
+    })
+    .await
+    .map(Json)
 }
 
 /// Pull requests sessions linked, newest first.

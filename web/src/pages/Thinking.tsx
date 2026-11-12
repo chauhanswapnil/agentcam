@@ -25,11 +25,11 @@ const SORTS = [
 export function Thinking() {
   const p = new URLSearchParams(useSearch())
   const [, navigate] = useLocation()
-  const f = { range: p.get('range') ?? '30d', sort: p.get('sort') ?? 'longest', q: p.get('q') ?? '' }
+  const f = { range: p.get('range') ?? '30d', sort: p.get('sort') ?? 'longest', q: p.get('q') ?? '', model: p.get('model') ?? '' }
   const set = (patch: Partial<typeof f>) => navigate(`/thinking${query({ ...f, ...patch })}`, { replace: true })
   const gen = useIndexStatus().status?.generation ?? 0
   const q = useDebounced(f.q.trim(), 200)
-  const list = useApi<ThinkingData>(`/api/thinking${query({ range: f.range, sort: f.sort, limit: 60 })}`, gen)
+  const list = useApi<ThinkingData>(`/api/thinking${query({ range: f.range, sort: f.sort, model: f.model, limit: 60 })}`, gen)
   const hits = useApi<Hit[]>(q.length >= 2 ? `/api/search${query({ q, kind: 'thinking', range: f.range, limit: 60 })}` : null)
   const d = list.data
 
@@ -55,13 +55,30 @@ export function Thinking() {
             <span>Time thinking</span>
             <b>{d.total_ms ? formatHours(d.total_ms) : '–'}</b>
           </div>
-          {d.by_model.slice(0, 4).map((m) => (
-            <div key={m.model ?? '-'}>
-              <span>{m.model ?? 'Unknown model'}</span>
-              <b>{formatNumber(m.blocks)}</b>
-              <small>{m.timed ? `${formatDuration(m.total_ms / m.timed).replace(/ \d+s$/, '')} each` : 'time not recorded'}</small>
-            </div>
-          ))}
+          {d.by_model.slice(0, 4).map((m) => {
+            const inner = (
+              <>
+                <span>{m.model ?? 'Unknown model'}</span>
+                <b>{formatNumber(m.blocks)}</b>
+                <small>{m.timed ? `${formatDuration(m.total_ms / m.timed).replace(/ \d+s$/, '')} each` : 'time not recorded'}</small>
+              </>
+            )
+            // A model you can name narrows the list below to its thinking.
+            return m.model ? (
+              <button
+                key={m.model}
+                type="button"
+                className={`${s.pick} ${f.model === m.model ? s.pickOn : ''}`}
+                aria-pressed={f.model === m.model}
+                title="Show this model's thinking"
+                onClick={() => set({ model: f.model === m.model ? '' : m.model! })}
+              >
+                {inner}
+              </button>
+            ) : (
+              <div key="-">{inner}</div>
+            )
+          })}
         </section>
       )}
 

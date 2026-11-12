@@ -1049,8 +1049,14 @@ fn claude_turns_approvals_and_context() {
     );
     let src = agentcam_core::turns::sources(idx.conn(), &f).unwrap();
     assert!(src.iter().any(|x| x.kind == "skill" && x.name == "dataviz"));
-    let th = agentcam_core::approvals::thinking(idx.conn(), &f, "longest", 5).unwrap();
+    let th = agentcam_core::approvals::thinking(idx.conn(), &f, "longest", None, 5).unwrap();
     assert_eq!((th.blocks, th.total_ms), (1, 1500));
+    // One model's list: the totals by model stay whole, the list narrows.
+    let other =
+        agentcam_core::approvals::thinking(idx.conn(), &f, "longest", Some("no-such-model"), 5)
+            .unwrap();
+    assert_eq!((other.items.len(), other.blocks), (0, 1));
+    assert_eq!(th.items.len(), 1);
     drop(idx);
     let _ = std::fs::remove_dir_all(&dir);
 }

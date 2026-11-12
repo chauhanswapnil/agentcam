@@ -132,7 +132,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/behind?what=` | The steps behind a number, biggest first, at most 100 with `total`: `time:model\|tools\|approval\|you\|redo\|orienting`, `cost:input\|output\|cache_read\|cache_write`, `model:<id>`, `cache:break\|model_switch\|effort_change\|unknown`, `fix:<fix id>`; takes the list filters, `since` and `session` (`behind.rs`) |
 | `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
 | `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
-| `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model |
+| `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model; `model` narrows the steps to one session model, not the totals |
 | `GET /api/prs` | Pull requests sessions linked |
 | `GET /api/sources` | Skills, plugins, MCP servers and apps behind steps |
 | `GET /api/skills` | Skills installed, listed and used, with sizes and latest runs |
