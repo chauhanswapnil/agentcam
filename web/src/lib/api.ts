@@ -490,6 +490,24 @@ export type TimeBar = {
   start_mcp_tokens: number | null
 }
 
+/** One step that holds some of a number (`GET /api/behind`). */
+export type BehindStep = {
+  session_id: string
+  seq: number
+  ts: string | null
+  session_title: string | null
+  step_title: string
+  value: number
+}
+
+/** The steps behind a number, biggest first. `unit` says how to show `value`. */
+export type Behind = {
+  title: string
+  unit: 'ms' | 'usd' | 'tokens' | 'count'
+  total: number
+  items: BehindStep[]
+}
+
 export type Fix = {
   id: string
   kind: 'approval' | 'slow_command' | 'loud_command' | 'cache'

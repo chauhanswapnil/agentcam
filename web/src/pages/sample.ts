@@ -157,3 +157,14 @@ export const SAMPLE_LEDGER: import('../lib/api').Ledger = {
   ],
   dismissed: [{ id: 'cache:break', kind: 'cache', title: 'The prompt cache was written again after a break 5 times', state: 'dismissed', at: '2026-11-01T10:00:00Z' }],
 }
+
+export const SAMPLE_BEHIND: import('../lib/api').Behind = {
+  title: 'Tools running',
+  unit: 'ms',
+  total: 214,
+  items: [
+    { session_id: 'sample-1', seq: 41, ts: '2026-11-05T14:20:00.000Z', session_title: 'Fix the login bug', step_title: 'cargo test --all', value: 312_000 },
+    { session_id: 'sample-2', seq: 7, ts: '2026-11-05T11:02:00.000Z', session_title: 'Add dark mode', step_title: 'npm run build', value: 148_000 },
+    { session_id: 'sample-1', seq: 88, ts: '2026-11-04T16:45:00.000Z', session_title: 'Fix the login bug', step_title: 'cargo clippy --all-targets', value: 52_000 },
+  ],
+}

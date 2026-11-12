@@ -18,6 +18,8 @@ import { CostPanel } from '../ui/CostPanel'
 import { FixCard } from '../ui/FixCard'
 import { LedgerPanel } from '../ui/LedgerPanel'
 import { TimeBar } from '../ui/TimeBar'
+import { Drawer } from '../ui/Drawer'
+import { StepsList } from '../ui/StepsDrawer'
 import { QuotaMeter } from '../ui/QuotaMeter'
 import { CsvButton } from '../ui/CsvButton'
 import { CopyButton } from '../ui/CopyButton'
@@ -25,7 +27,7 @@ import { FindingReview } from '../ui/FindingReview'
 import { SortTh } from '../ui/SortTh'
 import { Welcome } from '../ui/Welcome'
 import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
-import { SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_FIXES, SAMPLE_LEDGER, SAMPLE_NOW, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
+import { SAMPLE_BEHIND, SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_FIXES, SAMPLE_LEDGER, SAMPLE_NOW, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
 
 const SECTIONS = ['Color', 'Event kinds', 'Type', 'Space', 'Components', 'Timeline', 'Motion'] as const
@@ -66,6 +68,7 @@ export function Styleguide() {
   const [selected, setSelected] = useState(0)
   const [sort, setSort] = useState('calls')
   const [step, setStep] = useState<number | undefined>(8)
+  const [drawer, setDrawer] = useState(false)
   const current = step != null ? SAMPLE_EVENTS[step] : null
 
   return (
@@ -433,6 +436,26 @@ export function Styleguide() {
             for you", never "wasted" or "you were slow".
           </p>
           <TimeBar data={SAMPLE_TIME} />
+        </section>
+
+        <section id="drawer" className={s.section}>
+          <h2>Steps drawer</h2>
+          <p className={s.rule}>
+            If it sums up steps, it opens them. A number, bar, row or badge that adds up steps opens a drawer listing those
+            steps, biggest first, and each row opens the replay at that step. Hover and pointer only on things you can click.
+            The open number is kept in <code>?behind=</code>, so the drawer can be linked and Back closes it.
+          </p>
+          <div style={{ maxWidth: 440, border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)' }}>
+            <StepsList data={SAMPLE_BEHIND} />
+          </div>
+          <div className={s.row}>
+            <Button onClick={() => setDrawer(true)}>Open as a drawer</Button>
+          </div>
+          {drawer && (
+            <Drawer title={SAMPLE_BEHIND.title} label="Sample drawer" onClose={() => setDrawer(false)}>
+              <StepsList data={SAMPLE_BEHIND} />
+            </Drawer>
+          )}
         </section>
 
         <section id="fix-card" className={s.section}>

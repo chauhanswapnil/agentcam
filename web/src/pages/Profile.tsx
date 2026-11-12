@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import type { Cache, Costs, Fixes, Ledger, TimeBar as TimeBarData } from '../lib/api'
 import { query, sendJson, useApi, useIndexStatus } from '../lib/api'
+import { useBehind } from '../lib/behind'
 import { CachePanel } from '../ui/CachePanel'
 import { CostPanel } from '../ui/CostPanel'
 import { FixCard } from '../ui/FixCard'
@@ -10,6 +11,7 @@ import { LedgerPanel } from '../ui/LedgerPanel'
 import { EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
+import { StepsDrawer } from '../ui/StepsDrawer'
 import { TimeBar } from '../ui/TimeBar'
 import v from './Views.module.css'
 import s from './Profile.module.css'
@@ -45,6 +47,7 @@ export function Profile() {
   }
   const cache = useApi<Cache>(`/api/cache${q}`, gen)
   const cost = useApi<Costs>(`/api/cost${q}`, gen)
+  const [behind, , closeBehind] = useBehind()
 
   return (
     <div className={v.page}>
@@ -91,6 +94,7 @@ export function Profile() {
         {cache.data && cache.data.calls > 0 && <CachePanel data={cache.data} />}
         {cost.data && cost.data.calls > 0 && <CostPanel data={cost.data} />}
       </div>
+      {behind && <StepsDrawer what={behind} filter={f} onClose={closeBehind} />}
     </div>
   )
 }
