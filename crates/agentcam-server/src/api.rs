@@ -252,6 +252,14 @@ pub struct Params {
     format: Option<String>,
     /// Audit: `open` (default, what's left to review) or `all`.
     status: Option<String>,
+    /// Behind: the number to list steps for, like `time:tools`.
+    what: Option<String>,
+    /// Sessions: only those with a call on this model.
+    model: Option<String>,
+    /// Sessions: only those with `errors`, `findings` or `retries`.
+    has: Option<String>,
+    /// From this time on, instead of what `range` gives.
+    since: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -262,7 +270,10 @@ fn range_days(range: Option<&str>) -> Option<i64> {
 
 impl Params {
     fn filter(&self, now: i64) -> Filter {
-        let since = range_days(self.range.as_deref()).map(|d| format_ts_ms(now - d * DAY_MS));
+        let since =
+            self.since.clone().filter(|s| !s.is_empty()).or_else(|| {
+                range_days(self.range.as_deref()).map(|d| format_ts_ms(now - d * DAY_MS))
+            });
         Filter {
             since,
             until: None,
@@ -350,7 +361,11 @@ pub async fn sessions(
     let f = p.filter(now_ms());
     let limit = p.limit.unwrap_or(50).min(200);
     let offset = p.offset.unwrap_or(0);
-    st.read(move |idx| query::sessions(idx.conn(), &f, limit, offset))
+    let only = query::SessionOnly {
+        model: p.model.clone(),
+        has: p.has.clone(),
+    };
+    st.read(move |idx| query::sessions(idx.conn(), &f, &only, limit, offset))
         .await
         .map(Json)
 }
@@ -1241,6 +1256,26 @@ pub async fn cost(
     })
     .await
     .map(Json)
+}
+
+/// `GET /api/behind?what=<key>`: the steps behind a number. Takes the list
+/// filters and `session`.
+pub async fn behind(State(st): Shared, Query(p): Query<Params>) -> Response {
+    let Some(what) = p.what.clone().filter(|w| !w.is_empty()) else {
+        return bad("what= is needed");
+    };
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    let found = st
+        .read(move |idx| {
+            agentcam_core::behind::behind(idx.conn(), idx.prices(), &f, session.as_deref(), &what)
+        })
+        .await;
+    match found {
+        Ok(Some(b)) => Json(b).into_response(),
+        Ok(None) => bad("unknown key"),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// Turn lengths, waits between turns, and turns by model, effort and mode.

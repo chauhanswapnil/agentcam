@@ -108,7 +108,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `POST /api/index` | Start indexing new and changed logs (202, or 409 if already running) |
 | `GET /api/overview` | Stats, the previous period's stats, and projects with weekly sparklines |
 | `GET /api/activity` | Agent time per local day for the last 371 days |
-| `GET /api/sessions` | Top-level sessions, most recently active first, paged |
+| `GET /api/sessions` | Top-level sessions, most recently active first, paged; takes `model` (a call on that model) and `has` (`errors`, `findings` or `retries`) |
 | `GET /api/sessions/{id}` | One session: steps (titles, plus the start of transcript text), files touched, subagents |
 | `GET /api/sessions/{id}/export?format=md\|json` | One session as a download (Markdown or JSON), secrets masked |
 | `GET /api/step?session=&seq=` | One step in full: output, input, file changes with diffs |
@@ -127,6 +127,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/cache` | Share of prompt tokens read from the prompt cache, and cache rebuilds with their cause and cost; takes `session` (`cache.rs`) |
 | `GET/POST /api/fixes` | The few changes most likely to give time or money back: slow commands, calls allowed by hand, cache rebuilds; each with examples and text to copy (`fixes.rs`). `POST {id, state}` marks one `applied` or `dismissed`, or clears the mark with `null` |
 | `GET /api/ledger` | Fixes marked done with the four weeks before and the time since, per 10 hours of agent time, and fixes set aside (`ledger.rs`, kept in `profile.json`) |
+| `GET /api/behind?what=` | The steps behind a number, biggest first, at most 100 with `total`: `time:model\|tools\|approval\|you\|redo\|orienting`, `cost:input\|output\|cache_read\|cache_write`, `model:<id>`, `cache:break\|model_switch\|effort_change\|unknown`, `fix:<fix id>`; takes the list filters, `since` and `session` (`behind.rs`) |
 | `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
 | `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
 | `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model |

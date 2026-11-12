@@ -196,6 +196,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/cost", get(api::cost))
         .route("/profile", get(api::profile))
         .route("/cache", get(api::cache))
+        .route("/behind", get(api::behind))
         .route("/fixes", get(api::fixes).post(api::fixes_mark))
         .route("/ledger", get(api::ledger))
         .route("/approvals", get(api::approvals))
@@ -597,6 +598,7 @@ mod tests {
             "/api/cache?session=11111111-1111-4111-8111-111111111111",
             "/api/profile?session=11111111-1111-4111-8111-111111111111",
             "/api/cost?session=11111111-1111-4111-8111-111111111111",
+            "/api/behind?what=time:tools",
             "/api/approvals",
             "/api/thinking?sort=longest",
             "/api/prs",
@@ -627,6 +629,18 @@ mod tests {
         assert!(o["previous"].is_null());
         let s = json("/api/sessions?agent=codex").await;
         assert_eq!(s["total"], 2);
+        // The list narrows by model and by what happened in it.
+        assert_eq!(json("/api/sessions?model=no-such-model").await["total"], 0);
+        let all = json("/api/sessions").await["total"].as_i64().unwrap();
+        let errored = json("/api/sessions?has=errors").await["total"]
+            .as_i64()
+            .unwrap();
+        assert!(errored <= all);
+        assert_eq!(
+            get("/api/behind?what=nothing:here").await.status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(get("/api/behind").await.status(), StatusCode::BAD_REQUEST);
         let d = json("/api/sessions/11111111-1111-4111-8111-111111111111").await;
         assert_eq!(d["subagents"].as_array().unwrap().len(), 1);
         let sub = json("/api/sessions/11111111-1111-4111-8111-111111111111/agent-a1").await;

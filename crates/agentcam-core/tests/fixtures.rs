@@ -395,13 +395,44 @@ mod queries {
             until: Some("2026-11-02T00:00:00.000Z".into()),
             ..Default::default()
         };
-        let page = query::sessions(idx.conn(), &f, 50, 0).unwrap();
+        let page = query::sessions(idx.conn(), &f, &query::SessionOnly::default(), 50, 0).unwrap();
         assert_eq!(page.total, 2);
         let ids: Vec<_> = page.items.iter().map(|s| s.id.as_str()).collect();
         // Codex session (12:00) is more recent than Claude (10:00).
         assert_eq!(ids, ["22222222-2222-4222-8222-222222222222", CLAUDE_ID]);
         assert_eq!(page.items[1].subagents, 1);
         assert!(page.items.iter().all(|s| s.parent_id.is_none()));
+    }
+
+    #[test]
+    fn sessions_narrow_by_model_and_by_what_happened() {
+        let idx = index();
+        let f = Filter::default();
+        let list =
+            |only: &query::SessionOnly| query::sessions(idx.conn(), &f, only, 50, 0).unwrap();
+        let all = list(&query::SessionOnly::default());
+        let errors = list(&query::SessionOnly {
+            has: Some("errors".into()),
+            ..Default::default()
+        });
+        assert!(
+            errors.total < all.total,
+            "{} of {}",
+            errors.total,
+            all.total
+        );
+        assert!(errors.items.iter().all(|s| s.error_count > 0));
+        // A value it doesn't know leaves the list as it was.
+        let odd = list(&query::SessionOnly {
+            has: Some("whatever".into()),
+            ..Default::default()
+        });
+        assert_eq!(odd.total, all.total);
+        let none = list(&query::SessionOnly {
+            model: Some("no-such-model".into()),
+            ..Default::default()
+        });
+        assert_eq!((none.total, none.items.len()), (0, 0));
     }
 
     #[test]

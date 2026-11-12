@@ -344,22 +344,48 @@ pub struct SessionPage {
     pub items: Vec<SessionRow>,
 }
 
+/// Narrower picks for the session list, beyond the time, agent and project
+/// a [`Filter`] holds.
+#[derive(Debug, Clone, Default)]
+pub struct SessionOnly {
+    /// Only sessions with a model call on this model.
+    pub model: Option<String>,
+    /// `errors`, `findings` or `retries`; anything else is ignored.
+    pub has: Option<String>,
+}
+
 /// Top-level sessions with at least one step matching `f` (a subagent's
 /// steps count for its parent), most recently active first.
-pub fn sessions(conn: &Connection, f: &Filter, limit: u32, offset: u32) -> Result<SessionPage> {
-    let (cond, args) = conditions(f);
+pub fn sessions(
+    conn: &Connection,
+    f: &Filter,
+    only: &SessionOnly,
+    limit: u32,
+    offset: u32,
+) -> Result<SessionPage> {
+    let (mut cond, mut args) = conditions(f);
+    if let Some(m) = only.model.as_ref().filter(|m| !m.is_empty()) {
+        cond.push_str(" AND e.model = ?");
+        args.push(m.clone());
+    }
+    let has = match only.has.as_deref() {
+        Some("errors") => " WHERE s.error_count > 0",
+        Some("findings") => " WHERE s.finding_count > 0",
+        Some("retries") => " WHERE s.wasted_ms > 0",
+        _ => "",
+    };
     let matching = format!(
         "SELECT coalesce(s.parent_id, s.id) AS root, max(e.ts) AS last
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE {cond} GROUP BY root"
     );
     let total = conn.query_row(
-        &format!("SELECT count(*) FROM ({matching}) m JOIN sessions s ON s.id = m.root"),
+        &format!("SELECT count(*) FROM ({matching}) m JOIN sessions s ON s.id = m.root{has}"),
         params_from_iter(&args),
         |r| r.get(0),
     )?;
     let sql = format!(
-        "SELECT {SESSION_COLS} FROM ({matching}) m JOIN sessions s ON s.id = m.root
+        "SELECT {SESSION_COLS} FROM ({matching}) m JOIN sessions s ON s.id = m.root{has}
          ORDER BY m.last DESC LIMIT {limit} OFFSET {offset}"
     );
     let mut stmt = conn.prepare(&sql)?;
