@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use rusqlite::{Connection, params_from_iter};
 use serde::Serialize;
 
+use crate::behind::StepRef;
 use crate::index::Result;
 use crate::query::{Filter, conditions};
 use crate::util::parse_ts_ms;
@@ -52,6 +53,10 @@ pub struct TimeBar {
 
 struct Step {
     session: String,
+    seq: i64,
+    title: String,
+    session_title: Option<String>,
+    ts_text: Option<String>,
     ts: Option<i64>,
     prompt: bool,
     tool: bool,
@@ -65,7 +70,7 @@ struct Step {
 }
 
 const COLUMNS: &str = "e.session_id, e.ts, e.kind, e.category, e.tool_name, e.gap_ms,
-     e.duration_ms, e.approval, e.wasted";
+     e.duration_ms, e.approval, e.wasted, e.seq, e.title, s.title";
 
 /// The time bar across everything a filter covers.
 pub fn time_bar(conn: &Connection, f: &Filter) -> Result<TimeBar> {
@@ -74,7 +79,7 @@ pub fn time_bar(conn: &Connection, f: &Filter) -> Result<TimeBar> {
         "SELECT {COLUMNS} FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE {cond} ORDER BY e.session_id, e.seq"
     );
-    let mut bar = split(&load(conn, &sql, &args)?)?;
+    let mut bar = split(&load(conn, &sql, &args)?);
     start_load(conn, &cond, &args, &mut bar)?;
     Ok(bar)
 }
@@ -85,7 +90,7 @@ pub fn session_time_bar(conn: &Connection, id: &str) -> Result<TimeBar> {
         "SELECT {COLUMNS} FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE s.id = ?1 OR s.parent_id = ?1 ORDER BY e.session_id, e.seq"
     );
-    let mut bar = split(&load(conn, &sql, &[id.to_string()])?)?;
+    let mut bar = split(&load(conn, &sql, &[id.to_string()])?);
     start_load(conn, "s.id = ?1", &[id.to_string()], &mut bar)?;
     Ok(bar)
 }
@@ -134,12 +139,11 @@ fn load(conn: &Connection, sql: &str, args: &[String]) -> Result<Vec<Step>> {
         let kind: String = r.get(2)?;
         let category: Option<String> = r.get(3)?;
         let c = category.as_deref();
+        let ts_text: Option<String> = r.get(1)?;
         Ok(Step {
             session: r.get(0)?,
-            ts: r
-                .get::<_, Option<String>>(1)?
-                .as_deref()
-                .and_then(parse_ts_ms),
+            ts: ts_text.as_deref().and_then(parse_ts_ms),
+            ts_text,
             prompt: kind == "prompt",
             tool: kind == "tool_call",
             look: matches!(c, Some("read" | "search" | "web" | "mcp")),
@@ -149,6 +153,9 @@ fn load(conn: &Connection, sql: &str, args: &[String]) -> Result<Vec<Step>> {
             duration: r.get(6)?,
             approval: r.get(7)?,
             wasted: r.get(8)?,
+            seq: r.get(9)?,
+            title: r.get(10)?,
+            session_title: r.get(11)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -183,7 +190,40 @@ fn usual_runs(steps: &[Step]) -> HashMap<&str, i64> {
         .collect()
 }
 
-fn split(steps: &[Step]) -> Result<TimeBar> {
+/// The parts of the time bar, as a caller can ask for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Part {
+    Model,
+    Tools,
+    Approval,
+    You,
+    Redo,
+    /// Part of model and tool time: reading before a turn's first change.
+    Orienting,
+}
+
+impl Part {
+    /// The part a `time:<name>` key names.
+    pub(crate) fn from_key(name: &str) -> Option<Part> {
+        Some(match name {
+            "model" => Part::Model,
+            "tools" => Part::Tools,
+            "approval" => Part::Approval,
+            "you" => Part::You,
+            "redo" => Part::Redo,
+            "orienting" => Part::Orienting,
+            _ => return None,
+        })
+    }
+}
+
+fn split(steps: &[Step]) -> TimeBar {
+    split_with(steps, |_, _, _| {})
+}
+
+/// Split the time and tell `on` about every amount as it is put in a part:
+/// which part, which step the time belongs to, and how many milliseconds.
+fn split_with(steps: &[Step], mut on: impl FnMut(Part, &Step, i64)) -> TimeBar {
     let usual = usual_runs(steps);
     let mut bar = TimeBar::default();
     let mut prev: Option<&Step> = None;
@@ -192,18 +232,23 @@ fn split(steps: &[Step]) -> Result<TimeBar> {
     // Reading and searching so far in this turn; kept only if the turn
     // goes on to change a file.
     let (mut turn_looking, mut turn_changed) = (0i64, false);
+    // The step a turn began on: its prompt, or a session's first step.
+    let mut turn_start: Option<&Step> = None;
 
     for c in steps {
         if prev.is_none_or(|p| p.session != c.session) {
             prev = None;
             running_end = None;
             (turn_looking, turn_changed) = (0, false);
+            turn_start = Some(c);
             bar.sessions += 1;
         }
         let g = c.gap;
         if c.prompt {
             bar.you_ms += g;
+            on(Part::You, c, g);
             (turn_looking, turn_changed) = (0, false);
+            turn_start = Some(c);
         } else if let Some(p) = prev {
             // The share of the gap a tool call was still running for.
             let tool = match (running_end, p.ts) {
@@ -213,6 +258,7 @@ fn split(steps: &[Step]) -> Result<TimeBar> {
             let model = g - tool;
             if p.wasted {
                 bar.redo_ms += tool;
+                on(Part::Redo, p, tool);
             } else if by_hand(p.approval.as_deref()) {
                 // The log times the wait and the run as one. Take off how
                 // long this tool usually runs; the rest was the wait. A
@@ -225,13 +271,18 @@ fn split(steps: &[Step]) -> Result<TimeBar> {
                 };
                 bar.approval_ms += tool - run;
                 bar.tools_ms += run;
+                on(Part::Approval, p, tool - run);
+                on(Part::Tools, p, run);
             } else {
                 bar.tools_ms += tool;
+                on(Part::Tools, p, tool);
             }
             if c.wasted {
                 bar.redo_ms += model;
+                on(Part::Redo, c, model);
             } else {
                 bar.model_ms += model;
+                on(Part::Model, c, model);
             }
             if !turn_changed && !c.wasted && !p.wasted && (c.look || p.look) {
                 turn_looking += g;
@@ -239,6 +290,7 @@ fn split(steps: &[Step]) -> Result<TimeBar> {
         } else {
             // A session's first step has no gap to split.
             bar.model_ms += g;
+            on(Part::Model, c, g);
         }
 
         if c.tool {
@@ -251,6 +303,7 @@ fn split(steps: &[Step]) -> Result<TimeBar> {
             if c.changes && !turn_changed {
                 turn_changed = true;
                 bar.orienting_ms += turn_looking;
+                on(Part::Orienting, turn_start.unwrap_or(c), turn_looking);
             }
         } else {
             running_end = None;
@@ -258,7 +311,59 @@ fn split(steps: &[Step]) -> Result<TimeBar> {
         prev = Some(c);
     }
     bar.total_ms = bar.model_ms + bar.tools_ms + bar.approval_ms + bar.you_ms + bar.redo_ms;
-    Ok(bar)
+    bar
+}
+
+/// The steps one part of the time bar came from, biggest first: one row per
+/// step (or per turn for `Orienting`), skipping steps that put nothing in it.
+/// `session` narrows to one session and its subagents.
+pub(crate) fn steps_for(
+    conn: &Connection,
+    f: &Filter,
+    session: Option<&str>,
+    part: Part,
+) -> Result<Vec<StepRef>> {
+    let steps = match session {
+        Some(id) => {
+            let sql = format!(
+                "SELECT {COLUMNS} FROM events e JOIN sessions s ON s.id = e.session_id
+                 WHERE s.id = ?1 OR s.parent_id = ?1 ORDER BY e.session_id, e.seq"
+            );
+            load(conn, &sql, &[id.to_string()])?
+        }
+        None => {
+            let (cond, args) = conditions(f);
+            let sql = format!(
+                "SELECT {COLUMNS} FROM events e JOIN sessions s ON s.id = e.session_id
+                 WHERE {cond} ORDER BY e.session_id, e.seq"
+            );
+            load(conn, &sql, &args)?
+        }
+    };
+    let mut rows: HashMap<(String, i64), StepRef> = HashMap::new();
+    split_with(&steps, |p, step, ms| {
+        if p != part || ms <= 0 {
+            return;
+        }
+        rows.entry((step.session.clone(), step.seq))
+            .or_insert_with(|| StepRef {
+                session_id: step.session.clone(),
+                seq: step.seq,
+                ts: step.ts_text.clone(),
+                session_title: step.session_title.clone(),
+                step_title: step.title.clone(),
+                value: 0.0,
+            })
+            .value += ms as f64;
+    });
+    let mut out: Vec<StepRef> = rows.into_values().collect();
+    out.sort_by(|a, b| {
+        b.value
+            .partial_cmp(&a.value)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| (&a.session_id, a.seq).cmp(&(&b.session_id, b.seq)))
+    });
+    Ok(out)
 }
 
 #[cfg(test)]

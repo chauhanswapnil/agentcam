@@ -3,6 +3,7 @@
 
 pub mod approvals;
 pub mod audit;
+pub mod behind;
 pub mod cache;
 pub mod claude;
 pub mod codex;

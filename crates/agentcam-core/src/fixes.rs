@@ -55,6 +55,8 @@ const WAITERS: &[&str] = &[
     "sleep", "wait", "until", "while", "timeout", "watch", "gh run", "tail",
 ];
 const MAX_WEEKS: usize = 12;
+/// How many occurrences of one fix are kept to list.
+const MAX_OCCURRENCES: usize = 500;
 
 /// A step that shows the thing happening.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -179,6 +181,7 @@ fn command_key(cmd: &str) -> Option<String> {
 struct Row {
     session: String,
     seq: i64,
+    ts_text: Option<String>,
     ts: Option<i64>,
     tool: Option<String>,
     category: Option<String>,
@@ -187,10 +190,35 @@ struct Row {
     approval: Option<String>,
     title: Option<String>,
     out_chars: Option<i64>,
+    step_title: String,
+}
+
+/// One time a fix's pattern happened.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Occurrence {
+    pub example: Example,
+    /// The step's own title: the command or the call.
+    pub step_title: String,
+    pub ts: Option<i64>,
+    pub ts_text: Option<String>,
+    /// Milliseconds for time fixes, tokens for loud commands.
+    pub value: i64,
+}
+
+/// Every occurrence of one fix, biggest first.
+pub(crate) struct Occurrences {
+    pub title: String,
+    /// `ms` or `tokens`.
+    pub unit: &'static str,
+    /// Before the cut to the most that are kept.
+    pub total: i64,
+    pub items: Vec<Occurrence>,
 }
 
 #[derive(Default)]
 struct Group {
+    /// Each run, newest last, up to the most kept.
+    all: Vec<(Occurrence, Option<i64>)>,
     count: i64,
     ms: i64,
     runs: Vec<i64>,
@@ -203,10 +231,26 @@ struct Group {
 }
 
 impl Group {
-    fn add(&mut self, r: &Row, ms: i64) {
+    fn add(&mut self, r: &Row, ms: i64, tokens: Option<i64>) {
         self.count += 1;
         self.ms += ms;
         self.runs.push(ms);
+        if self.all.len() < MAX_OCCURRENCES {
+            self.all.push((
+                Occurrence {
+                    example: Example {
+                        session_id: r.session.clone(),
+                        seq: r.seq,
+                        title: r.title.clone(),
+                    },
+                    step_title: r.step_title.clone(),
+                    ts: r.ts,
+                    ts_text: r.ts_text.clone(),
+                    value: ms,
+                },
+                tokens,
+            ));
+        }
         if self.examples.len() < 3 {
             self.examples.push(Example {
                 session_id: r.session.clone(),
@@ -245,23 +289,45 @@ pub fn fixes(conn: &Connection, prices: &Prices, f: &Filter) -> Result<Fixes> {
 /// off nothing is left out for being small: the ledger uses that to measure
 /// a fix before and after, however little is left of it.
 pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool) -> Result<Fixes> {
+    Ok(find_inner(conn, prices, f, floors, None)?.0)
+}
+
+/// Every occurrence of the fix with this id, with no floors applied. `None`
+/// when the id isn't a fix with occurrences of its own (cache rebuilds are
+/// listed by `cache`).
+pub(crate) fn occurrences(
+    conn: &Connection,
+    prices: &Prices,
+    f: &Filter,
+    id: &str,
+) -> Result<Option<Occurrences>> {
+    Ok(find_inner(conn, prices, f, false, Some(id))?.1)
+}
+
+fn find_inner(
+    conn: &Connection,
+    prices: &Prices,
+    f: &Filter,
+    floors: bool,
+    want: Option<&str>,
+) -> Result<(Fixes, Option<Occurrences>)> {
+    let mut wanted: Option<Occurrences> = None;
     let (cond, args) = conditions(f);
     let mut stmt = conn.prepare(&format!(
         "SELECT e.session_id, e.seq, e.ts, e.tool_name, e.category,
                 CASE WHEN e.category = 'command' OR e.approval IN ('you', 'rejected') THEN e.input END,
-                e.duration_ms, e.approval, s.title, e.out_chars
+                e.duration_ms, e.approval, s.title, e.out_chars, e.title
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE e.kind = 'tool_call' AND {cond} ORDER BY e.session_id, e.seq"
     ))?;
     let rows: Vec<Row> = stmt
         .query_map(params_from_iter(&args), |r| {
+            let ts_text: Option<String> = r.get(2)?;
             Ok(Row {
                 session: r.get(0)?,
                 seq: r.get(1)?,
-                ts: r
-                    .get::<_, Option<String>>(2)?
-                    .as_deref()
-                    .and_then(parse_ts_ms),
+                ts: ts_text.as_deref().and_then(parse_ts_ms),
+                ts_text,
                 tool: r.get(3)?,
                 category: r.get(4)?,
                 input: r.get(5)?,
@@ -269,6 +335,7 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
                 approval: r.get(7)?,
                 title: r.get(8)?,
                 out_chars: r.get(9)?,
+                step_title: r.get(10)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -329,7 +396,7 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
                 .copied()
                 .unwrap_or(0);
             let wait = (r.duration.unwrap_or(0) - run).max(0);
-            asks.entry(rule).or_default().add(r, wait);
+            asks.entry(rule).or_default().add(r, wait, None);
         }
         if category == Some("command")
             && !by_hand(r)
@@ -343,7 +410,7 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
             && let Some(d) = r.duration
         {
             let g = commands.entry(key.clone()).or_default();
-            g.add(r, d);
+            g.add(r, d, r.out_chars.map(|n| n / BYTES_PER_TOKEN));
             if let Some(n) = r.out_chars {
                 g.outs.push(n / BYTES_PER_TOKEN);
             }
@@ -363,10 +430,16 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
         }
         let typical = median(&mut g.runs);
         let settings = serde_json::json!({ "permissions": { "allow": [rule] } });
+        let title = format!("You allowed `{rule}` by hand {}", times(g.count));
+        if want == Some(format!("approval:{rule}").as_str()) {
+            wanted = Some(Occurrences::new(&title, "ms", g.count, &g.all, |o, _| {
+                o.value
+            }));
+        }
         out.fixes.push(Fix {
             id: format!("approval:{rule}"),
             kind: "approval",
-            title: format!("You allowed `{rule}` by hand {}", times(g.count)),
+            title,
             detail: format!(
                 "Each one held the agent until you answered, about {} at a time and {} in all (an estimate). You allowed every one.",
                 span(typical),
@@ -417,10 +490,21 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
                 .find(|(c, _)| *c == key)
                 .map(|(_, q)| format!(" For this one, `{q}` is the usual quiet form."))
                 .unwrap_or_default();
+            let title = format!(
+                "`{key}` printed about {} tokens over {} runs",
+                k(tokens),
+                g.count
+            );
+            if want == Some(format!("loud:{key}").as_str()) {
+                let n = g.all.iter().filter(|(_, t)| t.is_some()).count() as i64;
+                wanted = Some(Occurrences::new(&title, "tokens", n, &g.all, |_, t| {
+                    t.unwrap_or(0)
+                }));
+            }
             out.fixes.push(Fix {
                 id: format!("loud:{key}"),
                 kind: "loud_command",
-                title: format!("`{key}` printed about {} tokens over {} runs", k(tokens), g.count),
+                title,
                 detail: format!(
                     "A typical run prints about {} tokens, and the model reads all of it and carries it for the rest of the session (an estimate, at four bytes a token). A quiet flag, or only the last lines, keeps what matters.",
                     k(typical_out)
@@ -453,10 +537,16 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
         } else {
             String::new()
         };
+        let title = format!("`{key}` ran {} and took {}", times(g.count), span(g.ms));
+        if want == Some(format!("slow:{key}").as_str()) {
+            wanted = Some(Occurrences::new(&title, "ms", g.count, &g.all, |o, _| {
+                o.value
+            }));
+        }
         out.fixes.push(Fix {
             id: format!("slow:{key}"),
             kind: "slow_command",
-            title: format!("`{key}` ran {} and took {}", times(g.count), span(g.ms)),
+            title,
             detail: format!("A typical run takes {}.{again} A narrower or quieter form for everyday edits would give most of that back.", span(typical)),
             count: g.count,
             total_ms: Some(g.ms),
@@ -548,7 +638,39 @@ pub(crate) fn find(conn: &Connection, prices: &Prices, f: &Filter, floors: bool)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.id.cmp(&b.id))
     });
-    Ok(out)
+    Ok((out, wanted))
+}
+
+impl Occurrences {
+    /// The kept runs, biggest first. `value` picks the number each is
+    /// ranked by; runs that print nothing (value 0) are left out.
+    fn new(
+        title: &str,
+        unit: &'static str,
+        total: i64,
+        all: &[(Occurrence, Option<i64>)],
+        value: impl Fn(&Occurrence, Option<i64>) -> i64,
+    ) -> Occurrences {
+        let mut items: Vec<Occurrence> = all
+            .iter()
+            .map(|(o, t)| Occurrence {
+                value: value(o, *t),
+                ..o.clone()
+            })
+            .filter(|o| o.value > 0)
+            .collect();
+        items.sort_by(|a, b| {
+            b.value.cmp(&a.value).then_with(|| {
+                (&a.example.session_id, a.example.seq).cmp(&(&b.example.session_id, b.example.seq))
+            })
+        });
+        Occurrences {
+            title: title.to_string(),
+            unit,
+            total,
+            items,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -658,6 +780,43 @@ mod tests {
         assert_eq!(x.examples.len(), 3);
         // Weeks end at the latest run: one run falls in the week before.
         assert_eq!(x.weekly, vec![1, 9]);
+    }
+
+    #[test]
+    fn every_run_of_a_fix_can_be_listed() {
+        let mut steps = vec![edit(0)];
+        for i in 0..7 {
+            steps.push(cmd(i * DAY + 10, "cargo test --all", 90));
+            steps.push(edit(i * DAY + 20));
+        }
+        for i in 0..3 {
+            steps.push(cmd(7 * DAY + 30 + i * 5, "cd web && cargo test", 90));
+        }
+        let idx = index(&steps);
+        let b = crate::behind::behind(
+            idx.conn(),
+            idx.prices(),
+            &Filter::default(),
+            None,
+            "fix:slow:cargo test",
+        )
+        .unwrap()
+        .unwrap();
+        // All ten runs, not the three examples a card keeps.
+        assert_eq!((b.items.len(), b.total, b.unit), (10, 10, "ms"));
+        assert!(b.items.iter().all(|x| x.value == 90_000.0));
+        // A near miss: a command that isn't a fix has no occurrences.
+        assert!(
+            crate::behind::behind(
+                idx.conn(),
+                idx.prices(),
+                &Filter::default(),
+                None,
+                "fix:slow:make"
+            )
+            .unwrap()
+            .is_none()
+        );
     }
 
     #[test]
