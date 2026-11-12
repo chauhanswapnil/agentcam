@@ -19,17 +19,37 @@ const PARTS: Part[] = [
 
 const share = (v: number, total: number) => (total > 0 ? Math.round((v / total) * 100) : 0)
 
-/** The bar alone, for a tight spot: one session's time in the replay header. */
-export function TimeStrip({ data }: { data: Bar }) {
+/**
+ * The bar alone, for a tight spot: one session's time in the replay header.
+ * With `onPick`, each part is a button that gets the key of its steps.
+ */
+export function TimeStrip({ data, onPick }: { data: Bar; onPick?: (what: string) => void }) {
   const total = data.total_ms
   const shown = PARTS.filter((p) => (data[p.key] as number) > 0)
   if (total <= 0) return null
   const label = shown.map((p) => `${p.label} ${formatHours(data[p.key] as number)} (${share(data[p.key] as number, total)}%)`).join(' · ')
   return (
-    <div className={`${s.bar} ${s.strip}`} role="img" aria-label={`Where this session's time went: ${label}`} title={label}>
-      {shown.map((p) => (
-        <span key={p.key} className={p.soft ? s.soft : undefined} style={{ flexGrow: data[p.key] as number, background: p.color }} />
-      ))}
+    <div
+      className={`${s.bar} ${s.strip}`}
+      {...(onPick ? { role: 'group' } : { role: 'img' })}
+      aria-label={`Where this session's time went: ${label}`}
+      title={label}
+    >
+      {shown.map((p) =>
+        onPick ? (
+          <button
+            key={p.key}
+            type="button"
+            className={`${s.seg} ${p.soft ? s.soft : ''}`}
+            style={{ flexGrow: data[p.key] as number, background: p.color }}
+            aria-label={`${p.label}, ${formatHours(data[p.key] as number)}: go to the next step like this`}
+            title={`${p.label} ${formatHours(data[p.key] as number)}: go to the next step like this`}
+            onClick={() => onPick(p.what)}
+          />
+        ) : (
+          <span key={p.key} className={p.soft ? s.soft : undefined} style={{ flexGrow: data[p.key] as number, background: p.color }} />
+        ),
+      )}
     </div>
   )
 }
