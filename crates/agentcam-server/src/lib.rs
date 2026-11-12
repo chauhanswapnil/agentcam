@@ -199,6 +199,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/behind", get(api::behind))
         .route("/fixes", get(api::fixes).post(api::fixes_mark))
         .route("/ledger", get(api::ledger))
+        .route("/ledger/weeks", get(api::ledger_weeks))
         .route("/approvals", get(api::approvals))
         .route("/thinking", get(api::thinking))
         .route("/prs", get(api::prs))
@@ -599,6 +600,7 @@ mod tests {
             "/api/profile?session=11111111-1111-4111-8111-111111111111",
             "/api/cost?session=11111111-1111-4111-8111-111111111111",
             "/api/behind?what=time:tools",
+            "/api/ledger/weeks?id=slow:cargo%20test",
             "/api/approvals",
             "/api/thinking?sort=longest",
             "/api/prs",

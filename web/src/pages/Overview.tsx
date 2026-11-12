@@ -364,7 +364,7 @@ export function Overview() {
       {time.data && time.data.total_ms > 0 && <TimeBar data={time.data} onPick={openBehind} />}
       {fixes.data && fixes.data.fixes.length > 0 && (
         <div className={s.topFix}>
-          <FixCard fix={fixes.data.fixes[0]} />
+          <FixCard fix={fixes.data.fixes[0]} href={`/profile${query({ range: f.range, agent: f.agent })}`} />
           <Link href={`/profile${query({ range: f.range, agent: f.agent })}`} className={s.topFixMore}>
             {fixes.data.fixes.length > 1 ? `${fixes.data.fixes.length - 1} more on Profile` : 'Open Profile'}
           </Link>

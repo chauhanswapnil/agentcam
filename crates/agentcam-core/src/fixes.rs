@@ -55,8 +55,6 @@ const WAITERS: &[&str] = &[
     "sleep", "wait", "until", "while", "timeout", "watch", "gh run", "tail",
 ];
 const MAX_WEEKS: usize = 12;
-/// How many occurrences of one fix are kept to list.
-const MAX_OCCURRENCES: usize = 500;
 
 /// A step that shows the thing happening.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -210,14 +208,15 @@ pub(crate) struct Occurrences {
     pub title: String,
     /// `ms` or `tokens`.
     pub unit: &'static str,
-    /// Before the cut to the most that are kept.
+    /// How many times it happened.
     pub total: i64,
     pub items: Vec<Occurrence>,
 }
 
 #[derive(Default)]
 struct Group {
-    /// Each run, newest last, up to the most kept.
+    /// Each run, oldest first. Kept only when a caller asks for the
+    /// occurrences of one fix.
     all: Vec<(Occurrence, Option<i64>)>,
     count: i64,
     ms: i64,
@@ -231,11 +230,11 @@ struct Group {
 }
 
 impl Group {
-    fn add(&mut self, r: &Row, ms: i64, tokens: Option<i64>) {
+    fn add(&mut self, r: &Row, ms: i64, tokens: Option<i64>, keep: bool) {
         self.count += 1;
         self.ms += ms;
         self.runs.push(ms);
-        if self.all.len() < MAX_OCCURRENCES {
+        if keep {
             self.all.push((
                 Occurrence {
                     example: Example {
@@ -301,7 +300,24 @@ pub(crate) fn occurrences(
     f: &Filter,
     id: &str,
 ) -> Result<Option<Occurrences>> {
-    Ok(find_inner(conn, prices, f, false, Some(id))?.1)
+    let found = find_inner(conn, prices, f, false, Some(id))?.1;
+    if found.is_some() {
+        return Ok(found);
+    }
+    // A fix with no run in this stretch of time has no occurrences, not an
+    // unknown id.
+    let empty = |title: String, unit: &'static str| Occurrences {
+        title,
+        unit,
+        total: 0,
+        items: Vec::new(),
+    };
+    Ok(match id.split_once(':') {
+        Some(("slow", key)) => Some(empty(format!("`{key}` runs"), "ms")),
+        Some(("approval", rule)) => Some(empty(format!("`{rule}` allowed by hand"), "ms")),
+        Some(("loud", key)) => Some(empty(format!("`{key}` output"), "tokens")),
+        _ => None,
+    })
 }
 
 fn find_inner(
@@ -396,7 +412,9 @@ fn find_inner(
                 .copied()
                 .unwrap_or(0);
             let wait = (r.duration.unwrap_or(0) - run).max(0);
-            asks.entry(rule).or_default().add(r, wait, None);
+            asks.entry(rule)
+                .or_default()
+                .add(r, wait, None, want.is_some());
         }
         if category == Some("command")
             && !by_hand(r)
@@ -410,7 +428,12 @@ fn find_inner(
             && let Some(d) = r.duration
         {
             let g = commands.entry(key.clone()).or_default();
-            g.add(r, d, r.out_chars.map(|n| n / BYTES_PER_TOKEN));
+            g.add(
+                r,
+                d,
+                r.out_chars.map(|n| n / BYTES_PER_TOKEN),
+                want.is_some(),
+            );
             if let Some(n) = r.out_chars {
                 g.outs.push(n / BYTES_PER_TOKEN);
             }
@@ -805,14 +828,25 @@ mod tests {
         // All ten runs, not the three examples a card keeps.
         assert_eq!((b.items.len(), b.total, b.unit), (10, 10, "ms"));
         assert!(b.items.iter().all(|x| x.value == 90_000.0));
-        // A near miss: a command that isn't a fix has no occurrences.
+        // A near miss: a command that never ran has an empty list, and an
+        // id that isn't a kind of fix is unknown.
+        let none = crate::behind::behind(
+            idx.conn(),
+            idx.prices(),
+            &Filter::default(),
+            None,
+            "fix:slow:make",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!((none.items.len(), none.total), (0, 0));
         assert!(
             crate::behind::behind(
                 idx.conn(),
                 idx.prices(),
                 &Filter::default(),
                 None,
-                "fix:slow:make"
+                "fix:whatever:x"
             )
             .unwrap()
             .is_none()

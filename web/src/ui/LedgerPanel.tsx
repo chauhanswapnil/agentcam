@@ -1,5 +1,7 @@
-import { ListChecks } from 'lucide-react'
-import type { Ledger, Measured } from '../lib/api'
+import { ChevronRight, ListChecks } from 'lucide-react'
+import { useState } from 'react'
+import type { Ledger, LedgerWeek, Measured } from '../lib/api'
+import { useApi } from '../lib/api'
 import { formatCompact, formatCost, formatDate, formatHours } from '../lib/format'
 import { Button } from './Button'
 import { CodeText } from './Code'
@@ -21,19 +23,90 @@ function outcome(m: Measured): string {
   return m.change < 0 ? `${pct}% less` : `${pct}% more`
 }
 
-/** Fixes marked done, with before and after side by side, and fixes set aside. */
-export function LedgerPanel({ data, onClear }: { data: Ledger; onClear: (id: string) => void }) {
+/** The measure per 10 hours of agent time in one week, or null when the agent had no time that week. */
+const weekRate = (w: LedgerWeek) => (w.agent_ms > 0 ? (w.value * 36_000_000) / w.agent_ms : null)
+
+/**
+ * A fix's weeks as bars, per 10 hours of agent time, with a line at the
+ * week it was marked done.
+ */
+export function WeeksChart({ weeks, kind, markedAt }: { weeks: LedgerWeek[]; kind: string; markedAt: string }) {
+  const rates = weeks.map(weekRate)
+  const max = Math.max(...rates.map((r) => r ?? 0), 0.000001)
+  // The week the mark falls in: the last one that began before it.
+  const at = Date.parse(markedAt)
+  const marked = weeks.reduce((n, w, i) => (Date.parse(w.start) <= at ? i : n), -1)
+  const fake = { kind } as Measured
+  return (
+    <ol className={s.weeks} aria-label="By week, oldest first">
+      {weeks.map((w, i) => {
+        const r = rates[i]
+        const label = `Week of ${formatDate(w.start)}: ${w.count} ${w.count === 1 ? 'time' : 'times'}, ${r == null ? 'no agent time' : `${rate(fake, r)} per 10 hours`}`
+        return (
+          <li key={w.start} className={i === marked ? s.markedWeek : undefined} title={label}>
+            <span className={s.col}>
+              <span className={s.weekBar} style={{ height: `${((r ?? 0) / max) * 100}%` }} />
+            </span>
+            <span className="sr-only">{label}</span>
+            {i === marked && <span className={s.markedLabel}>marked done</span>}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function Expanded({ m, onOpen }: { m: Measured; onOpen: (what: string, since?: string) => void }) {
+  const weeks = useApi<LedgerWeek[]>(`/api/ledger/weeks?id=${encodeURIComponent(m.id)}`)
+  return (
+    <div className={s.more}>
+      {weeks.data ? <WeeksChart weeks={weeks.data} kind={m.kind} markedAt={m.at} /> : <span className={s.sub}>Loading the weeks…</span>}
+      <Button size="sm" variant="ghost" onClick={() => onOpen(`fix:${m.id}`, m.at)}>
+        Runs since {formatDate(m.at)}
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * Fixes marked done, with before and after side by side, and fixes set aside.
+ * With `onOpen`, each row expands to its weeks and a list of the runs since.
+ */
+export function LedgerPanel({
+  data,
+  onClear,
+  onOpen,
+}: {
+  data: Ledger
+  onClear: (id: string) => void
+  onOpen?: (what: string, since?: string) => void
+}) {
+  const [open, setOpen] = useState<string | null>(null)
   if (data.applied.length === 0 && data.dismissed.length === 0) return null
   return (
     <Panel title="Ledger" icon={<ListChecks />}>
       {data.applied.length > 0 && (
         <ul className={s.list}>
           {data.applied.map((m) => (
-            <li key={m.id}>
+            <li key={m.id} className={s.applied}>
               <div className={s.main}>
-                <span className={s.title}>
-                  <CodeText text={m.title} />
-                </span>
+                {onOpen ? (
+                  <button
+                    type="button"
+                    className={s.expand}
+                    aria-expanded={open === m.id}
+                    onClick={() => setOpen(open === m.id ? null : m.id)}
+                  >
+                    <ChevronRight aria-hidden className={open === m.id ? s.chevOpen : s.chev} />
+                    <span className={s.title}>
+                      <CodeText text={m.title} />
+                    </span>
+                  </button>
+                ) : (
+                  <span className={s.title}>
+                    <CodeText text={m.title} />
+                  </span>
+                )}
                 <span className={s.sub}>Marked done {formatDate(m.at)}</span>
               </div>
               <div className={s.nums} title="Per 10 hours of agent time, so a busy week and a quiet one compare fairly. The four weeks before against the time since.">
@@ -50,6 +123,7 @@ export function LedgerPanel({ data, onClear }: { data: Ledger; onClear: (id: str
               <Button size="sm" variant="ghost" onClick={() => onClear(m.id)} title="Put this fix back among the suggestions">
                 Undo
               </Button>
+              {onOpen && open === m.id && <Expanded m={m} onOpen={onOpen} />}
             </li>
           ))}
         </ul>

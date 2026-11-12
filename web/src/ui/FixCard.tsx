@@ -1,7 +1,7 @@
 import { Check, Lightbulb } from 'lucide-react'
 import { Link } from 'wouter'
 import type { Fix } from '../lib/api'
-import { formatCompact, formatCost, formatHours, oneLine } from '../lib/format'
+import { formatCompact, formatCost, formatHours, formatNumber, oneLine } from '../lib/format'
 import { Button } from './Button'
 import { CodeText } from './Code'
 import { CopyButton } from './CopyButton'
@@ -20,14 +20,32 @@ function fixSize(f: Fix): string | null {
  * One change worth making: what the logs show, how big it is, the steps
  * behind it, and something to copy. It never grades the agent or the person.
  */
-export function FixCard({ fix, onMark }: { fix: Fix; onMark?: (state: 'applied' | 'dismissed') => void }) {
+export function FixCard({
+  fix,
+  onMark,
+  onSeeAll,
+  href,
+}: {
+  fix: Fix
+  onMark?: (state: 'applied' | 'dismissed') => void
+  /** Opens every occurrence, not only the few shown. */
+  onSeeAll?: () => void
+  /** Makes the title a link, for a card that sums up a page elsewhere. */
+  href?: string
+}) {
   const size = fixSize(fix)
   return (
     <article className={s.card}>
       <header className={s.head}>
         <Lightbulb aria-hidden className={s.icon} />
         <h3 className={s.title}>
-          <CodeText text={fix.title} />
+          {href ? (
+            <Link href={href} className={s.titleLink}>
+              <CodeText text={fix.title} />
+            </Link>
+          ) : (
+            <CodeText text={fix.title} />
+          )}
         </h3>
         {size && (
           <span className={s.size} title="An estimate from your logs">
@@ -58,12 +76,20 @@ export function FixCard({ fix, onMark }: { fix: Fix; onMark?: (state: 'applied' 
         {fix.examples.length > 0 && (
           <span className={s.examples}>
             See it:
-            {fix.examples.map((e, i) => (
-              <Link key={e.session_id + e.seq} href={`/sessions/${e.session_id}?step=${e.seq}`} title={oneLine(e.title ?? 'Untitled session')}>
-                step {i + 1}
-              </Link>
-            ))}
+            {fix.examples.map((e) => {
+              const name = oneLine(e.title ?? 'Untitled session')
+              return (
+                <Link key={e.session_id + e.seq} href={`/sessions/${e.session_id}?step=${e.seq}`} title={name} className={s.example}>
+                  {name.length > 28 ? name.slice(0, 27) + '…' : name}
+                </Link>
+              )
+            })}
           </span>
+        )}
+        {onSeeAll && fix.count > fix.examples.length && (
+          <button type="button" className={s.seeAll} onClick={onSeeAll}>
+            See all {formatNumber(fix.count)}
+          </button>
         )}
         {fix.prompt && <CopyButton text={fix.prompt} label="Copy as a prompt" className={s.prompt} />}
       </footer>

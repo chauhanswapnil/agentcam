@@ -168,3 +168,10 @@ export const SAMPLE_BEHIND: import('../lib/api').Behind = {
     { session_id: 'sample-1', seq: 88, ts: '2026-11-04T16:45:00.000Z', session_title: 'Fix the login bug', step_title: 'cargo clippy --all-targets', value: 52_000 },
   ],
 }
+
+export const SAMPLE_WEEKS: import('../lib/api').LedgerWeek[] = [9, 11, 8, 12, 10, 9, 13, 11, 6, 3, 2, 1].map((n, i) => ({
+  start: new Date(Date.UTC(2026, 8, 10 + i * 7)).toISOString(),
+  count: n * 4,
+  value: n * 4 * 90_000,
+  agent_ms: 40 * 3_600_000,
+}))

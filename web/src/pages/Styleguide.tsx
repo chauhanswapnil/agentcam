@@ -16,7 +16,7 @@ import { UsageMeter } from '../ui/UsageMeter'
 import { CachePanel } from '../ui/CachePanel'
 import { CostPanel } from '../ui/CostPanel'
 import { FixCard } from '../ui/FixCard'
-import { LedgerPanel } from '../ui/LedgerPanel'
+import { LedgerPanel, WeeksChart } from '../ui/LedgerPanel'
 import { TimeBar } from '../ui/TimeBar'
 import { Drawer } from '../ui/Drawer'
 import { StepsList } from '../ui/StepsDrawer'
@@ -27,7 +27,7 @@ import { FindingReview } from '../ui/FindingReview'
 import { SortTh } from '../ui/SortTh'
 import { Welcome } from '../ui/Welcome'
 import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
-import { SAMPLE_BEHIND, SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_FIXES, SAMPLE_LEDGER, SAMPLE_NOW, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
+import { SAMPLE_BEHIND, SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_FIXES, SAMPLE_LEDGER, SAMPLE_NOW, SAMPLE_WEEKS, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
 
 const SECTIONS = ['Color', 'Event kinds', 'Type', 'Space', 'Components', 'Timeline', 'Motion'] as const
@@ -467,7 +467,7 @@ export function Styleguide() {
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 12 }}>
             {SAMPLE_FIXES.map((x) => (
-              <FixCard key={x.id} fix={x} onMark={() => {}} />
+              <FixCard key={x.id} fix={x} onMark={() => {}} onSeeAll={() => {}} />
             ))}
           </div>
           <p className={s.rule}>
@@ -475,6 +475,13 @@ export function Styleguide() {
             It states a change only after a full week, in plain words ("72% less", "no change yet"), never as a score.
           </p>
           <LedgerPanel data={SAMPLE_LEDGER} onClear={() => {}} />
+          <p className={s.rule}>
+            A row in the ledger opens to its weeks, per 10 hours of agent time, with a line where the fix was marked done, and a
+            list of the runs since.
+          </p>
+          <div style={{ maxWidth: 520 }}>
+            <WeeksChart weeks={SAMPLE_WEEKS} kind="slow_command" markedAt="2026-11-05T10:00:00Z" />
+          </div>
         </section>
 
         <section id="cost" className={s.section}>

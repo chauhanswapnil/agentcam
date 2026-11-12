@@ -71,7 +71,12 @@ export function Profile() {
           <>
             <div className={s.fixes}>
               {fixes.data.fixes.map((x) => (
-                <FixCard key={x.id} fix={x} onMark={(state) => mark(x.id, state)} />
+                <FixCard
+                  key={x.id}
+                  fix={x}
+                  onMark={(state) => mark(x.id, state)}
+                  onSeeAll={() => openBehind(x.kind === 'cache' ? `cache:${x.id.split(':')[1]}` : `fix:${x.id}`)}
+                />
               ))}
             </div>
             <p className={s.note}>
@@ -88,13 +93,13 @@ export function Profile() {
         )}
       </Panel>
 
-      {ledger.data && <LedgerPanel data={ledger.data} onClear={(id) => mark(id, null)} />}
+      {ledger.data && <LedgerPanel data={ledger.data} onClear={(id) => mark(id, null)} onOpen={openBehind} />}
 
       <div className={s.cols}>
         {cache.data && cache.data.calls > 0 && <CachePanel data={cache.data} onPick={openBehind} />}
         {cost.data && cost.data.calls > 0 && <CostPanel data={cost.data} onPick={openBehind} cacheLink={!!cache.data && cache.data.calls > 0} />}
       </div>
-      {behind && <StepsDrawer what={behind} filter={f} onClose={closeBehind} />}
+      {behind && <StepsDrawer what={behind} filter={{ ...f, since: p.get('since') ?? undefined }} onClose={closeBehind} />}
     </div>
   )
 }

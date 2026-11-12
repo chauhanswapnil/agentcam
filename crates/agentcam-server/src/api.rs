@@ -254,6 +254,8 @@ pub struct Params {
     status: Option<String>,
     /// Behind: the number to list steps for, like `time:tools`.
     what: Option<String>,
+    /// Ledger weeks: one fix id.
+    id: Option<String>,
     /// Sessions: only those with a call on this model.
     model: Option<String>,
     /// Sessions: only those with `errors`, `findings` or `retries`.
@@ -1203,6 +1205,19 @@ pub async fn ledger(State(st): Shared) -> Result<Json<agentcam_core::ledger::Led
     let marks = st.fix_marks();
     let now = now_ms();
     st.read(move |idx| agentcam_core::ledger::ledger(idx.conn(), idx.prices(), &marks, now))
+        .await
+        .map(Json)
+}
+
+/// `GET /api/ledger/weeks?id=<fix id>`: the fix's measure for each of the
+/// last 12 weeks, with agent time per week.
+pub async fn ledger_weeks(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<agentcam_core::ledger::Week>>, ApiError> {
+    let id = p.id.clone().unwrap_or_default();
+    let now = now_ms();
+    st.read(move |idx| agentcam_core::ledger::weeks(idx.conn(), idx.prices(), &id, now))
         .await
         .map(Json)
 }

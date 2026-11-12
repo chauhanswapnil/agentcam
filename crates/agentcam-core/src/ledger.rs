@@ -232,6 +232,80 @@ pub fn ledger(conn: &Connection, prices: &Prices, store: &Store, now: i64) -> Re
     Ok(out)
 }
 
+/// One week of a fix's measure.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Week {
+    /// The week's first moment.
+    pub start: String,
+    /// How many times the fix's pattern happened.
+    pub count: i64,
+    /// Milliseconds, tokens or (for a cache fix) dollars, by the fix's kind.
+    pub value: f64,
+    /// Agent time in the week, so the UI can show a rate.
+    pub agent_ms: i64,
+}
+
+const WEEKS: usize = 12;
+const WEEK_MS: i64 = 7 * DAY_MS;
+
+/// The fix's measure for each of the last 12 weeks, oldest first, with agent
+/// time per week so the UI can show a rate. The last week ends at `now`.
+pub fn weeks(conn: &Connection, prices: &Prices, id: &str, now: i64) -> Result<Vec<Week>> {
+    let start = now - WEEKS as i64 * WEEK_MS;
+    let f = Filter {
+        since: Some(format_ts_ms(start)),
+        until: Some(format_ts_ms(now)),
+        ..Default::default()
+    };
+    let mut out: Vec<Week> = (0..WEEKS as i64)
+        .map(|i| Week {
+            start: format_ts_ms(start + i * WEEK_MS),
+            count: 0,
+            value: 0.0,
+            agent_ms: 0,
+        })
+        .collect();
+    let mut put = |ts: Option<i64>, value: f64| {
+        if let Some(i) = ts
+            .map(|t| (t - start) / WEEK_MS)
+            .filter(|i| (0..WEEKS as i64).contains(i))
+        {
+            out[i as usize].count += 1;
+            out[i as usize].value += value;
+        }
+    };
+    // One pass over the fix's occurrences, not one fix search per week.
+    if let Some(cause) = id.strip_prefix("cache:") {
+        for b in crate::cache::cache_in_full(conn, prices, &f)?.latest {
+            let name = serde_json::to_value(b.cause).ok();
+            if name.as_ref().and_then(|v| v.as_str()) == Some(cause) {
+                put(b.ts.as_deref().and_then(parse_ts_ms), b.usd.unwrap_or(0.0));
+            }
+        }
+    } else if let Some(o) = crate::fixes::occurrences(conn, prices, &f, id)? {
+        for x in o.items {
+            put(x.ts, x.value as f64);
+        }
+    }
+    // Agent time per week: the capped gaps, as the Overview sums them.
+    let mut stmt = conn.prepare(
+        "SELECT CAST((CAST(strftime('%s', e.ts) AS INTEGER) * 1000 - ?1) / ?2 AS INTEGER) AS w, sum(e.gap_ms)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         WHERE e.ts >= ?3 AND e.ts < ?4 GROUP BY w",
+    )?;
+    let rows = stmt.query_map(
+        rusqlite::params![start, WEEK_MS, format_ts_ms(start), format_ts_ms(now)],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+    )?;
+    for row in rows {
+        let (w, ms) = row?;
+        if (0..WEEKS as i64).contains(&w) {
+            out[w as usize].agent_ms = ms;
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +451,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(store, Store::default());
+    }
+
+    #[test]
+    fn weeks_count_a_fix_per_week_with_the_agent_time_beside_it() {
+        // Test runs in weeks 1 to 3 of the sessions and none in week 4.
+        let idx = index(&[(0, 4), (8, 2), (15, 1), (22, 0)]);
+        // The twelve weeks end 4 weeks after day 0, so day 0 starts week 8.
+        let now = day_ms(0) + 28 * DAY_MS;
+        let w = weeks(idx.conn(), idx.prices(), "slow:cargo test", now).unwrap();
+        assert_eq!(w.len(), 12);
+        let counts: Vec<i64> = w.iter().map(|x| x.count).collect();
+        assert_eq!(counts[..8], [0; 8]);
+        assert_eq!(counts[8..], [4, 2, 1, 0]);
+        assert_eq!(w[8].value, 4.0 * 90_000.0);
+        // An hour of agent time per session, in the week it ran.
+        assert!(w[8..].iter().all(|x| x.agent_ms > 0), "{w:?}");
+        assert!(w[..8].iter().all(|x| x.agent_ms == 0));
+        // A near miss: a command that isn't a fix has no occurrences.
+        let none = weeks(idx.conn(), idx.prices(), "slow:make", now).unwrap();
+        assert!(none.iter().all(|x| x.count == 0));
     }
 
     #[test]

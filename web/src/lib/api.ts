@@ -541,6 +541,9 @@ export type Measured = FixMark & {
   days_left: number
 }
 
+/** One week of a fix's measure (`GET /api/ledger/weeks`). */
+export type LedgerWeek = { start: string; count: number; value: number; agent_ms: number }
+
 export type Ledger = { applied: Measured[]; dismissed: FixMark[] }
 
 export type CacheCause = 'break' | 'model_switch' | 'effort_change' | 'unknown'
