@@ -231,3 +231,23 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.hitsLink {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.hitsLink:hover {
+  color: var(--text-1);
+}
+.hitsLink:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
