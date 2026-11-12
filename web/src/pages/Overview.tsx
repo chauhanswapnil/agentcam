@@ -42,8 +42,11 @@ import { Segmented } from '../ui/Segmented'
 import { Sparkline } from '../ui/Sparkline'
 import { Stat } from '../ui/Stat'
 import { Tooltip } from '../ui/Tooltip'
+import { CachePanel } from '../ui/CachePanel'
+import { CostPanel } from '../ui/CostPanel'
+import { TimeBar } from '../ui/TimeBar'
 import { TurnsPanel } from '../ui/TurnsPanel'
-import type { TurnStats } from '../lib/api'
+import type { Cache, Costs, TimeBar as TimeBarData, TurnStats } from '../lib/api'
 import s from './Overview.module.css'
 import { CsvButton } from '../ui/CsvButton'
 import type { Column } from '../lib/csv'
@@ -293,6 +296,9 @@ export function Overview() {
   // The weekly card always covers the last 7 days, whatever the range.
   const week = useApi<OverviewData>(`/api/overview${query({ range: '7d', agent: f.agent })}`, gen)
   const turns = useApi<TurnStats>(`/api/turns${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
+  const time = useApi<TimeBarData>(`/api/profile${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
+  const cache = useApi<Cache>(`/api/cache${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
+  const cost = useApi<Costs>(`/api/cost${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const weekAudit = useApi<import('../lib/api').Audit>(`/api/audit${query({ range: '7d', agent: f.agent, severity: 'medium', limit: 1 })}`, gen)
   const indexing = status?.indexing
   const firstRun = indexing && !status?.last_report
@@ -349,6 +355,8 @@ export function Overview() {
       ) : (
         <div className={s.stats} style={{ height: 98 }} />
       )}
+
+      {time.data && time.data.total_ms > 0 && <TimeBar data={time.data} />}
 
       <Panel
         title="Activity"
@@ -437,6 +445,8 @@ export function Overview() {
               <AgentSplit filterAgent={f.agent as AgentId | ''} onSelect={(agent) => setF({ agent })} range={f.range} project={f.project} day={f.day} gen={gen} />
             </Panel>
           )}
+          {cost.data && cost.data.calls > 0 && <CostPanel data={cost.data} />}
+          {cache.data && cache.data.calls > 0 && cache.data.hit_rate != null && cache.data.hit_rate > 0 && <CachePanel data={cache.data} />}
           {turns.data && turns.data.turns > 0 && <TurnsPanel data={turns.data} />}
         </div>
       </div>

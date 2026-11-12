@@ -1,0 +1,110 @@
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-6);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat span {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.stat b {
+  color: var(--text-1);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.parts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1-5);
+  margin: var(--s-5) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.parts li {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 64px 36px;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.partLabel {
+  color: var(--text-2);
+}
+.track {
+  display: block;
+  height: var(--s-1-5);
+  border-radius: var(--r-1);
+  background: var(--bg-2);
+}
+.bar {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+  border-radius: var(--r-1);
+  background: var(--heat-3);
+}
+.partNum,
+.partShare {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.partShare {
+  color: var(--text-3);
+}
+.table {
+  width: 100%;
+  margin-top: var(--s-5);
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.table th {
+  padding: var(--s-1) 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-align: left;
+}
+.table td {
+  padding: var(--s-1-5) 0;
+  border-top: 1px solid var(--line-1);
+  color: var(--text-1);
+}
+.model {
+  overflow: hidden;
+  max-width: 0;
+  width: 46%;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+.muted {
+  color: var(--text-3) !important;
+}
+.note {
+  margin: var(--s-3) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.note code {
+  font-family: var(--font-mono);
+}
+.warn {
+  width: 12px;
+  height: 12px;
+  margin-right: var(--s-1);
+  color: var(--status-warning);
+  vertical-align: -2px;
+}

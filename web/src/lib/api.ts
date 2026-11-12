@@ -475,6 +475,68 @@ export type TurnRow = {
   sandbox: string | null
 }
 
+export type TimeBar = {
+  total_ms: number
+  model_ms: number
+  tools_ms: number
+  approval_ms: number
+  you_ms: number
+  redo_ms: number
+  orienting_ms: number
+  approved_by_hand: number
+  sessions: number
+}
+
+export type CacheCause = 'break' | 'model_switch' | 'effort_change' | 'unknown'
+
+export type Rebuild = {
+  session_id: string
+  seq: number
+  ts: string | null
+  cause: CacheCause
+  tokens: number
+  usd: number | null
+  gap_ms: number | null
+  model: string | null
+  from_model: string | null
+  from_effort: string | null
+  effort: string | null
+  title: string | null
+}
+
+export type Cache = {
+  hit_rate: number | null
+  calls: number
+  rebuilds: number
+  rebuild_tokens: number
+  rebuild_usd: number
+  by_cause: { cause: CacheCause; count: number; tokens: number; usd: number }[]
+  compactions: number
+  latest: Rebuild[]
+}
+
+export type Costs = {
+  usd: number
+  parts: { input: number; output: number; cache_read: number; cache_write: number }
+  without_cache_usd: number
+  cache_hit_rate: number | null
+  calls: number
+  unpriced_calls: number
+  unpriced_models: string[]
+  fast_calls: number
+  models: {
+    model: string | null
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    cache_write_tokens: number
+    usd: number | null
+  }[]
+  priced_on: string
+  prices_error: string | null
+}
+
 export type TurnGroup = { key: string | null; turns: number; median_ms: number; median_steps: number; avg_cost_usd: number | null }
 
 export type TurnStats = {

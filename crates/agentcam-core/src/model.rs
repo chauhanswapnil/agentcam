@@ -168,9 +168,46 @@ pub struct TokenUsage {
     pub input: u64,
     pub output: u64,
     pub cache_read: u64,
+    /// Every cache write, whatever its lifetime.
     pub cache_write: u64,
+    /// The part of `cache_write` kept for an hour (priced higher than the
+    /// 5-minute kind). Zero when the log doesn't say.
+    pub cache_write_1h: u64,
     /// Part of `output` spent on reasoning, when the log says (Codex).
     pub reasoning: u64,
+    /// The speed the call was served at, which changes its price.
+    pub tier: Tier,
+}
+
+/// How a model call was served. Faster costs more, slower less.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tier {
+    #[default]
+    Standard,
+    /// Claude `speed: fast`, OpenAI `priority`.
+    Fast,
+    /// OpenAI `flex`.
+    Flex,
+}
+
+impl Tier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Tier::Standard => "standard",
+            Tier::Fast => "fast",
+            Tier::Flex => "flex",
+        }
+    }
+
+    /// From a log's own word for it. Unknown words are standard.
+    pub fn parse(s: &str) -> Tier {
+        match s {
+            "fast" | "priority" => Tier::Fast,
+            "flex" => Tier::Flex,
+            _ => Tier::Standard,
+        }
+    }
 }
 
 impl TokenUsage {

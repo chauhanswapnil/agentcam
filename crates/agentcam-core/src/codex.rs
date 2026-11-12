@@ -196,6 +196,13 @@ impl State {
             let n = |k: &str| l.get(k).and_then(Value::as_u64).unwrap_or(0);
             let cached = n("cached_input_tokens");
             let model = self.out.session.model.clone();
+            let tier = self
+                .out
+                .session
+                .service_tier
+                .as_deref()
+                .map(Tier::parse)
+                .unwrap_or_default();
             let target = if self.items.is_empty() {
                 self.legacy.last_mut()
             } else {
@@ -204,6 +211,7 @@ impl State {
             if let Some(ev) = target {
                 let u = ev.usage.get_or_insert_with(|| TokenUsage {
                     model,
+                    tier,
                     ..Default::default()
                 });
                 u.input += n("input_tokens").saturating_sub(cached);

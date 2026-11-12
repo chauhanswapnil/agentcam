@@ -193,6 +193,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/limits", get(api::limits))
         .route("/lasted", get(api::lasted))
         .route("/turns", get(api::turns))
+        .route("/cost", get(api::cost))
+        .route("/profile", get(api::profile))
+        .route("/cache", get(api::cache))
         .route("/approvals", get(api::approvals))
         .route("/thinking", get(api::thinking))
         .route("/prs", get(api::prs))
@@ -532,6 +535,12 @@ mod tests {
         assert!(w["settled"]["added"].is_number() && w["weeks"].is_array());
         for path in [
             "/api/turns",
+            "/api/cost",
+            "/api/profile",
+            "/api/cache",
+            "/api/cache?session=11111111-1111-4111-8111-111111111111",
+            "/api/profile?session=11111111-1111-4111-8111-111111111111",
+            "/api/cost?session=11111111-1111-4111-8111-111111111111",
             "/api/approvals",
             "/api/thinking?sort=longest",
             "/api/prs",

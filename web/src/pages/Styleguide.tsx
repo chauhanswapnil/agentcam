@@ -13,6 +13,9 @@ import { Segmented } from '../ui/Segmented'
 import { Stat } from '../ui/Stat'
 import { Tooltip } from '../ui/Tooltip'
 import { UsageMeter } from '../ui/UsageMeter'
+import { CachePanel } from '../ui/CachePanel'
+import { CostPanel } from '../ui/CostPanel'
+import { TimeBar } from '../ui/TimeBar'
 import { QuotaMeter } from '../ui/QuotaMeter'
 import { CsvButton } from '../ui/CsvButton'
 import { CopyButton } from '../ui/CopyButton'
@@ -20,7 +23,7 @@ import { FindingReview } from '../ui/FindingReview'
 import { SortTh } from '../ui/SortTh'
 import { Welcome } from '../ui/Welcome'
 import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
-import { SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
+import { SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
 
 const SECTIONS = ['Color', 'Event kinds', 'Type', 'Space', 'Components', 'Timeline', 'Motion'] as const
@@ -418,6 +421,32 @@ export function Styleguide() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
             <QuotaMeter q={SAMPLE_QUOTA} now={SAMPLE_NOW} />
           </div>
+        </section>
+
+        <section id="time-bar" className={s.section}>
+          <h2>Time bar</h2>
+          <p className={s.rule}>
+            Agent time split by what it went on. The parts always add up to the whole. Colors are the event groups, with no new
+            hue: the two blue parts are told apart by strength, order and label. Estimates say "est.". Say "redoing" and "ready
+            for you", never "wasted" or "you were slow".
+          </p>
+          <TimeBar data={SAMPLE_TIME} />
+        </section>
+
+        <section id="cost" className={s.section}>
+          <h2>Cost</h2>
+          <p className={s.rule}>
+            Cost is always an estimate at API list prices, and says so. Show where it comes from (kinds of token, models) and
+            what the cache saved. A model with no price reads "no price", never a guess.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 420px))', gap: 12 }}>
+            <CostPanel data={SAMPLE_COSTS} />
+            <CachePanel data={SAMPLE_CACHE} />
+          </div>
+          <p className={s.rule}>
+            A cache rebuild is described, never blamed: after a break it is how the cache works. Each cause comes with one thing
+            the person can do, and a cause the log doesn't show is called that.
+          </p>
         </section>
 
         <section id="timeline" className={s.section}>

@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## Unreleased
 
+### Profiler
+
+- "Where the time went" on the Overview: agent time split into the model working, tools running, waiting on approval (an estimate), ready for you, and redoing. It also says how much went on reading and searching before the first change of a turn.
+- A Prompt cache panel on the Overview: the share of prompt tokens read from the cache, and each time the cache was lost and written again, with what it cost and why (after a break, a model switch, an effort change, or "cause not in the log"). The replay header counts a session's rebuilds; click it to go to the next one.
+
+### Cost
+
+- **Fixed:** Claude Code keeps most cache writes for an hour, which costs 200% of the input price. They were priced as 5-minute writes (125%), so estimates ran low.
+- **Fixed:** `prices.yaml` next to the index was never read. It is now, and a file that can't be read is reported instead of ignored.
+- **Fixed:** Claude Fable 5.2 and Mythos 5.2 had no price of their own and were charged at the Fable 5 rate; cache reads on Sonnet 5.5 were priced too high.
+- Codex sessions now have a cost: the built-in list holds OpenAI's prices too, including the higher price for prompts over 272,000 tokens and for fast (priority) calls.
+- Long prompts on Claude Haiku 5.5 and fast-mode calls are priced at their own rates.
+- A Cost panel on the Overview shows where the estimate comes from (output, cache writes, cache reads, fresh input), what the cache saved, and cost by model. The replay header's cost shows the same split on hover.
+- When prices change, sessions whose logs are gone are priced again from their stored token counts.
+- The index gains two columns (schema 15). The first run after updating copies the index to `index.db.bak-v14` and reads the logs again.
+
 ## 0.1.0 - 2026-11-09
 
 The first release. agentcam reads the logs Claude Code and Codex already write on your machine, including sessions from before you installed it, and shows them back to you. One local binary: no account, no telemetry, nothing leaves the machine.

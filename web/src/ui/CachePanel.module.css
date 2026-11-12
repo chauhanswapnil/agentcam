@@ -1,0 +1,89 @@
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-6);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat span {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.stat b {
+  color: var(--text-1);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.causes,
+.latest {
+  display: flex;
+  flex-direction: column;
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.causes li {
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--line-1);
+}
+.causeHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-1) var(--s-3);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.num {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.causes p {
+  margin: var(--s-1) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.head {
+  margin-top: var(--s-4);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.latest {
+  margin-top: var(--s-2);
+}
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--s-1-5) 0;
+  border-top: 1px solid var(--line-1);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+.row:hover .text {
+  text-decoration: underline;
+}
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.note {
+  margin: var(--s-3) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}

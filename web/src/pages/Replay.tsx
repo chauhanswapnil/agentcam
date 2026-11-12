@@ -34,7 +34,9 @@ import {
 } from 'lucide-react'
 import { Fragment, createElement, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { query, useApi, useIndexStatus, type EventRow, type Lasted, type TurnRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { query, useApi, useIndexStatus, type Cache, type Costs, type EventRow, type Lasted, type TurnRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { describeRebuild } from '../lib/cache'
+import { costSummary } from '../lib/cost'
 import { baseName, formatCompact, formatCost, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { entrypointLabel } from '../lib/live'
@@ -111,6 +113,9 @@ export function Replay() {
 }
 
 function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onReviewed: () => void }) {
+  // Refetched when the session gains steps, so a live session's split keeps up.
+  const cost = useApi<Costs>(`/api/cost${query({ session: id })}`, data.events.length)
+  const cache = useApi<Cache>(`/api/cache${query({ session: id })}`, data.events.length)
   const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs, follow, plan } = data
   const [view, setView] = useState<'transcript' | 'turns' | 'trace'>('transcript')
   const [, navigate] = useLocation()
@@ -177,6 +182,17 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
     },
     [seek],
   )
+  // Cache rebuilds in this session's own steps (subagents have their own replay).
+  const rebuilds = useMemo(
+    () => (cache.data?.latest ?? []).filter((b) => b.session_id === x.id).sort((a, b) => a.seq - b.seq),
+    [cache.data, x.id],
+  )
+  const nextRebuild = useCallback(() => {
+    const at = events[stepRef.current]?.seq ?? -1
+    const next = rebuilds.find((b) => b.seq > at) ?? rebuilds[0]
+    const i = next ? events.findIndex((e) => e.seq === next.seq) : -1
+    if (i >= 0) jump(i)
+  }, [rebuilds, events, jump])
 
   const nextWhere = useCallback(
     (pred: (e: EventRow) => boolean, dir: 1 | -1 = 1) => {
@@ -279,7 +295,7 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
           <span>
             <b>{formatNumber(x.error_count)}</b>errored
           </span>
-          <span title={x.cost_unpriced ? 'Some calls use a model with no price; add it to prices.yaml' : 'Estimated from the price table'}>
+          <span title={cost.data ? costSummary(cost.data) : x.cost_unpriced ? 'Some calls use a model with no price; add it to prices.yaml' : 'Estimated at API list prices'}>
             <b>{x.est_cost_usd != null ? formatCost(x.est_cost_usd) + (x.cost_unpriced ? '+' : '') : x.cost_usd != null ? formatCost(x.cost_usd) : '–'}</b>
             est. cost
           </span>
@@ -293,6 +309,16 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
             >
               <b>{Math.round((100 * lasted.kept) / lasted.added)}%</b>still in code
             </Link>
+          )}
+          {rebuilds.length > 0 && (
+            <button
+              type="button"
+              className={s.metaButton}
+              onClick={nextRebuild}
+              title={[...rebuilds.slice(0, 8).map((b) => `Step ${b.seq + 1}: ${describeRebuild(b)}`), 'Click to go to the next one'].join('\n')}
+            >
+              <b>{rebuilds.length}</b>cache {rebuilds.length === 1 ? 'rebuild' : 'rebuilds'}
+            </button>
           )}
           {x.wasted_ms > 0 && (
             <span title="Agent time on retry loops, error streaks and reverts">

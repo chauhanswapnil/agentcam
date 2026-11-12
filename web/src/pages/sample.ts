@@ -70,3 +70,51 @@ export const SAMPLE_QUOTA: ClaudeQuota = {
   blocks: [block(120, 4_200_000), block(74, 6_000_000), block(50, 9_400_000), block(26, 2_800_000), ACTIVE],
   week: { ...block(0, 25_500_000), calls: 640 },
 }
+
+export const SAMPLE_COSTS: import('../lib/api').Costs = {
+  usd: 41.9,
+  parts: { input: 1.2, output: 14.6, cache_read: 7.3, cache_write: 18.8 },
+  without_cache_usd: 163.4,
+  cache_hit_rate: 0.93,
+  calls: 2140,
+  unpriced_calls: 25,
+  unpriced_models: ['some-new-model'],
+  fast_calls: 12,
+  models: [
+    { model: 'claude-opus-5-5', calls: 1480, input_tokens: 210_000, output_tokens: 540_000, cache_read_tokens: 31_000_000, cache_write_tokens: 1_900_000, usd: 33.1 },
+    { model: 'gpt-6.1-sol', calls: 635, input_tokens: 900_000, output_tokens: 410_000, cache_read_tokens: 9_400_000, cache_write_tokens: 0, usd: 8.8 },
+    { model: 'some-new-model', calls: 25, input_tokens: 40_000, output_tokens: 9_000, cache_read_tokens: 0, cache_write_tokens: 0, usd: null },
+  ],
+  priced_on: '2026-11-11',
+  prices_error: null,
+}
+
+export const SAMPLE_TIME: import('../lib/api').TimeBar = {
+  total_ms: 26 * 3_600_000,
+  model_ms: 11.2 * 3_600_000,
+  tools_ms: 4.1 * 3_600_000,
+  approval_ms: 0.9 * 3_600_000,
+  you_ms: 8.6 * 3_600_000,
+  redo_ms: 1.2 * 3_600_000,
+  orienting_ms: 2.3 * 3_600_000,
+  approved_by_hand: 64,
+  sessions: 31,
+}
+
+export const SAMPLE_CACHE: import('../lib/api').Cache = {
+  hit_rate: 0.96,
+  calls: 2140,
+  rebuilds: 9,
+  rebuild_tokens: 1_840_000,
+  rebuild_usd: 14.2,
+  by_cause: [
+    { cause: 'break', count: 5, tokens: 1_210_000, usd: 9.4 },
+    { cause: 'model_switch', count: 2, tokens: 390_000, usd: 3.0 },
+    { cause: 'unknown', count: 2, tokens: 240_000, usd: 1.8 },
+  ],
+  compactions: 3,
+  latest: [
+    { session_id: 'demo', seq: 41, ts: '2026-11-06T09:10:00Z', cause: 'break', tokens: 212_000, usd: 1.65, gap_ms: 94 * 60_000, model: 'claude-opus-5-5', from_model: null, from_effort: null, effort: null, title: 'Migrate checkout to server actions' },
+    { session_id: 'demo', seq: 12, ts: '2026-11-05T15:02:00Z', cause: 'model_switch', tokens: 180_000, usd: 1.4, gap_ms: 40_000, model: 'claude-sonnet-5-5', from_model: 'claude-opus-5-5', from_effort: null, effort: null, title: 'Fix the cart total rounding bug' },
+  ],
+}

@@ -1119,6 +1119,57 @@ pub async fn lasted(
         .map(Json)
 }
 
+/// `GET /api/cache` or `?session=<id>`: how much of each prompt came from
+/// the prompt cache, and the calls where it was written again.
+pub async fn cache(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::cache::Cache>, ApiError> {
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    st.read(move |idx| match &session {
+        Some(id) => agentcam_core::cache::session_cache(idx.conn(), idx.prices(), id),
+        None => agentcam_core::cache::cache(idx.conn(), idx.prices(), &f),
+    })
+    .await
+    .map(Json)
+}
+
+/// `GET /api/profile` or `?session=<id>`: where agent time went.
+pub async fn profile(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::profile::TimeBar>, ApiError> {
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    st.read(move |idx| match &session {
+        Some(id) => agentcam_core::profile::session_time_bar(idx.conn(), id),
+        None => agentcam_core::profile::time_bar(idx.conn(), &f),
+    })
+    .await
+    .map(Json)
+}
+
+/// `GET /api/cost` or `?session=<id>`: the estimated cost by kind of token
+/// and by model, at list prices, and what the prompt cache saved.
+pub async fn cost(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::cost::Costs>, ApiError> {
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    st.read(move |idx| {
+        let mut c = match &session {
+            Some(id) => agentcam_core::cost::session_costs(idx.conn(), idx.prices(), id),
+            None => agentcam_core::cost::costs(idx.conn(), idx.prices(), &f),
+        }?;
+        c.prices_error = idx.prices_error().map(String::from);
+        Ok(c)
+    })
+    .await
+    .map(Json)
+}
+
 /// Turn lengths, waits between turns, and turns by model, effort and mode.
 pub async fn turns(
     State(st): Shared,

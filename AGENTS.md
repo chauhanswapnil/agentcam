@@ -122,6 +122,9 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context, error streak, cost |
 | `GET /api/limits` | Usage windows (latest reading, last 7 days), limits reached, and `claude`: Claude Code's 5-hour blocks estimated from tokens |
 | `GET /api/lasted` | Which agent-written lines are still in the code: by age, week, agent and model, project, file |
+| `GET /api/cost` | Estimated cost by kind of token and by model, what the prompt cache saved, models with no price; takes `session` for one session and its subagents (`cost.rs`) |
+| `GET /api/profile` | Where agent time went: model, tools, waiting on approval (estimate), ready for you, redoing; takes `session` (`profile.rs`) |
+| `GET /api/cache` | Share of prompt tokens read from the prompt cache, and cache rebuilds with their cause and cost; takes `session` (`cache.rs`) |
 | `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
 | `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
 | `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model |
@@ -252,10 +255,25 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Views describe, never rank people. Machines show as `Machine abc123` unless an admin turns on `show_people` (logged). Cost is at API list prices; seats compare a monthly seat price with that.
 - Demo: `agentcam team serve --data /tmp/agentcam-team-demo`, then `python3 scripts/team-demo.py http://127.0.0.1:4850 <admin token>` makes 24 fake machines in 4 teams over 90 days. Team screenshots come from it.
 
+### Where the time went (profiler)
+
+- `profile.rs` splits agent time (the capped `gap_ms` sums) into parts that always add up to it. A gap before a step holds the tool call that was still running (read from its `duration_ms`; calls in flight together count once) and the model working out the step.
+- Parts: `model_ms`, `tools_ms`, `approval_ms`, `you_ms` (gaps before a prompt: the agent had replied), `redo_ms` (steps with `events.wasted`). `orienting_ms` is a slice of model and tool time, not a part: reading and searching before the first edit of a turn that went on to edit.
+- Approval wait is an estimate. Claude Code times a call from request to result, wait included. For calls with approval `you`, the usual run of that tool (median over calls nobody had to allow) is taken off; a `rejected` call is all wait. Always label it "est." in the UI.
+- Wording: "ready for you", "redoing". Never "wasted" or anything that grades the person or the agent.
+
+### Prompt cache (profiler)
+
+- `cache.rs`. A **rebuild** is a model call that writes at least half its prompt to the cache (and 10k tokens or more), in a session where an earlier call had read at least half its prompt from it, with no "Context compacted" step in between. A subagent's first call has no cache to lose. Compactions are counted apart.
+- Cause, first match: the model differs from the call before (`model_switch`); the real time since that call (from `ts`, not the capped `gap_ms`) is longer than the cache is kept (`break`; 1 hour when the session's latest writes were mostly 1-hour ones, else 5 minutes); the turn's effort differs (`effort_change`, from `turns.effort`); else `unknown`. The log doesn't hold the prompt, so never guess past that. On real logs about a third stay unknown; tool changes did not explain any.
+- Cost is the write price minus the read price for the tokens written. A log copied on resume or fork repeats its calls: rebuilds are counted once by time and size.
+- Wording: a rebuild after a break is how the cache works, not a fault. State the cost, give one thing the person can do, and leave the choice to them.
+
 ### Cost, context, waste and commits
 
 - **Tokens per step:** each model call's usage sits on the first step it produced (`TokenUsage` in `model.rs`); context size = fresh input + cache reads + cache writes.
-- **Prices:** `rules/prices.yaml` (built in, Anthropic list prices) plus the user's `prices.yaml` next to the index. Longest `match` prefix wins. Missing cache prices are estimated (10% / 125% of input), and a model without a price leaves the cost unknown, never guessed. Changing prices re-checks every session (fingerprint in `meta`).
+- **Prices:** `rules/prices.yaml` (built in: Anthropic and OpenAI API list prices, with the day they were checked in `prices::PRICED_ON`) plus the user's `prices.yaml` next to the index, loaded when the index opens (a file that doesn't parse is left out and `/api/cost` says so). Longest `match` prefix wins. A call's cost has four parts (`prices::Parts`): fresh input, output, cache reads, cache writes. Cache writes kept an hour (`TokenUsage::cache_write_1h`, from Claude Code's `usage.cache_creation`) cost 200% of input, 5-minute ones 125%, reads 10%, unless the row names a price. `long` moves a call whose prompt is over a size to higher prices; `fast` and `flex` are multiples for `Tier::Fast` (Claude `speed: fast`, Codex `priority`) and `Tier::Flex`. A model without a price leaves the cost unknown, never guessed. Changing prices re-checks every session (fingerprint in `meta`; bump `ENGINE` in `prices.rs` when the maths changes), and sessions whose logs are gone are priced again from their stored tokens (`index::reprice_kept`).
+- **Cost breakdown (`cost.rs`):** by kind of token and by model, what the same calls would cost with no cache, and the share of prompt tokens read from cache. Worked out from stored tokens with the current prices, so it agrees with `events.cost_usd`. Always say "est." and "at API list prices" in the UI: on a subscription the user pays the plan price.
 - **Waste (`patterns.rs`):** retry loops (same call failing 3+ times), error streaks (4+ failed tool calls in a row), reverts (an Edit that undoes an earlier one) and edit churn (6+ edits to one file, a signal only). `events.wasted` marks steps counted as wasted, each once.
 - **Commits (`commits.rs`):** only real `git commit` command segments count (via `shell::command_words`, heredoc bodies skipped); hash and branch from git's `[branch hash] message` output when present.
 - **OTel (`otel.rs`):** `agentcam export otlp` writes OTLP/JSON; it only sends data when `--endpoint` is given.

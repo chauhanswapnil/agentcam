@@ -3,10 +3,12 @@
 
 pub mod approvals;
 pub mod audit;
+pub mod cache;
 pub mod claude;
 pub mod codex;
 pub mod commits;
 pub mod compare;
+pub mod cost;
 pub mod evidence;
 pub mod export;
 pub mod fleet;
@@ -22,6 +24,7 @@ pub mod patterns;
 pub mod plans;
 pub mod preview;
 pub mod prices;
+pub mod profile;
 pub mod prompts;
 pub mod query;
 pub mod quota;
