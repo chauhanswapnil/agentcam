@@ -230,6 +230,11 @@ export function Styleguide() {
 
         <section id="components" className={s.section}>
           <h2>Components</h2>
+          <p className={s.rule}>
+            If it sums up steps, it opens them. A number, bar, row or badge that adds up steps opens those steps, and a click
+            never dead-ends: it lands on a filtered list or on a replay step. Hover and pointer only on things you can click,
+            and every one of those is a real button or link with text or an <code>aria-label</code>.
+          </p>
 
           <span className={s.sub}>Buttons</span>
           <div className={s.row}>
@@ -436,6 +441,11 @@ export function Styleguide() {
             for you", never "wasted" or "you were slow".
           </p>
           <TimeBar data={SAMPLE_TIME} />
+          <p className={s.rule}>
+            With <code>onPick</code>, each part, the reading note and the start note open what is behind them. Without it
+            (above) nothing is a button and nothing has a hover.
+          </p>
+          <TimeBar data={SAMPLE_TIME} title="Where the time went (clickable)" onPick={() => setDrawer(true)} />
         </section>
 
         <section id="drawer" className={s.section}>

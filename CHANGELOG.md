@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## Unreleased
 
+### Clickable numbers
+
+- Every number that sums up steps now opens them. A drawer on the right lists the steps behind a part of the time bar, a kind of token, a model, a cause of cache rebuilds or a fix, biggest first, and each row opens the replay at that step. The open number is kept in the address (`?behind=`), so the drawer can be linked and Back closes it. The route is `GET /api/behind`.
+- The fix card names the sessions it shows and has "See all N". A row in the ledger opens to its twelve weeks, with a line where the fix was marked done, and the runs since.
+- The replay header's numbers act: est. cost opens its split, peak context and errored jump to those steps, files changed goes to the list, the time strip jumps to the next step of its kind, and a dot on the timeline marks each cache rebuild.
+- The Overview's stats open Profile, Tools and Files, "steps errored" and "on retries and reverts" filter the session list (`?has=errors|findings|retries`, also `?model=`), session badges open the first finding, retry, error or the subagents, and the turns rows open Compare.
+- Setup: MCP servers open their calls and each check can show the row it is about. Tools: MCP server rows set the tool filter. What lasted: week and project rows narrow the files table. Thinking: model tiles narrow the list. Live: usage meters jump to the limits reached.
+- Session rows on the Overview are a title button stretched over the row, so badges inside them are real links.
+
 ### Profiler
 
 - Loud commands are a fix kind: a command whose output fills the context run after run, with a prompt that asks your agent for a quieter form. The index now keeps each tool output's full size (schema 16; the first run reads the logs again).
