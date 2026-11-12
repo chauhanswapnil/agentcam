@@ -1,19 +1,20 @@
 import { Timer } from 'lucide-react'
+import { Link } from 'wouter'
 import type { TimeBar as Bar } from '../lib/api'
 import { formatCompact, formatHours, formatNumber } from '../lib/format'
 import { GROUPS } from '../lib/kinds'
 import { Panel } from './Panel'
 import s from './TimeBar.module.css'
 
-type Part = { key: keyof Bar; label: string; hint: string; color: string; soft?: boolean }
+type Part = { key: keyof Bar; what: string; label: string; hint: string; color: string; soft?: boolean }
 
 /** The parts of agent time, in reading order. Colors are the event groups. */
 const PARTS: Part[] = [
-  { key: 'model_ms', label: 'Model working', hint: 'Thinking, writing and choosing the next call', color: GROUPS.agent.color },
-  { key: 'tools_ms', label: 'Tools running', hint: 'Commands, edits, reads and other calls', color: GROUPS.change.color },
-  { key: 'approval_ms', label: 'Waiting on approval', hint: 'An estimate: how long calls sat until you allowed them', color: GROUPS.you.color },
-  { key: 'you_ms', label: 'Ready for you', hint: 'The agent had replied and was waiting for your next prompt. Each wait counts up to 5 minutes.', color: GROUPS.you.color, soft: true },
-  { key: 'redo_ms', label: 'Redoing', hint: 'Retries, runs of steps that errored, and reverts', color: GROUPS.error.color },
+  { key: 'model_ms', what: 'time:model', label: 'Model working', hint: 'Thinking, writing and choosing the next call', color: GROUPS.agent.color },
+  { key: 'tools_ms', what: 'time:tools', label: 'Tools running', hint: 'Commands, edits, reads and other calls', color: GROUPS.change.color },
+  { key: 'approval_ms', what: 'time:approval', label: 'Waiting on approval', hint: 'An estimate: how long calls sat until you allowed them', color: GROUPS.you.color },
+  { key: 'you_ms', what: 'time:you', label: 'Ready for you', hint: 'The agent had replied and was waiting for your next prompt. Each wait counts up to 5 minutes.', color: GROUPS.you.color, soft: true },
+  { key: 'redo_ms', what: 'time:redo', label: 'Redoing', hint: 'Retries, runs of steps that errored, and reverts', color: GROUPS.error.color },
 ]
 
 const share = (v: number, total: number) => (total > 0 ? Math.round((v / total) * 100) : 0)
@@ -33,8 +34,20 @@ export function TimeStrip({ data }: { data: Bar }) {
   )
 }
 
-/** Where agent time went, as one split bar with a legend. */
-export function TimeBar({ data, title = 'Where the time went' }: { data: Bar; title?: string }) {
+/**
+ * Where agent time went, as one split bar with a legend. With `onPick`, each
+ * part opens the steps behind it; without it nothing here is clickable.
+ */
+export function TimeBar({
+  data,
+  title = 'Where the time went',
+  onPick,
+}: {
+  data: Bar
+  title?: string
+  /** Called with a key for `/api/behind`, like `time:tools`. */
+  onPick?: (what: string) => void
+}) {
   // Parts of the start too small to matter aren't worth a sentence.
   const skills = (data.start_skills_tokens ?? 0) >= 1000 ? data.start_skills_tokens : null
   const mcp = (data.start_mcp_tokens ?? 0) >= 1000 ? data.start_mcp_tokens : null
@@ -43,20 +56,30 @@ export function TimeBar({ data, title = 'Where the time went' }: { data: Bar; ti
   const label = shown.map((p) => `${p.label} ${share(data[p.key] as number, total)}%`).join(', ')
   return (
     <Panel title={title} icon={<Timer />}>
-      <div className={s.bar} role="img" aria-label={label}>
-        {shown.map((p) => (
-          <span
-            key={p.key}
-            className={p.soft ? s.soft : undefined}
-            style={{ flexGrow: data[p.key] as number, background: p.color }}
-          />
-        ))}
+      <div className={s.bar} {...(onPick ? { role: 'group', 'aria-label': 'Where the time went' } : { role: 'img', 'aria-label': label })}>
+        {shown.map((p) => {
+          const v = data[p.key] as number
+          const style = { flexGrow: v, background: p.color }
+          return onPick ? (
+            <button
+              key={p.key}
+              type="button"
+              className={`${s.seg} ${p.soft ? s.soft : ''}`}
+              style={style}
+              aria-label={`${p.label}, ${formatHours(v)}, ${share(v, total)}%: show the steps`}
+              title={`${p.label}: show the steps`}
+              onClick={() => onPick(p.what)}
+            />
+          ) : (
+            <span key={p.key} className={p.soft ? s.soft : undefined} style={style} />
+          )
+        })}
       </div>
       <ul className={s.legend}>
         {PARTS.map((p) => {
           const v = data[p.key] as number
-          return (
-            <li key={p.key} title={p.hint} className={v === 0 ? s.none : undefined}>
+          const inner = (
+            <>
               <span className={`${s.dot} ${p.soft ? s.soft : ''}`} style={{ background: p.color }} aria-hidden />
               <span className={s.name}>
                 {p.label}
@@ -64,6 +87,17 @@ export function TimeBar({ data, title = 'Where the time went' }: { data: Bar; ti
               </span>
               <b>{formatHours(v)}</b>
               <span className={s.share}>{share(v, total)}%</span>
+            </>
+          )
+          return (
+            <li key={p.key} title={p.hint} className={v === 0 ? s.none : undefined}>
+              {onPick && v > 0 ? (
+                <button type="button" className={`${s.item} ${s.pick}`} onClick={() => onPick(p.what)} aria-label={`${p.label}, ${formatHours(v)}, ${share(v, total)}%: show the steps`}>
+                  {inner}
+                </button>
+              ) : (
+                <span className={s.item}>{inner}</span>
+              )}
             </li>
           )
         })}
@@ -72,7 +106,19 @@ export function TimeBar({ data, title = 'Where the time went' }: { data: Bar; ti
         <p className={s.note}>
           {data.orienting_ms > 0 && (
             <>
-              <b>{formatHours(data.orienting_ms)}</b> of the model and tool time went on reading and searching before the first change of a turn.{' '}
+              <b>{formatHours(data.orienting_ms)}</b> of the model and tool time went on reading and searching before the first change of a turn
+              {onPick ? (
+                <>
+                  {' '}
+                  (
+                  <button type="button" className={s.textBtn} onClick={() => onPick('time:orienting')}>
+                    show the turns
+                  </button>
+                  ).{' '}
+                </>
+              ) : (
+                '. '
+              )}
             </>
           )}
           {data.approved_by_hand > 0 && (
@@ -90,9 +136,20 @@ export function TimeBar({ data, title = 'Where the time went' }: { data: Bar; ti
             <>
               {' '}
               Of that, an estimated
-              {skills ? ` ${formatCompact(skills)} is the skill listing` : ''}
+              {skills && (
+                <>
+                  {` ${formatCompact(skills)} is the `}
+                  {onPick ? <Link href="/skills" className={s.textBtn}>skill listing</Link> : 'skill listing'}
+                </>
+              )}
               {skills && mcp ? ' and' : ''}
-              {mcp ? ` ${formatCompact(mcp)} is MCP server instructions` : ''}.
+              {mcp && (
+                <>
+                  {` ${formatCompact(mcp)} is `}
+                  {onPick ? <Link href="/setup" className={s.textBtn}>MCP server instructions</Link> : 'MCP server instructions'}
+                </>
+              )}
+              .
             </>
           )}
         </p>

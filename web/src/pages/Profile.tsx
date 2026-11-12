@@ -47,7 +47,7 @@ export function Profile() {
   }
   const cache = useApi<Cache>(`/api/cache${q}`, gen)
   const cost = useApi<Costs>(`/api/cost${q}`, gen)
-  const [behind, , closeBehind] = useBehind()
+  const [behind, openBehind, closeBehind] = useBehind()
 
   return (
     <div className={v.page}>
@@ -62,7 +62,7 @@ export function Profile() {
         </div>
       </header>
 
-      {time.data ? time.data.total_ms > 0 && <TimeBar data={time.data} /> : <Skeleton height={140} />}
+      {time.data ? time.data.total_ms > 0 && <TimeBar data={time.data} onPick={openBehind} /> : <Skeleton height={140} />}
 
       <Panel title="Fixes" icon={<Lightbulb />}>
         {!fixes.data ? (

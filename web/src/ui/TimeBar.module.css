@@ -5,7 +5,8 @@
   height: var(--s-3);
   border-radius: var(--r-1);
 }
-.bar span {
+.bar span,
+.bar button {
   flex-basis: 0;
   min-width: 2px;
 }
@@ -21,12 +22,60 @@
   list-style: none;
 }
 .legend li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-2);
   min-width: 0;
   color: var(--text-2);
   font-size: var(--fs-sm);
+}
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  width: 100%;
+}
+/* A legend row you can click: same layout, a hover and a focus ring. */
+.pick {
+  margin: calc(var(--s-1) * -1) calc(var(--s-1-5) * -1);
+  padding: var(--s-1) var(--s-1-5);
+  width: calc(100% + var(--s-3));
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.pick:hover {
+  background: var(--bg-2);
+}
+.pick:focus-visible,
+.seg:focus-visible,
+.textBtn:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
+.seg {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  transition: filter var(--dur-1) var(--ease-out);
+}
+.seg:hover {
+  filter: brightness(1.25);
+}
+.textBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.textBtn:hover {
+  color: var(--text-1);
 }
 .legend b {
   color: var(--text-1);

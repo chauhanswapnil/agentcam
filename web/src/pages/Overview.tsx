@@ -2,6 +2,7 @@ import { Bot, CalendarDays, RotateCcw, FolderGit2, Inbox, RefreshCw, Rows3, Tria
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearch } from 'wouter'
 import { AGENTS, type AgentId } from '../lib/agents'
+import { useBehind } from '../lib/behind'
 import {
   query,
   useApi,
@@ -45,6 +46,7 @@ import { Tooltip } from '../ui/Tooltip'
 import { CachePanel } from '../ui/CachePanel'
 import { CostPanel } from '../ui/CostPanel'
 import { FixCard } from '../ui/FixCard'
+import { StepsDrawer } from '../ui/StepsDrawer'
 import { TimeBar } from '../ui/TimeBar'
 import { TurnsPanel } from '../ui/TurnsPanel'
 import type { Cache, Costs, Fixes, TimeBar as TimeBarData, TurnStats } from '../lib/api'
@@ -302,6 +304,7 @@ export function Overview() {
   const fixes = useApi<Fixes>(`/api/fixes${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const cost = useApi<Costs>(`/api/cost${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const weekAudit = useApi<import('../lib/api').Audit>(`/api/audit${query({ range: '7d', agent: f.agent, severity: 'medium', limit: 1 })}`, gen)
+  const [behind, openBehind, closeBehind] = useBehind()
   const indexing = status?.indexing
   const firstRun = indexing && !status?.last_report
   const o = overview.data
@@ -358,7 +361,7 @@ export function Overview() {
         <div className={s.stats} style={{ height: 98 }} />
       )}
 
-      {time.data && time.data.total_ms > 0 && <TimeBar data={time.data} />}
+      {time.data && time.data.total_ms > 0 && <TimeBar data={time.data} onPick={openBehind} />}
       {fixes.data && fixes.data.fixes.length > 0 && (
         <div className={s.topFix}>
           <FixCard fix={fixes.data.fixes[0]} />
@@ -460,6 +463,13 @@ export function Overview() {
           {turns.data && turns.data.turns > 0 && <TurnsPanel data={turns.data} />}
         </div>
       </div>
+      {behind && (
+        <StepsDrawer
+          what={behind}
+          filter={{ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day }}
+          onClose={closeBehind}
+        />
+      )}
     </div>
   )
 }
