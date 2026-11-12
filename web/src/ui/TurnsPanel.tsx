@@ -83,7 +83,15 @@ export function TurnsPanel({ data }: { data: TurnStats }) {
         <tbody>
           {groups.slice(0, 8).map((g) => (
             <tr key={g.key ?? '-'}>
-              <td className={g.key == null ? s.muted : undefined}>{name(g)}</td>
+              <td className={g.key == null ? s.muted : undefined}>
+                {g.key == null ? (
+                  name(g)
+                ) : (
+                  <Link href={`/compare?dim=${by}&a=${encodeURIComponent(g.key)}`} className={s.cmp} title="Compare turns with this value against another">
+                    {name(g)}
+                  </Link>
+                )}
+              </td>
               <td className={s.num}>{formatNumber(g.turns)}</td>
               <td className={s.num}>{g.key == null && g.median_ms === 0 ? '–' : short(g.median_ms)}</td>
               <td className={s.num}>{g.median_steps}</td>

@@ -235,6 +235,21 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
     },
     [id, events, jump],
   )
+  // A link from the Overview (?jump=finding|error|retry|subagents) lands on
+  // the first such step, once.
+  const jumpTo = useRef(new URLSearchParams(search).get('jump'))
+  useEffect(() => {
+    const what = jumpTo.current
+    jumpTo.current = null
+    if (!what) return
+    if (what === 'subagents') {
+      document.getElementById('session-subagents')?.scrollIntoView({ block: 'start' })
+      return
+    }
+    const first =
+      what === 'finding' ? events.findIndex((e) => flags.has(e.seq)) : what === 'error' ? events.findIndex((e) => e.is_error) : what === 'retry' ? events.findIndex((e) => e.wasted) : -1
+    if (first >= 0) jump(first)
+  }, [events, flags, jump])
   const scrollToFiles = useCallback(() => document.getElementById('session-files')?.scrollIntoView({ block: 'start' }), [])
 
   // Keyboard: space, arrows, J/K, Shift for changes, E for errors.
@@ -641,7 +656,11 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
                   <Files files={files} root={x.project_root} current={step} onSeek={jump} />
                 </Panel>
               )}
-              {subagents.length > 0 && <SubagentTree parent={x} subagents={subagents} onOpen={(sid) => navigate(`/sessions/${sid}`)} />}
+              {subagents.length > 0 && (
+                <div id="session-subagents">
+                  <SubagentTree parent={x} subagents={subagents} onOpen={(sid) => navigate(`/sessions/${sid}`)} />
+                </div>
+              )}
             </div>
           </div>
         </>

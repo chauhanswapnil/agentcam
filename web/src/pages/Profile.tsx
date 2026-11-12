@@ -1,5 +1,5 @@
 import { Lightbulb } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import type { Cache, Costs, Fixes, Ledger, TimeBar as TimeBarData } from '../lib/api'
 import { query, sendJson, useApi, useIndexStatus } from '../lib/api'
@@ -48,6 +48,11 @@ export function Profile() {
   const cache = useApi<Cache>(`/api/cache${q}`, gen)
   const cost = useApi<Costs>(`/api/cost${q}`, gen)
   const [behind, openBehind, closeBehind] = useBehind()
+  // A link like /profile#cost lands on the panel once it is on the page.
+  const hasCost = !!cost.data
+  useEffect(() => {
+    if (hasCost && location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [hasCost])
 
   return (
     <div className={v.page}>

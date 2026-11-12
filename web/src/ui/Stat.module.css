@@ -4,6 +4,45 @@
   gap: var(--s-1);
   min-width: 0;
 }
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+/* A headline you can open: a hover and a focus ring, nothing at rest. */
+.open {
+  margin: calc(var(--s-1) * -1) calc(var(--s-2) * -1);
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.open:hover {
+  background: var(--bg-2);
+}
+.open:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 0;
+}
+.sub a {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.sub a:hover {
+  color: var(--text-1);
+}
+.sub a:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
 .label {
   color: var(--text-3);
   font-size: var(--fs-sm);

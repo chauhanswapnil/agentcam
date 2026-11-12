@@ -25,7 +25,7 @@ export function CostPanel({
   const max = Math.max(...PARTS.map((p) => data.parts[p.key]), 0.000001)
   const tokens = (m: Costs['models'][number]) => m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_write_tokens
   return (
-    <Panel title="Cost" icon={<CircleDollarSign />}>
+    <Panel id="cost" title="Cost" icon={<CircleDollarSign />}>
       <div className={s.top}>
         <div className={s.stat}>
           <span>Est. cost</span>

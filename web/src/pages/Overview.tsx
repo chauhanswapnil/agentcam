@@ -88,8 +88,14 @@ const AGENT_OPTIONS = [
   { value: 'codex', label: 'Codex' },
 ]
 const PAGE = 40
+/** What a `?has=` pick says in the chip above the session list. */
+const HAS_LABELS: Record<string, string> = {
+  errors: 'With errored steps',
+  findings: 'With risk findings',
+  retries: 'With retries or reverts',
+}
 
-type Filters = { range: string; agent: string; project: string; day: string }
+type Filters = { range: string; agent: string; project: string; day: string; has: string; model: string }
 
 /** Filters live in the URL so reload, back and shared links keep them. */
 function useFilters(): [Filters, (patch: Partial<Filters>) => void] {
@@ -101,6 +107,8 @@ function useFilters(): [Filters, (patch: Partial<Filters>) => void] {
     agent: p.get('agent') ?? '',
     project: p.get('project') ?? '',
     day: p.get('day') ?? '',
+    has: p.get('has') ?? '',
+    model: p.get('model') ?? '',
   }
   const set = (patch: Partial<Filters>) => {
     const next = { ...f, ...patch }
@@ -116,32 +124,63 @@ function delta(cur: number, prev: number | undefined, range: string) {
   return d === 'same as' ? `same as ${RANGE_WORDS[range]}` : `${d} vs ${RANGE_WORDS[range]}`
 }
 
-function StatsStrip({ stats, prev, range }: { stats: Stats; prev?: Stats | null; range: string }) {
+/** The Overview page for the same range, agent and project, with one more pick. */
+function listHref(f: Filters, patch: Partial<Filters>) {
+  const next = { ...f, ...patch }
+  return `/${query({ ...next, range: next.range === '30d' ? undefined : next.range })}`
+}
+
+function StatsStrip({ stats, prev, f }: { stats: Stats; prev?: Stats | null; f: Filters }) {
+  const range = f.range
   const p = prev ?? undefined
+  const scope = query({ range: f.range, agent: f.agent })
   return (
     <div className={s.stats}>
       <div className={s.stat}>
         <Stat
           label="Agent time"
           value={formatHours(stats.active_ms)}
-          sub={stats.wasted_ms > 0 ? formatHours(stats.wasted_ms) + ' on retries and reverts' : (delta(stats.active_ms, p?.active_ms, range) ?? 'idle gaps over 5 min left out')}
+          href={`/profile${scope}`}
+          sub={
+            stats.wasted_ms > 0 ? (
+              <Link href={listHref(f, { has: 'retries', day: '' })}>{formatHours(stats.wasted_ms)} on retries and reverts</Link>
+            ) : (
+              (delta(stats.active_ms, p?.active_ms, range) ?? 'idle gaps over 5 min left out')
+            )
+          }
         />
       </div>
       <div className={s.stat}>
-        <Stat label="Sessions" value={formatNumber(stats.sessions)} sub={delta(stats.sessions, p?.sessions, range) ?? `${stats.projects} projects`} />
+        <Stat
+          label="Sessions"
+          value={formatNumber(stats.sessions)}
+          onClick={() => document.getElementById('sessions')?.scrollIntoView({ block: 'start' })}
+          sub={delta(stats.sessions, p?.sessions, range) ?? `${stats.projects} projects`}
+        />
       </div>
       <div className={s.stat}>
         <Stat
           label="Est. cost"
           value={formatCost(stats.cost_usd) + (stats.unpriced_calls ? '+' : '')}
+          href={`/profile${scope}#cost`}
           sub={stats.unpriced_calls ? formatNumber(stats.unpriced_calls) + ' calls with no price' : formatNumber(stats.prompts) + ' prompts · ' + formatNumber(stats.commits) + ' commits'}
         />
       </div>
       <div className={s.stat}>
-        <Stat label="Tool calls" value={formatCompact(stats.tool_calls)} sub={`${formatNumber(stats.commands)} commands`} />
+        <Stat label="Tool calls" value={formatCompact(stats.tool_calls)} href={`/tools${scope}`} sub={`${formatNumber(stats.commands)} commands`} />
       </div>
       <div className={s.stat}>
-        <Stat label="Files changed" value={formatNumber(stats.files_changed)} sub={`${formatNumber(stats.files_created)} new · ${formatNumber(stats.errors)} steps errored`} />
+        <Stat
+          label="Files changed"
+          value={formatNumber(stats.files_changed)}
+          href={`/files${scope}`}
+          sub={
+            <>
+              {formatNumber(stats.files_created)} new ·{' '}
+              {stats.errors > 0 ? <Link href={listHref(f, { has: 'errors', day: '' })}>{formatNumber(stats.errors)} steps errored</Link> : `${formatNumber(stats.errors)} steps errored`}
+            </>
+          }
+        />
       </div>
     </div>
   )
@@ -236,32 +275,52 @@ function SessionList({ rows, onOpen }: { rows: SessionRow[]; onOpen: (id: string
                 trailing={
                   <span className={s.rowRight}>
                     {r.max_severity && SEVERITY_RANK[r.max_severity] >= 2 && (
-                      <Tooltip content={`${r.finding_count} risk ${r.finding_count === 1 ? 'finding' : 'findings'}, worst: ${r.max_severity}`}>
-                        <span className={s.hideSmall}>
+                      <Tooltip content={`${r.finding_count} risk ${r.finding_count === 1 ? 'finding' : 'findings'}, worst: ${r.max_severity}. Open the first.`}>
+                        <Link
+                          href={`/sessions/${r.id}?jump=finding`}
+                          className={`${s.badgeLink} ${s.hideSmall}`}
+                          aria-label={`${r.finding_count} risk ${r.finding_count === 1 ? 'finding' : 'findings'}: open the first`}
+                        >
                           <SeverityBadge severity={r.max_severity} />
-                        </span>
+                        </Link>
                       </Tooltip>
                     )}
                     {r.wasted_ms > 0 && (
-                      <Tooltip content={formatHours(r.wasted_ms) + ' on retries and reverts'}>
-                        <Badge icon={<RotateCcw />} color="var(--status-serious)">
-                          {formatHours(r.wasted_ms)}
-                        </Badge>
+                      <Tooltip content={formatHours(r.wasted_ms) + ' on retries and reverts. Open the first.'}>
+                        <Link
+                          href={`/sessions/${r.id}?jump=retry`}
+                          className={s.badgeLink}
+                          aria-label={`${formatHours(r.wasted_ms)} on retries and reverts: open the first`}
+                        >
+                          <Badge icon={<RotateCcw />} color="var(--status-serious)">
+                            {formatHours(r.wasted_ms)}
+                          </Badge>
+                        </Link>
                       </Tooltip>
                     )}
                     {r.error_count > 0 && (
-                      <Tooltip content={`${r.error_count} ${r.error_count === 1 ? 'step' : 'steps'} errored`}>
-                        <Badge icon={<TriangleAlert />} color="var(--status-critical)">
-                          {r.error_count}
-                        </Badge>
+                      <Tooltip content={`${r.error_count} ${r.error_count === 1 ? 'step' : 'steps'} errored. Open the first.`}>
+                        <Link
+                          href={`/sessions/${r.id}?jump=error`}
+                          className={s.badgeLink}
+                          aria-label={`${r.error_count} ${r.error_count === 1 ? 'step' : 'steps'} errored: open the first`}
+                        >
+                          <Badge icon={<TriangleAlert />} color="var(--status-critical)">
+                            {r.error_count}
+                          </Badge>
+                        </Link>
                       </Tooltip>
                     )}
                     {r.subagents > 0 && (
-                      <Tooltip content={`${r.subagents} ${r.subagents === 1 ? 'subagent' : 'subagents'}`}>
-                        <span className={`${s.steps} ${s.hideSmall}`}>
+                      <Tooltip content={`${r.subagents} ${r.subagents === 1 ? 'subagent' : 'subagents'}. Show them.`}>
+                        <Link
+                          href={`/sessions/${r.id}?jump=subagents`}
+                          className={`${s.badgeLink} ${s.steps} ${s.hideSmall}`}
+                          aria-label={`${r.subagents} ${r.subagents === 1 ? 'subagent' : 'subagents'}: show them`}
+                        >
                           <Bot aria-hidden />
                           {r.subagents}
-                        </span>
+                        </Link>
                       </Tooltip>
                     )}
                     <span className={`${s.steps} ${s.hideSmall}`}>{formatNumber(r.event_count)} steps</span>
@@ -286,7 +345,7 @@ export function Overview() {
   const [, navigate] = useLocation()
   const { status, reindex } = useIndexStatus()
   const gen = status?.generation ?? 0
-  const filterQuery = { range: f.range, agent: f.agent, project: f.project, day: f.day }
+  const filterQuery = { range: f.range, agent: f.agent, project: f.project, day: f.day, has: f.has, model: f.model }
   // Page size resets whenever the filters change.
   const fkey = JSON.stringify(filterQuery)
   const [pages, setPages] = useState({ key: fkey, limit: PAGE })
@@ -356,7 +415,7 @@ export function Overview() {
       </header>
 
       {o ? (
-        <StatsStrip stats={o.stats} prev={f.day ? null : o.previous} range={f.range} />
+        <StatsStrip stats={o.stats} prev={f.day ? null : o.previous} f={f} />
       ) : (
         <div className={s.stats} style={{ height: 98 }} />
       )}
@@ -391,6 +450,7 @@ export function Overview() {
 
       <div className={s.grid}>
         <Panel
+          id="sessions"
           title={
             <>
               Sessions{sessions.data && <span style={{ color: 'var(--text-3)' }}> · {formatNumber(sessions.data.total)}</span>}
@@ -401,8 +461,18 @@ export function Overview() {
           actions={
             <>
               {sessions.data && <CsvButton name="sessions" rows={sessions.data.items} columns={SESSION_COLUMNS} />}
-              {(f.project || f.day) && (
+              {(f.project || f.day || f.has || f.model) && (
                 <div className={s.filters}>
+                  {f.has && (
+                    <button type="button" className={s.chip} onClick={() => setF({ has: '' })} aria-label={`Remove filter: ${HAS_LABELS[f.has] ?? f.has}`}>
+                      {HAS_LABELS[f.has] ?? f.has} <X aria-hidden />
+                    </button>
+                  )}
+                  {f.model && (
+                    <button type="button" className={s.chip} onClick={() => setF({ model: '' })} aria-label={`Remove model filter ${f.model}`}>
+                      On {f.model} <X aria-hidden />
+                    </button>
+                  )}
                   {f.day && (
                     <button type="button" className={s.chip} onClick={() => setF({ day: '' })} aria-label={`Remove day filter ${f.day}`}>
                       {dayLabel(f.day)} <X aria-hidden />
