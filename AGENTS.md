@@ -122,6 +122,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context, error streak, cost |
 | `GET /api/limits` | Usage windows (latest reading, last 7 days), limits reached, and `claude`: Claude Code's 5-hour blocks estimated from tokens |
 | `GET /api/lasted` | Which agent-written lines are still in the code: by age, week, agent and model, project, file |
+| `GET /api/lasted/files` | The files table alone, narrowed by `project` and `week` (the Monday a week starts on) |
 | `GET /api/cost` | Estimated cost by kind of token and by model, what the prompt cache saved, models with no price; takes `session` for one session and its subagents (`cost.rs`) |
 | `GET /api/profile` | Where agent time went: model, tools, waiting on approval (estimate), ready for you, redoing, and how big sessions are when they start; takes `session` (`profile.rs`) |
 | `GET /api/cache` | Share of prompt tokens read from the prompt cache, and cache rebuilds with their cause and cost; takes `session` (`cache.rs`) |

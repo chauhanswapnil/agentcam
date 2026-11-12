@@ -158,3 +158,55 @@
     display: none;
   }
 }
+
+/* A row that picks it: looks like the plain row until you point at it. */
+.pick {
+  width: calc(100% + var(--s-4));
+  margin: calc(var(--s-1) * -1) calc(var(--s-2) * -1);
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.pick:hover {
+  background: var(--bg-2);
+}
+.pick:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 0;
+}
+.pickOn,
+.pickOn:hover {
+  background: var(--bg-3);
+}
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  height: 24px;
+  padding: 0 var(--s-1) 0 var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-full);
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--line-3);
+}
+.chip svg {
+  width: 13px;
+  height: 13px;
+  color: var(--text-3);
+}

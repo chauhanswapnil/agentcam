@@ -919,6 +919,18 @@ fn survival_checks_agent_lines_against_files() {
     assert_eq!(r.settled.added, 5);
     assert_eq!(r.ages[2].counts.added, 5, "a month old");
     assert_eq!(r.by_agent.len(), 1);
+    // The files table for one week: the week the edits were made in, and a
+    // week with none.
+    let week = r.weeks[0].week.clone();
+    let all = agentcam_core::survival::files(idx.conn(), &Default::default(), now, None).unwrap();
+    assert_eq!(all, r.files);
+    let that =
+        agentcam_core::survival::files(idx.conn(), &Default::default(), now, Some(&week)).unwrap();
+    assert_eq!(that.len(), all.len());
+    let none =
+        agentcam_core::survival::files(idx.conn(), &Default::default(), now, Some("1999-01-04"))
+            .unwrap();
+    assert!(none.is_empty());
 
     // The project is gone: nothing to say, rather than "nothing lasted".
     std::fs::remove_dir_all(dir.join("project")).unwrap();

@@ -450,8 +450,11 @@ export type LastedReport = {
   weeks: { week: string; counts: Lasted }[]
   by_agent: { agent: AgentId; model: string | null; sessions: number; counts: Lasted }[]
   by_project: { project: string | null; sessions: number; counts: Lasted }[]
-  files: { path: string; project: string | null; edits: number; counts: Lasted }[]
+  files: LastedFile[]
 }
+
+/** One file in What lasted: agent lines written there and where they are now. */
+export type LastedFile = { path: string; project: string | null; edits: number; counts: Lasted }
 
 /** Mirrors `turns.rs`: one prompt you typed and the work until the next. */
 export type TurnRow = {

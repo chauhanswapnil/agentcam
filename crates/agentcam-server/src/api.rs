@@ -256,6 +256,8 @@ pub struct Params {
     what: Option<String>,
     /// Ledger weeks: one fix id.
     id: Option<String>,
+    /// What lasted: the Monday a week starts on, `YYYY-MM-DD`.
+    week: Option<String>,
     /// Sessions: only those with a call on this model.
     model: Option<String>,
     /// Sessions: only those with `errors`, `findings` or `retries`.
@@ -1146,6 +1148,20 @@ pub async fn lasted(
     let now = now_ms();
     let f = p.filter(now);
     st.read(move |idx| agentcam_core::survival::report(idx.conn(), &f, now))
+        .await
+        .map(Json)
+}
+
+/// `GET /api/lasted/files`: the files table of What lasted, for one project
+/// (`project`) and one week (`week`, the Monday it starts on).
+pub async fn lasted_files(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<agentcam_core::survival::FileRow>>, ApiError> {
+    let now = now_ms();
+    let f = p.filter(now);
+    let week = p.week.clone().filter(|w| !w.is_empty());
+    st.read(move |idx| agentcam_core::survival::files(idx.conn(), &f, now, week.as_deref()))
         .await
         .map(Json)
 }

@@ -192,6 +192,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/live", get(api::live))
         .route("/limits", get(api::limits))
         .route("/lasted", get(api::lasted))
+        .route("/lasted/files", get(api::lasted_files))
         .route("/turns", get(api::turns))
         .route("/cost", get(api::cost))
         .route("/profile", get(api::profile))
@@ -600,6 +601,7 @@ mod tests {
             "/api/profile?session=11111111-1111-4111-8111-111111111111",
             "/api/cost?session=11111111-1111-4111-8111-111111111111",
             "/api/behind?what=time:tools",
+            "/api/lasted/files?week=2026-11-02",
             "/api/ledger/weeks?id=slow:cargo%20test",
             "/api/approvals",
             "/api/thinking?sort=longest",
