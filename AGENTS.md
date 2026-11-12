@@ -125,6 +125,8 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/cost` | Estimated cost by kind of token and by model, what the prompt cache saved, models with no price; takes `session` for one session and its subagents (`cost.rs`) |
 | `GET /api/profile` | Where agent time went: model, tools, waiting on approval (estimate), ready for you, redoing; takes `session` (`profile.rs`) |
 | `GET /api/cache` | Share of prompt tokens read from the prompt cache, and cache rebuilds with their cause and cost; takes `session` (`cache.rs`) |
+| `GET/POST /api/fixes` | The few changes most likely to give time or money back: slow commands, calls allowed by hand, cache rebuilds; each with examples and text to copy (`fixes.rs`). `POST {id, state}` marks one `applied` or `dismissed`, or clears the mark with `null` |
+| `GET /api/ledger` | Fixes marked done with the four weeks before and the time since, per 10 hours of agent time, and fixes set aside (`ledger.rs`, kept in `profile.json`) |
 | `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
 | `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
 | `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model |
@@ -261,6 +263,17 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Parts: `model_ms`, `tools_ms`, `approval_ms`, `you_ms` (gaps before a prompt: the agent had replied), `redo_ms` (steps with `events.wasted`). `orienting_ms` is a slice of model and tool time, not a part: reading and searching before the first edit of a turn that went on to edit.
 - Approval wait is an estimate. Claude Code times a call from request to result, wait included. For calls with approval `you`, the usual run of that tool (median over calls nobody had to allow) is taken off; a `rejected` call is all wait. Always label it "est." in the UI.
 - Wording: "ready for you", "redoing". Never "wasted" or anything that grades the person or the agent.
+
+### Fixes (profiler)
+
+- `fixes.rs` finds, sizes and ranks changes worth making, at most five, ranked by `share` (of agent time for time fixes, of estimated cost for cost fixes). The Profile page (`/profile`) shows them as `FixCard`s; the Overview shows the top one.
+- Floors, checked against real logs: a time fix needs 10 minutes a week (approvals: or 10 asks a week); a cost fix needs 5% of estimated cost; a command is slow only if a typical run takes 20 s. Below the floor nothing is shown. Recheck on real logs before adding a kind or lowering a floor.
+- Kinds: `approval` (calls with approval `you`, grouped by `approvals::rule_for`, so broad commands are never suggested; the fix is the allow rule), `slow_command` (commands keyed by `command_key`, which looks past `export`, `cd` and `VAR=x` setup and leaves out commands that only wait, such as `sleep` or `gh run watch`; counts reruns with no file change since the last run), `cache` (rebuilds by cause; advice, no file).
+- agentcam does not invent commands: a slow command gets a prompt to hand the agent, never a made-up narrower form. `fix` is text for a file, `prompt` is a request for the agent, `advice` is a habit.
+- Titles and details are written in Rust so tests pin the wording. Describe the repo and the setup, never the agent or the person.
+- **Ledger** (`ledger.rs`): a fix marked "I did this" or "Not for me" drops out of `/api/fixes`. Marks live in `profile.json` next to the index, not in it, so they survive a rebuild. Marking one done measures the four weeks before, once, and stores it; the time since is measured on demand with `fixes::find` (floors off, so a fix is still measured when little is left of it). Both are rates per 10 hours of agent time. A change is stated only after 7 days and 5 sessions, and "no change yet" or "more" are said as plainly as "less".
+- agentcam does not yet notice a fix on its own (an allow rule added, AGENTS.md changed): the person marks it.
+- Not built yet: loud commands (needs output size stored) and standing load.
 
 ### Prompt cache (profiler)
 

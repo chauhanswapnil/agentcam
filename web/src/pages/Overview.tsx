@@ -1,6 +1,6 @@
 import { Bot, CalendarDays, RotateCcw, FolderGit2, Inbox, RefreshCw, Rows3, TriangleAlert, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
-import { useLocation, useSearch } from 'wouter'
+import { Link, useLocation, useSearch } from 'wouter'
 import { AGENTS, type AgentId } from '../lib/agents'
 import {
   query,
@@ -44,9 +44,10 @@ import { Stat } from '../ui/Stat'
 import { Tooltip } from '../ui/Tooltip'
 import { CachePanel } from '../ui/CachePanel'
 import { CostPanel } from '../ui/CostPanel'
+import { FixCard } from '../ui/FixCard'
 import { TimeBar } from '../ui/TimeBar'
 import { TurnsPanel } from '../ui/TurnsPanel'
-import type { Cache, Costs, TimeBar as TimeBarData, TurnStats } from '../lib/api'
+import type { Cache, Costs, Fixes, TimeBar as TimeBarData, TurnStats } from '../lib/api'
 import s from './Overview.module.css'
 import { CsvButton } from '../ui/CsvButton'
 import type { Column } from '../lib/csv'
@@ -298,6 +299,7 @@ export function Overview() {
   const turns = useApi<TurnStats>(`/api/turns${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const time = useApi<TimeBarData>(`/api/profile${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const cache = useApi<Cache>(`/api/cache${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
+  const fixes = useApi<Fixes>(`/api/fixes${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const cost = useApi<Costs>(`/api/cost${query({ range: f.day ? undefined : f.range, agent: f.agent, project: f.project, day: f.day })}`, gen)
   const weekAudit = useApi<import('../lib/api').Audit>(`/api/audit${query({ range: '7d', agent: f.agent, severity: 'medium', limit: 1 })}`, gen)
   const indexing = status?.indexing
@@ -357,6 +359,14 @@ export function Overview() {
       )}
 
       {time.data && time.data.total_ms > 0 && <TimeBar data={time.data} />}
+      {fixes.data && fixes.data.fixes.length > 0 && (
+        <div className={s.topFix}>
+          <FixCard fix={fixes.data.fixes[0]} />
+          <Link href={`/profile${query({ range: f.range, agent: f.agent })}`} className={s.topFixMore}>
+            {fixes.data.fixes.length > 1 ? `${fixes.data.fixes.length - 1} more on Profile` : 'Open Profile'}
+          </Link>
+        </div>
+      )}
 
       <Panel
         title="Activity"

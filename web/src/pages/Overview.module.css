@@ -325,3 +325,17 @@
   flex: none;
   padding-right: var(--s-2);
 }
+
+.topFix {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.topFixMore {
+  align-self: flex-end;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.topFixMore:hover {
+  color: var(--text-1);
+}

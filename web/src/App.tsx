@@ -10,6 +10,7 @@ const page = <K extends string>(load: () => Promise<Record<K, React.ComponentTyp
   lazy(() => load().then((m) => ({ default: m[name] })))
 
 const Live = page(() => import('./pages/Live'), 'Live')
+const Profile = page(() => import('./pages/Profile'), 'Profile')
 const Lasted = page(() => import('./pages/Lasted'), 'Lasted')
 const Compare = page(() => import('./pages/Compare'), 'Compare')
 const Skills = page(() => import('./pages/Skills'), 'Skills')
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="/" component={Overview} />
           <Route path="/sessions/*" component={Replay} />
           <Route path="/live" component={Live} />
+          <Route path="/profile" component={Profile} />
           <Route path="/lasted" component={Lasted} />
           <Route path="/compare" component={Compare} />
           <Route path="/skills" component={Skills} />

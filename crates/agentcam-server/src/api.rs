@@ -24,6 +24,8 @@ pub struct AppState {
     rules_path: Option<std::path::PathBuf>,
     /// Where `reviews.json` (findings looked at, rules muted) lives.
     reviews_path: Option<std::path::PathBuf>,
+    /// Where `profile.json` (fixes marked done or set aside) lives.
+    profile_path: Option<std::path::PathBuf>,
     db_path: Option<std::path::PathBuf>,
     writer: Arc<Mutex<Index>>,
     reader: Arc<Mutex<Index>>,
@@ -73,6 +75,7 @@ impl AppState {
             guard_path: Some(agentcam_core::guard::guard_path(db)),
             rules_path: Some(agentcam_core::index::user_rules_path(db)),
             reviews_path: Some(agentcam_core::reviews::path(db)),
+            profile_path: Some(agentcam_core::ledger::path(db)),
             db_path: Some(db.to_path_buf()),
             writer: Arc::new(Mutex::new(writer)),
             reader: Arc::new(Mutex::new(reader)),
@@ -93,6 +96,9 @@ impl AppState {
             reviews_path: guard_path
                 .as_ref()
                 .map(|g| g.with_file_name("reviews.json")),
+            profile_path: guard_path
+                .as_ref()
+                .map(|g| g.with_file_name("profile.json")),
             guard_path,
             db_path: None,
             writer: index.clone(),
@@ -100,6 +106,14 @@ impl AppState {
             sources,
             status: Mutex::default(),
         })
+    }
+
+    /// Fixes marked done or set aside; none when there's no file yet.
+    pub fn fix_marks(&self) -> agentcam_core::ledger::Store {
+        self.profile_path
+            .as_deref()
+            .map(agentcam_core::ledger::load)
+            .unwrap_or_default()
     }
 
     /// Findings marked and rules muted; none when there's no file yet.
@@ -1115,6 +1129,65 @@ pub async fn lasted(
     let now = now_ms();
     let f = p.filter(now);
     st.read(move |idx| agentcam_core::survival::report(idx.conn(), &f, now))
+        .await
+        .map(Json)
+}
+
+/// `GET /api/fixes`: the few changes most likely to give time or money
+/// back, each with something to copy. Fixes marked done or set aside are
+/// left out; the ledger has those.
+pub async fn fixes(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::fixes::Fixes>, ApiError> {
+    let f = p.filter(now_ms());
+    let marks = st.fix_marks();
+    st.read(move |idx| {
+        let mut found = agentcam_core::fixes::fixes(idx.conn(), idx.prices(), &f)?;
+        found.fixes.retain(|x| marks.state(&x.id).is_none());
+        Ok(found)
+    })
+    .await
+    .map(Json)
+}
+
+#[derive(Deserialize)]
+pub struct FixMark {
+    id: String,
+    /// `applied`, `dismissed`, or nothing to clear the mark.
+    state: Option<agentcam_core::ledger::State>,
+}
+
+/// `POST /api/fixes`: mark a fix done or not for me, or clear the mark.
+/// Returns the ledger.
+pub async fn fixes_mark(State(st): Shared, Json(m): Json<FixMark>) -> Response {
+    let Some(path) = st.profile_path.clone() else {
+        return bad("fix marks are off for this index");
+    };
+    if m.id.is_empty() || m.id.len() > 300 {
+        return bad("a fix id is needed");
+    }
+    let now = now_ms();
+    let done = st
+        .read(move |idx| {
+            let mut store = agentcam_core::ledger::load(&path);
+            agentcam_core::ledger::mark(idx.conn(), idx.prices(), &mut store, &m.id, m.state, now)?;
+            agentcam_core::ledger::save(&path, &store)?;
+            agentcam_core::ledger::ledger(idx.conn(), idx.prices(), &store, now)
+        })
+        .await;
+    match done {
+        Ok(l) => Json(l).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `GET /api/ledger`: fixes marked done, with the weeks before and the time
+/// since side by side, and fixes set aside.
+pub async fn ledger(State(st): Shared) -> Result<Json<agentcam_core::ledger::Ledger>, ApiError> {
+    let marks = st.fix_marks();
+    let now = now_ms();
+    st.read(move |idx| agentcam_core::ledger::ledger(idx.conn(), idx.prices(), &marks, now))
         .await
         .map(Json)
 }

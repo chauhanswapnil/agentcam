@@ -54,7 +54,11 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ### Cost and limits
 
-**Cost.** Estimated cost per step, turn, session, project and day from an editable price table. A context window chart with compactions marked.
+**Profile.** Where agent time went (the model working, tools running, waiting on approval, ready for you, redoing) and the few changes most likely to give some back: a slow command run again and again, a call you allow by hand every time, a prompt cache lost after a break. Each fix comes with the steps behind it and something to copy, a setting or a prompt for your agent. agentcam never edits your files. Mark a fix done and a ledger sets the weeks before against the time since, and says so when it made no difference.
+
+![Profile: where the time went, fix cards and the ledger](docs/screenshots/profile.png)
+
+**Cost.** Estimated cost per step, turn, session, project and day at API list prices, from an editable price table that covers Anthropic and OpenAI models. See where it comes from (output, cache writes, cache reads, fresh input), what the prompt cache saved, and each time the cache was lost and written again. A context window chart with compactions marked.
 
 **Usage limits.** Codex's 5-hour and weekly windows, with a 7-day chart and reset times, and every time Claude Code or Codex reached a limit. Claude Code doesn't log its windows, so agentcam estimates them from logged tokens: the current 5-hour block, its pace and where it is heading, compared with your highest past block, plus a rolling 7-day total. Both are marked as estimates.
 

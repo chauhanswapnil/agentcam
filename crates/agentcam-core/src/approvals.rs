@@ -127,7 +127,7 @@ const TOO_BROAD: &[&str] = &[
     "git clean",
 ];
 
-fn rule_for(tool: &str, input: Option<&str>) -> Option<String> {
+pub(crate) fn rule_for(tool: &str, input: Option<&str>) -> Option<String> {
     match tool {
         // Edits are better handled by a mode than per-file rules, and
         // answering a question isn't an approval.

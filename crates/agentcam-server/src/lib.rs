@@ -196,6 +196,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/cost", get(api::cost))
         .route("/profile", get(api::profile))
         .route("/cache", get(api::cache))
+        .route("/fixes", get(api::fixes).post(api::fixes_mark))
+        .route("/ledger", get(api::ledger))
         .route("/approvals", get(api::approvals))
         .route("/thinking", get(api::thinking))
         .route("/prs", get(api::prs))
@@ -306,6 +308,59 @@ mod tests {
         assert_eq!(p["rules"][0]["rule_id"], "tests-run");
         let bad = send(&app, post(serde_json::json!({"yaml": "- id: x\n  title: x\n  severity: low\n  pattern: '('\n"}))).await;
         assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn fixes_mark_and_ledger() {
+        let app = router(state());
+        let post = |body: &str, origin: &'static str| {
+            Request::post("/api/fixes")
+                .header(header::HOST, "127.0.0.1:4747")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("origin", origin)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let aside = r#"{"id":"slow:cargo test","state":"dismissed"}"#;
+        // Another site can't mark a fix.
+        assert_eq!(
+            send(&app, post(aside, "https://evil.example"))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        let res = send(&app, post(aside, "http://127.0.0.1:4747")).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(body["dismissed"][0]["id"], "slow:cargo test");
+        // Marked done: measured, and too soon to state a change.
+        let res = send(
+            &app,
+            post(
+                r#"{"id":"slow:cargo test","state":"applied"}"#,
+                "http://127.0.0.1:4747",
+            ),
+        )
+        .await;
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(body["applied"][0]["state"], "applied");
+        assert_eq!(body["applied"][0]["enough"], false);
+        assert!(body["applied"][0]["change"].is_null());
+        assert!(body["dismissed"].as_array().unwrap().is_empty());
+        // Cleared.
+        let res = send(
+            &app,
+            post(
+                r#"{"id":"slow:cargo test","state":null}"#,
+                "http://127.0.0.1:4747",
+            ),
+        )
+        .await;
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert!(body["applied"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -538,6 +593,7 @@ mod tests {
             "/api/cost",
             "/api/profile",
             "/api/cache",
+            "/api/fixes",
             "/api/cache?session=11111111-1111-4111-8111-111111111111",
             "/api/profile?session=11111111-1111-4111-8111-111111111111",
             "/api/cost?session=11111111-1111-4111-8111-111111111111",

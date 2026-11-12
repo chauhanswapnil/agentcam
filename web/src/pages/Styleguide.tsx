@@ -15,6 +15,8 @@ import { Tooltip } from '../ui/Tooltip'
 import { UsageMeter } from '../ui/UsageMeter'
 import { CachePanel } from '../ui/CachePanel'
 import { CostPanel } from '../ui/CostPanel'
+import { FixCard } from '../ui/FixCard'
+import { LedgerPanel } from '../ui/LedgerPanel'
 import { TimeBar } from '../ui/TimeBar'
 import { QuotaMeter } from '../ui/QuotaMeter'
 import { CsvButton } from '../ui/CsvButton'
@@ -23,7 +25,7 @@ import { FindingReview } from '../ui/FindingReview'
 import { SortTh } from '../ui/SortTh'
 import { Welcome } from '../ui/Welcome'
 import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
-import { SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
+import { SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_FIXES, SAMPLE_LEDGER, SAMPLE_NOW, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
 
 const SECTIONS = ['Color', 'Event kinds', 'Type', 'Space', 'Components', 'Timeline', 'Motion'] as const
@@ -431,6 +433,25 @@ export function Styleguide() {
             for you", never "wasted" or "you were slow".
           </p>
           <TimeBar data={SAMPLE_TIME} />
+        </section>
+
+        <section id="fix-card" className={s.section}>
+          <h2>Fix card</h2>
+          <p className={s.rule}>
+            One change worth making: what the logs show, an estimated size, the steps behind it, and something to copy (a
+            setting, or a prompt for the agent). When the fix is a habit, it gives advice and no code. Describe the repo and
+            the setup, never the agent or the person; agentcam never edits files.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 12 }}>
+            {SAMPLE_FIXES.map((x) => (
+              <FixCard key={x.id} fix={x} onMark={() => {}} />
+            ))}
+          </div>
+          <p className={s.rule}>
+            The ledger shows what became of a fix: the four weeks before against the time since, per 10 hours of agent time.
+            It states a change only after a full week, in plain words ("72% less", "no change yet"), never as a score.
+          </p>
+          <LedgerPanel data={SAMPLE_LEDGER} onClear={() => {}} />
         </section>
 
         <section id="cost" className={s.section}>

@@ -118,3 +118,39 @@ export const SAMPLE_CACHE: import('../lib/api').Cache = {
     { session_id: 'demo', seq: 12, ts: '2026-11-05T15:02:00Z', cause: 'model_switch', tokens: 180_000, usd: 1.4, gap_ms: 40_000, model: 'claude-sonnet-5-5', from_model: 'claude-opus-5-5', from_effort: null, effort: null, title: 'Fix the cart total rounding bug' },
   ],
 }
+
+export const SAMPLE_FIXES: import('../lib/api').Fix[] = [
+  {
+    id: 'slow:cargo test', kind: 'slow_command', title: '`cargo test` ran 41 times and took 1h 2m',
+    detail: 'A typical run takes 1 min. It ran again with no file changed since the last run 12 times. A narrower or quieter form for everyday edits would give most of that back.',
+    count: 41, ms_per_week: 50 * 60_000, usd_per_week: null, share: 0.07, fix: null, fix_where: 'AGENTS.md',
+    prompt: 'Find a faster check for everyday edits and add it to AGENTS.md.', advice: null,
+    examples: [{ session_id: 'demo', seq: 12, title: 'Fix the cart total rounding bug' }, { session_id: 'demo', seq: 40, title: 'Upgrade the Stripe client' }],
+    weekly: [4, 9, 12, 16],
+  },
+  {
+    id: 'approval:Bash(npm test:*)', kind: 'approval', title: 'You allowed `Bash(npm test:*)` by hand 38 times',
+    detail: 'Each one held the agent until you answered, about 40 s at a time and 25 min in all (an estimate). You allowed every one.',
+    count: 38, ms_per_week: 12 * 60_000, usd_per_week: null, share: 0.02,
+    fix: JSON.stringify({ permissions: { allow: ['Bash(npm test:*)'] } }, null, 2), fix_where: 'Claude Code settings, under permissions.allow',
+    prompt: 'Add `Bash(npm test:*)` to permissions.allow.', advice: null, examples: [{ session_id: 'demo', seq: 7, title: 'Add partial refunds' }], weekly: [6, 11, 9, 12],
+  },
+  {
+    id: 'cache:break', kind: 'cache', title: 'The prompt cache was written again after a break 5 times',
+    detail: '1.2M tokens were written to the cache a second time, about $9.40 at API list prices. This is how the cache works, not a fault; the cost is yours to weigh.',
+    count: 5, ms_per_week: null, usd_per_week: 2.3, share: 0.06, fix: null, fix_where: null, prompt: null,
+    advice: 'At the end of a task, start a fresh session rather than returning to a big one. Compacting before a long break also makes the return cheaper.',
+    examples: [{ session_id: 'demo', seq: 41, title: 'Migrate checkout to server actions' }], weekly: [1, 0, 2, 2],
+  },
+]
+
+const W = (count: number, ms: number, sessions: number, days: number) => ({ days, count, ms, usd: 0, agent_ms: 40 * 3_600_000, sessions })
+export const SAMPLE_LEDGER: import('../lib/api').Ledger = {
+  applied: [
+    { id: 'slow:cargo test', kind: 'slow_command', title: '`cargo test` ran 41 times and took 1h 2m', state: 'applied', at: '2026-10-20T10:00:00Z',
+      before: W(41, 3_720_000, 22, 28), after: W(9, 800_000, 14, 17), before_rate: 930_000, after_rate: 260_000, change: -0.72, enough: true, days_left: 0 },
+    { id: 'approval:Bash(npm test:*)', kind: 'approval', title: 'You allowed `Bash(npm test:*)` by hand 38 times', state: 'applied', at: '2026-11-03T10:00:00Z',
+      before: W(38, 1_500_000, 20, 28), after: W(0, 0, 3, 3), before_rate: 375_000, after_rate: 0, change: null, enough: false, days_left: 3.6 },
+  ],
+  dismissed: [{ id: 'cache:break', kind: 'cache', title: 'The prompt cache was written again after a break 5 times', state: 'dismissed', at: '2026-11-01T10:00:00Z' }],
+}

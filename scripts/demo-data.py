@@ -386,6 +386,54 @@ def cache_session(project, task, start, sid, second_model=None):
     (folder / f"{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in out))
 
 
+def habits_session(project, task, start, sid, e2e=False):
+    """A session with a slow test command run again and again and a command
+    allowed by hand each time, for the Profile page's fix cards. No
+    randomness, so adding it leaves every other session as it was."""
+    cwd = str(CODE / project)
+    folder = HOME / ".claude" / "projects" / ("-" + cwd.strip("/").replace("/", "-"))
+    folder.mkdir(parents=True, exist_ok=True)
+    base = {"sessionId": sid, "cwd": cwd, "gitBranch": "main", "version": "2.5.2", "userType": "external", "isSidechain": False, "entrypoint": "cli"}
+    out = []
+    n = [0]
+    t = [start]
+
+    def rec(kind, **kw):
+        n[0] += 1
+        out.append(dict(base, type=kind, timestamp=ts(t[0]), uuid=f"{sid[:8]}-u{n[0]}", **kw))
+
+    def wait(sec):
+        t[0] += timedelta(seconds=sec)
+
+    def call(name, inp, result, took, by_hand=False):
+        tid = f"toolu_{sid[:8]}_{n[0]}"
+        usage = {"input_tokens": 20, "output_tokens": 120, "cache_read_input_tokens": 60_000, "cache_creation_input_tokens": 800,
+                 "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 800}}
+        rec("assistant", effort="high", message={"id": f"msg_{sid[:8]}_{n[0]}", "model": "claude-opus-5-5", "role": "assistant",
+                                                "content": [{"type": "tool_use", "id": tid, "name": name, "input": inp}], "usage": usage})
+        wait(took)
+        decision = {"decision": "accept", "source": "user_temporary"} if by_hand else {"decision": "accept", "source": "config", "reasonType": "rule", "ruleSource": "userSettings"}
+        rec("user", permissionDecision=decision, message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": tid, "content": result}]})
+        wait(4)
+
+    rec("ai-title", aiTitle=task)
+    rec("user", permissionMode="default", turnOrigin="human", message={"role": "user", "content": f"{task}. Run the tests after each change."})
+    wait(5)
+    for i in range(6):
+        call("Edit", {"file_path": f"{cwd}/src/step{i}.ts", "old_string": "a", "new_string": "b"}, "ok", 1)
+        call("Bash", {"command": "pnpm test"}, "ok: 212 passed", 85)
+        if i % 2:
+            # Ran again with nothing changed in between.
+            call("Bash", {"command": "pnpm test"}, "ok: 212 passed", 85)
+        if e2e and i < 3:
+            # The whole end-to-end suite after a small change: the habit the
+            # demo's ledger shows as fixed.
+            call("Bash", {"command": "pnpm e2e"}, "ok: 48 passed", 240)
+        call("Bash", {"command": "docker compose ps"}, "db  running", 48, by_hand=True)
+        call("Bash", {"command": "docker compose logs api"}, "listening on :3000", 52, by_hand=True)
+    (folder / f"{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in out))
+
+
 def codex_session(project, task, start, risky, used):
     tid = str(uuid.UUID(int=random.getrandbits(128)))
     cwd = str(CODE / project)
@@ -512,6 +560,19 @@ def main():
     cache_session("payments-api", "Add idempotency keys to refunds", NOW - timedelta(days=3, hours=4), "cace0002-0000-4000-8000-000000000002")
     cache_session("infra", "Pin the base images", NOW - timedelta(days=8, hours=7), "cace0003-0000-4000-8000-000000000003")
     count += 3
+    # Sessions with a slow command and calls allowed by hand, so the
+    # Profile page has a fix card of each kind.
+    for i, (project, task, days) in enumerate([("acme-web", "Rework the cart drawer", 2), ("acme-web", "Add address autocomplete", 5),
+                                               ("mobile-app", "Fix the sync retry loop", 9), ("acme-web", "Clean up the checkout tests", 13),
+                                               ("mobile-app", "Speed up the feed query", 18)]):
+        habits_session(project, task, NOW - timedelta(days=days, hours=5), f"fa6e{i:04d}-0000-4000-8000-000000000001", e2e=days > 12)
+    count += 5
+    # A fix marked done 11 days ago, so the Profile page's ledger has a
+    # measured row: the end-to-end suite stopped running after small changes.
+    (HOME / "profile.json").write_text(json.dumps({"fixes": [{
+        "id": "slow:pnpm e2e", "kind": "slow_command", "title": "`pnpm e2e` ran 6 times and took 24 min", "state": "applied",
+        "at": ts(NOW - timedelta(days=11)),
+        "before": {"days": 28, "count": 6, "ms": 1_440_000, "usd": 0.0, "agent_ms": 7 * 3_600_000, "sessions": 40}}]}, indent=2))
     # A guard rule and hook configs, so the Audit page shows the guard
     # working (the configs only need to mention `agentcam guard`).
     hook = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "agentcam guard"}]}]}}

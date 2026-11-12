@@ -98,6 +98,16 @@ pub fn cache(conn: &Connection, prices: &Prices, f: &Filter) -> Result<Cache> {
     collect(conn, prices, &sql, &args, LATEST)
 }
 
+/// The same, with every rebuild listed and not only the newest.
+pub(crate) fn cache_in_full(conn: &Connection, prices: &Prices, f: &Filter) -> Result<Cache> {
+    let (cond, args) = conditions(f);
+    let sql = format!(
+        "SELECT {COLUMNS} FROM events e JOIN sessions s ON s.id = e.session_id
+         WHERE {cond} AND {WANTED} ORDER BY e.session_id, e.seq"
+    );
+    collect(conn, prices, &sql, &args, usize::MAX)
+}
+
 /// The cache in one session and its subagents, with every rebuild listed.
 pub fn session_cache(conn: &Connection, prices: &Prices, id: &str) -> Result<Cache> {
     let sql = format!(

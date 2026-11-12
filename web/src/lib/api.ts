@@ -487,6 +487,40 @@ export type TimeBar = {
   sessions: number
 }
 
+export type Fix = {
+  id: string
+  kind: 'approval' | 'slow_command' | 'cache'
+  title: string
+  detail: string
+  count: number
+  ms_per_week: number | null
+  usd_per_week: number | null
+  share: number
+  fix: string | null
+  fix_where: string | null
+  prompt: string | null
+  advice: string | null
+  examples: { session_id: string; seq: number; title: string | null }[]
+  weekly: number[]
+}
+
+export type Fixes = { fixes: Fix[]; weeks: number; enough_data: boolean }
+
+export type FixWindow = { days: number; count: number; ms: number; usd: number; agent_ms: number; sessions: number }
+
+export type FixMark = { id: string; kind: string; title: string; state: 'applied' | 'dismissed'; at: string; before?: FixWindow }
+
+export type Measured = FixMark & {
+  after: FixWindow
+  before_rate: number | null
+  after_rate: number | null
+  change: number | null
+  enough: boolean
+  days_left: number
+}
+
+export type Ledger = { applied: Measured[]; dismissed: FixMark[] }
+
 export type CacheCause = 'break' | 'model_switch' | 'effort_change' | 'unknown'
 
 export type Rebuild = {
