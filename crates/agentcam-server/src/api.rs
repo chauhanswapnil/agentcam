@@ -258,6 +258,10 @@ pub struct Params {
     id: Option<String>,
     /// What lasted: the Monday a week starts on, `YYYY-MM-DD`.
     week: Option<String>,
+    /// Tool calls: the skill, plugin or app behind the steps, `kind:name`.
+    via: Option<String>,
+    /// Up to this time, instead of no end.
+    until: Option<String>,
     /// Sessions: only those with a call on this model.
     model: Option<String>,
     /// Sessions: only those with `errors`, `findings` or `retries`.
@@ -280,7 +284,7 @@ impl Params {
             });
         Filter {
             since,
-            until: None,
+            until: self.until.clone().filter(|s| !s.is_empty()),
             agent: self.agent.clone(),
             project: self.project.clone(),
             day: self.day.clone(),
@@ -706,10 +710,14 @@ pub async fn tool_calls(
 ) -> Result<Json<Vec<query::StepRef>>, ApiError> {
     let f = p.filter(now_ms());
     let tool = p.tool.clone().unwrap_or_default();
+    let via = p.via.clone().filter(|v| !v.is_empty());
     let limit = p.limit.unwrap_or(100).min(500);
-    st.read(move |idx| query::tool_calls(idx.conn(), &f, &tool, limit))
-        .await
-        .map(Json)
+    st.read(move |idx| match &via {
+        Some(v) => query::via_calls(idx.conn(), &f, v, limit),
+        None => query::tool_calls(idx.conn(), &f, &tool, limit),
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn files(

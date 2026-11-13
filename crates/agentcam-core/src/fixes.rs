@@ -100,6 +100,9 @@ pub struct Fix {
     pub examples: Vec<Example>,
     /// How often it happened each week, oldest first.
     pub weekly: Vec<i64>,
+    /// When the last week of `weekly` ends, in milliseconds since the epoch:
+    /// week `i` of `n` covers the seven days before this, `n - 1 - i` weeks back.
+    pub weekly_end: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -655,6 +658,9 @@ fn find_inner(
         });
     }
 
+    for x in &mut out.fixes {
+        x.weekly_end = Some(last);
+    }
     out.fixes.sort_by(|a, b| {
         b.share
             .partial_cmp(&a.share)
@@ -803,6 +809,7 @@ mod tests {
         assert_eq!(x.examples.len(), 3);
         // Weeks end at the latest run: one run falls in the week before.
         assert_eq!(x.weekly, vec![1, 9]);
+        assert!(x.weekly_end.is_some());
     }
 
     #[test]

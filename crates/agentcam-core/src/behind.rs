@@ -46,13 +46,34 @@ pub struct Behind {
     pub items: Vec<StepRef>,
 }
 
+/// How rows are put in order.
+#[derive(Clone, Copy, PartialEq)]
+enum Order {
+    /// Biggest value first.
+    Biggest,
+    /// Smallest value first.
+    Smallest,
+    /// Newest step first.
+    Newest,
+}
+
 impl Behind {
-    fn new(title: &str, unit: &'static str, mut rows: Vec<StepRef>) -> Behind {
+    fn new(title: &str, unit: &'static str, rows: Vec<StepRef>) -> Behind {
+        Behind::ordered(title, unit, rows, Order::Biggest)
+    }
+
+    fn ordered(title: &str, unit: &'static str, mut rows: Vec<StepRef>, order: Order) -> Behind {
         rows.sort_by(|a, b| {
-            b.value
-                .partial_cmp(&a.value)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| (&a.session_id, a.seq).cmp(&(&b.session_id, b.seq)))
+            let by_value = a
+                .value
+                .partial_cmp(&b.value)
+                .unwrap_or(std::cmp::Ordering::Equal);
+            let first = match order {
+                Order::Biggest => by_value.reverse(),
+                Order::Smallest => by_value,
+                Order::Newest => b.ts.cmp(&a.ts),
+            };
+            first.then_with(|| (&a.session_id, a.seq).cmp(&(&b.session_id, b.seq)))
         });
         let total = rows.len() as i64;
         rows.truncate(MAX_ROWS);
@@ -116,6 +137,49 @@ pub fn behind(
                 cost_rows(conn, prices, f, session, Some(rest), Parts::total)?,
             ))
         }
+        "hook" => {
+            // `hook:<event>:<program>`, as Setup lists a hook.
+            let Some((event, program)) = rest.split_once(':') else {
+                return Ok(None);
+            };
+            let title = format!("{event} hook runs: {program}");
+            Some(Behind::ordered(
+                &title,
+                "none",
+                hook_rows(conn, f, session, event, program)?,
+                Order::Newest,
+            ))
+        }
+        "turns" => {
+            let Some(bucket) = rest.parse::<usize>().ok().filter(|b| *b < 5) else {
+                return Ok(None);
+            };
+            const NAMES: [&str; 5] = [
+                "Turns under 30 s",
+                "Turns of 30 s to 2 min",
+                "Turns of 2 to 10 min",
+                "Turns of 10 to 30 min",
+                "Turns over 30 min",
+            ];
+            let rows = crate::turns::turns_in_bucket(conn, f, bucket)?
+                .into_iter()
+                .map(|(session_id, session_title, t)| StepRef {
+                    session_id,
+                    seq: t.seq,
+                    ts: t.started_at,
+                    session_title,
+                    step_title: t.prompt,
+                    value: t.duration_ms.unwrap_or(0) as f64,
+                })
+                .collect();
+            Some(Behind::new(NAMES[bucket], "ms", rows))
+        }
+        "cache" if rest == "hit" => Some(Behind::ordered(
+            "Sessions by share read from the cache, lowest first",
+            "percent",
+            hit_rows(conn, f, session)?,
+            Order::Smallest,
+        )),
         "cache" => {
             let Some((title, cause)) = cause_of(rest) else {
                 return Ok(None);
@@ -152,6 +216,79 @@ pub fn behind(
         }
         _ => None,
     })
+}
+
+/// Hook steps for one hook, matched as Setup counts its runs: the title
+/// starts with the event and names the program in brackets.
+fn hook_rows(
+    conn: &Connection,
+    f: &Filter,
+    session: Option<&str>,
+    event: &str,
+    program: &str,
+) -> Result<Vec<StepRef>> {
+    let (cond, mut args) = match session {
+        Some(id) => (
+            "(s.id = ?1 OR s.parent_id = ?1)".to_string(),
+            vec![id.to_string()],
+        ),
+        None => conditions(f),
+    };
+    // Bare `?` numbers continue after the filter's own (or after `?1`).
+    args.push(event.to_string());
+    args.push(event.to_string());
+    args.push(format!("({program})"));
+    let sql = format!(
+        "SELECT e.session_id, e.seq, e.ts, e.title, s.title, coalesce(e.duration_ms, 0)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         WHERE e.tool_name = 'hook' AND {cond}
+           AND substr(e.title, 1, length(?)) = ? AND instr(e.title, ?) > 0"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| {
+        Ok(StepRef {
+            session_id: r.get(0)?,
+            seq: r.get(1)?,
+            ts: r.get(2)?,
+            step_title: r.get(3)?,
+            session_title: r.get(4)?,
+            value: r.get::<_, i64>(5)? as f64,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// One row per session: the share of its prompt tokens read from the cache,
+/// in percent. Short sessions (under 100k prompt tokens) say little and are
+/// left out. `seq` is the session's first model call.
+fn hit_rows(conn: &Connection, f: &Filter, session: Option<&str>) -> Result<Vec<StepRef>> {
+    let (cond, args) = match session {
+        Some(id) => (
+            "(s.id = ?1 OR s.parent_id = ?1)".to_string(),
+            vec![id.to_string()],
+        ),
+        None => conditions(f),
+    };
+    let sql = format!(
+        "SELECT e.session_id, min(e.seq), min(e.ts), s.title,
+                sum(e.tok_in + e.tok_cache_read + e.tok_cache_write), sum(e.tok_cache_read)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         WHERE {cond} AND e.tok_in + e.tok_out + e.tok_cache_read + e.tok_cache_write > 0
+         GROUP BY e.session_id HAVING sum(e.tok_in + e.tok_cache_read + e.tok_cache_write) >= 100000"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| {
+        let (prompt, read): (i64, i64) = (r.get(4)?, r.get(5)?);
+        Ok(StepRef {
+            session_id: r.get(0)?,
+            seq: r.get(1)?,
+            ts: r.get(2)?,
+            session_title: r.get(3)?,
+            step_title: "First model call".to_string(),
+            value: 100.0 * read as f64 / prompt.max(1) as f64,
+        })
+    })?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
 fn cause_of(key: &str) -> Option<(&'static str, Cause)> {
@@ -504,6 +641,93 @@ mod tests {
         assert_eq!(m.items.len(), 1);
         assert_eq!(m.items[0].session_id, "b");
         assert!(ask(&idx, "model:no-such-model").unwrap().items.is_empty());
+    }
+
+    #[test]
+    fn a_hooks_runs_are_listed_newest_first() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path, title) VALUES ('s', 'claude-code', '/Users/dev/x.jsonl', 'Fix login');
+                 INSERT INTO events (session_id, seq, ts, kind, tool_name, title, body, source_offset, duration_ms) VALUES
+                    ('s', 0, '2026-11-03T10:00:00.000Z', 'system', 'hook', 'PostToolUse hook (prettier) ran', '', 0, 800),
+                    ('s', 1, '2026-11-03T10:05:00.000Z', 'system', 'hook', 'PostToolUse hook (prettier) ran', '', 0, NULL),
+                    ('s', 2, '2026-11-03T10:06:00.000Z', 'system', 'hook', 'Stop hook (prettier) ran', '', 0, 5),
+                    ('s', 3, '2026-11-03T10:07:00.000Z', 'system', 'hook', 'PostToolUse hook (eslint) ran', '', 0, 5);",
+            )
+            .unwrap();
+        let b = ask(&idx, "hook:PostToolUse:prettier").unwrap();
+        assert_eq!(b.unit, "none");
+        // The event and the program both have to match; newest first.
+        assert_eq!(
+            b.items.iter().map(|x| x.seq).collect::<Vec<_>>(),
+            vec![1, 0]
+        );
+        // For one session the same rows come back.
+        let one = behind(
+            idx.conn(),
+            idx.prices(),
+            &Filter::default(),
+            Some("s"),
+            "hook:PostToolUse:prettier",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(one.items.len(), 2);
+        assert!(ask(&idx, "hook:Stop:eslint").unwrap().items.is_empty());
+        assert_eq!(ask(&idx, "hook:nocolon"), None);
+    }
+
+    #[test]
+    fn sessions_are_ranked_by_how_little_was_read_from_the_cache() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path, title) VALUES
+                    ('warm', 'claude-code', '/Users/dev/a.jsonl', 'Warm'),
+                    ('cold', 'claude-code', '/Users/dev/b.jsonl', 'Cold'),
+                    ('tiny', 'claude-code', '/Users/dev/c.jsonl', 'Tiny');
+                 INSERT INTO events (session_id, seq, ts, kind, title, body, source_offset, model, tok_in, tok_out, tok_cache_read, tok_cache_write) VALUES
+                    ('warm', 0, '2026-11-03T10:00:00.000Z', 'response', 'a', '', 0, 'm', 1000, 10, 190000, 9000),
+                    ('cold', 0, '2026-11-03T10:00:00.000Z', 'response', 'b', '', 0, 'm', 1000, 10, 50000, 149000),
+                    ('tiny', 0, '2026-11-03T10:00:00.000Z', 'response', 'c', '', 0, 'm', 100, 10, 0, 0);",
+            )
+            .unwrap();
+        let b = ask(&idx, "cache:hit").unwrap();
+        assert_eq!(b.unit, "percent");
+        // Lowest first; the short session says too little to list.
+        let ids: Vec<_> = b.items.iter().map(|x| x.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["cold", "warm"]);
+        assert!(
+            (b.items[0].value - 25.0).abs() < 0.01,
+            "{}",
+            b.items[0].value
+        );
+    }
+
+    #[test]
+    fn turns_are_listed_by_length_bucket() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path, title) VALUES ('s', 'claude-code', '/Users/dev/x.jsonl', 'Fix login');
+                 INSERT INTO events (session_id, seq, ts, kind, title, body, source_offset) VALUES
+                    ('s', 0, '2026-11-03T10:00:00.000Z', 'prompt', 'short one', '', 0),
+                    ('s', 3, '2026-11-03T10:10:00.000Z', 'prompt', 'long one', '', 0);
+                 INSERT INTO turns (session_id, n, seq, end_seq, started_at, ended_at) VALUES
+                    ('s', 0, 0, 2, '2026-11-03T10:00:00.000Z', '2026-11-03T10:00:10.000Z'),
+                    ('s', 1, 3, 5, '2026-11-03T10:10:00.000Z', '2026-11-03T10:15:00.000Z');",
+            )
+            .unwrap();
+        let short = ask(&idx, "turns:0").unwrap();
+        assert_eq!(
+            (short.items.len(), short.items[0].seq, short.items[0].value),
+            (1, 0, 10_000.0)
+        );
+        let mid = ask(&idx, "turns:2").unwrap();
+        assert_eq!((mid.items.len(), mid.items[0].seq), (1, 3));
+        assert!(ask(&idx, "turns:4").unwrap().items.is_empty());
+        assert_eq!(ask(&idx, "turns:9"), None);
     }
 
     #[test]

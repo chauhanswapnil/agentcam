@@ -882,6 +882,33 @@ mod tests {
         assert_eq!(calls("mcp_github"), 0);
         assert_eq!(calls("%"), 0);
     }
+
+    #[test]
+    fn steps_behind_a_skill_are_found_by_their_via() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path, title) VALUES ('a', 'claude-code', '/Users/dev/a.jsonl', 'Fix it');
+                 INSERT INTO events (session_id, seq, ts, kind, tool_name, title, body, source_offset, via) VALUES
+                    ('a', 0, '2026-11-03T10:00:00.000Z', 'tool_call', 'Read', 'read', '', 0, 'skill:dataviz'),
+                    ('a', 1, '2026-11-03T10:01:00.000Z', 'tool_call', 'Read', 'read', '', 0, 'skill:pdf'),
+                    ('a', 2, '2026-11-03T10:02:00.000Z', 'tool_call', 'Read', 'read', '', 0, NULL);",
+            )
+            .unwrap();
+        let f = Filter::default();
+        assert_eq!(
+            super::via_calls(idx.conn(), &f, "skill:dataviz", 10)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            super::via_calls(idx.conn(), &f, "dataviz", 10)
+                .unwrap()
+                .len(),
+            0
+        );
+    }
 }
 
 /// How often each rule fired.
@@ -1071,6 +1098,23 @@ pub fn tool_calls(conn: &Connection, f: &Filter, tool: &str, limit: u32) -> Resu
          FROM events e JOIN sessions s ON s.id = e.session_id
          LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
          WHERE (e.tool_name = ? OR e.tool_name LIKE ? ESCAPE '\\') AND {cond}
+         ORDER BY e.ts DESC LIMIT {limit}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| step_ref(r, false))?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// Most recent steps behind one skill, plugin or app: `via` is the
+/// `kind:name` the index keeps (`skill:dataviz`).
+pub fn via_calls(conn: &Connection, f: &Filter, via: &str, limit: u32) -> Result<Vec<StepRef>> {
+    let (cond, mut args) = conditions(f);
+    args.insert(0, via.to_string());
+    let sql = format!(
+        "SELECT {STEP_REF}, NULL, s.agent, coalesce(r.title, r.first_prompt)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
+         WHERE e.via = ? AND {cond}
          ORDER BY e.ts DESC LIMIT {limit}"
     );
     let mut stmt = conn.prepare(&sql)?;

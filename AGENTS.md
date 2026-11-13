@@ -115,7 +115,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET /api/audit` | Rules that fired and the latest findings; takes `rule`, `severity` (lowest to show), `status` (`open` hides findings marked looked at or muted, `all`) |
 | `GET/POST /api/reviews` | Findings marked "looks fine" and rules muted per project or everywhere (`reviews.rs`, kept in `reviews.json`) |
 | `POST /api/rules/preview` | What draft rules would find in recent sessions, before saving (`preview.rs`) |
-| `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool |
+| `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool (a name also matches the tools under it: `mcp__github`); `via=skill:name` gives the steps behind a skill, plugin or app |
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
 | `GET /api/commits` | Commits made by agent sessions, newest first |
@@ -129,7 +129,7 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `GET/POST /api/fixes` | The few changes most likely to give time or money back: slow commands, calls allowed by hand, cache rebuilds; each with examples and text to copy (`fixes.rs`). `POST {id, state}` marks one `applied` or `dismissed`, or clears the mark with `null` |
 | `GET /api/ledger` | Fixes marked done with the four weeks before and the time since, per 10 hours of agent time, and fixes set aside (`ledger.rs`, kept in `profile.json`) |
 | `GET /api/ledger/weeks?id=` | One fix's measure (count, time or tokens or dollars) for each of the last 12 weeks, oldest first, with agent time per week (`ledger::weeks`) |
-| `GET /api/behind?what=` | The steps behind a number, biggest first, at most 100 with `total`: `time:model\|tools\|approval\|you\|redo\|orienting`, `cost:input\|output\|cache_read\|cache_write`, `model:<id>`, `cache:break\|model_switch\|effort_change\|unknown`, `fix:<fix id>`; takes the list filters, `since` and `session` (`behind.rs`) |
+| `GET /api/behind?what=` | The steps behind a number, biggest first, at most 100 with `total`: `time:model\|tools\|approval\|you\|redo\|orienting`, `cost:input\|output\|cache_read\|cache_write`, `model:<id>`, `cache:break\|model_switch\|effort_change\|unknown`, `cache:hit` (sessions by share read from the cache, lowest first), `turns:0..4` (turns by length bucket), `hook:<event>:<program>`, `fix:<fix id>`; takes the list filters, `since`, `until` and `session` (`behind.rs`) |
 | `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
 | `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
 | `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model; `model` narrows the steps to one session model, not the totals |
