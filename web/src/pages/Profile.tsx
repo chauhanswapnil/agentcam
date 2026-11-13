@@ -93,7 +93,9 @@ export function Profile() {
         ) : (
           <EmptyState icon={<Lightbulb />} title={fixes.data.enough_data ? 'Nothing worth changing in this range' : 'Fixes need about a week of sessions'}>
             {fixes.data.enough_data
-              ? 'No approval, command or cache pattern here costs enough to be worth your time.'
+              ? f.range === '90d' || f.range === 'all'
+                ? 'No approval, command or cache pattern costs enough per week over this stretch. A recent habit can show up in a shorter range: try 30 days.'
+                : 'No approval, command or cache pattern here costs enough to be worth your time.'
               : 'The time bar above works from the first session. Fixes wait for enough history to be sure of.'}
           </EmptyState>
         )}

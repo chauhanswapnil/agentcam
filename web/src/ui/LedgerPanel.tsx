@@ -82,9 +82,15 @@ export function LedgerPanel({
   onOpen?: (what: string, since?: string) => void
 }) {
   const [open, setOpen] = useState<string | null>(null)
-  if (data.applied.length === 0 && data.dismissed.length === 0) return null
+  if (data.applied.length === 0 && data.dismissed.length === 0 && !data.marks_error) return null
   return (
     <Panel title="Ledger" icon={<ListChecks />}>
+      {data.marks_error && (
+        <p className={s.note}>
+          Your <code>profile.json</code> couldn't be read, so fixes you marked aren't shown. Marking a fix starts a new file and keeps the old one
+          as <code>profile.json.bad</code>. {data.marks_error}
+        </p>
+      )}
       {data.applied.length > 0 && (
         <ul className={s.list}>
           {data.applied.map((m) => (

@@ -1211,6 +1211,7 @@ pub async fn fixes_mark(State(st): Shared, Json(m): Json<FixMark>) -> Response {
     let now = now_ms();
     let done = st
         .read(move |idx| {
+            // `read` holds the reader lock, so marks land one at a time.
             let mut store = agentcam_core::ledger::load(&path);
             agentcam_core::ledger::mark(idx.conn(), idx.prices(), &mut store, &m.id, m.state, now)?;
             agentcam_core::ledger::save(&path, &store)?;
@@ -1226,11 +1227,18 @@ pub async fn fixes_mark(State(st): Shared, Json(m): Json<FixMark>) -> Response {
 /// `GET /api/ledger`: fixes marked done, with the weeks before and the time
 /// since side by side, and fixes set aside.
 pub async fn ledger(State(st): Shared) -> Result<Json<agentcam_core::ledger::Ledger>, ApiError> {
-    let marks = st.fix_marks();
+    let (marks, marks_error) = match st.profile_path.as_deref() {
+        Some(p) => agentcam_core::ledger::read(p),
+        None => Default::default(),
+    };
     let now = now_ms();
-    st.read(move |idx| agentcam_core::ledger::ledger(idx.conn(), idx.prices(), &marks, now))
-        .await
-        .map(Json)
+    st.read(move |idx| {
+        let mut l = agentcam_core::ledger::ledger(idx.conn(), idx.prices(), &marks, now)?;
+        l.marks_error = marks_error;
+        Ok(l)
+    })
+    .await
+    .map(Json)
 }
 
 /// `GET /api/ledger/weeks?id=<fix id>`: the fix's measure for each of the

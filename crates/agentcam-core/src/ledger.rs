@@ -87,15 +87,31 @@ pub fn path(db: &Path) -> PathBuf {
 
 /// A missing or unreadable file is an empty store.
 pub fn load(path: &Path) -> Store {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    read(path).0
 }
 
+/// The store, and what went wrong when the file is there but can't be
+/// read. A missing file is no error.
+pub fn read(path: &Path) -> (Store, Option<String>) {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Store::default(), None),
+        Err(e) => return (Store::default(), Some(e.to_string())),
+    };
+    match serde_json::from_str(&text) {
+        Ok(s) => (s, None),
+        Err(e) => (Store::default(), Some(e.to_string())),
+    }
+}
+
+/// Writes the store. A file that couldn't be read is first kept as
+/// `profile.json.bad`, so marks in it can be got back by hand.
 pub fn save(path: &Path, s: &Store) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
+    }
+    if read(path).1.is_some() {
+        std::fs::copy(path, path.with_extension("json.bad"))?;
     }
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_string_pretty(s).unwrap_or_default())?;
@@ -200,6 +216,10 @@ pub struct Ledger {
     /// Newest first.
     pub applied: Vec<Measured>,
     pub dismissed: Vec<Mark>,
+    /// Set when `profile.json` is there but couldn't be read, so no marks
+    /// are shown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marks_error: Option<String>,
 }
 
 pub fn ledger(conn: &Connection, prices: &Prices, store: &Store, now: i64) -> Result<Ledger> {
@@ -309,6 +329,25 @@ pub fn weeks(conn: &Connection, prices: &Prices, id: &str, now: i64) -> Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_damaged_file_is_reported_and_kept() {
+        let dir = std::env::temp_dir().join(format!("agentcam-ledger-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("profile.json");
+        // No file: empty, and nothing to report.
+        assert_eq!(read(&path), (Store::default(), None));
+        std::fs::write(&path, "{ \"fixes\": [ oops").unwrap();
+        let (store, error) = read(&path);
+        assert!(store.fixes.is_empty());
+        assert!(error.is_some());
+        // Saving over it keeps the old text beside the new file.
+        save(&path, &Store::default()).unwrap();
+        assert_eq!(read(&path), (Store::default(), None));
+        let kept = std::fs::read_to_string(dir.join("profile.json.bad")).unwrap();
+        assert!(kept.contains("oops"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use crate::Index;
 
     /// Sessions of one prompt and `runs` 90-second test runs, on the days
