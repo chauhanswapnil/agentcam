@@ -127,7 +127,7 @@ const TOO_BROAD: &[&str] = &[
     "git clean",
 ];
 
-fn rule_for(tool: &str, input: Option<&str>) -> Option<String> {
+pub(crate) fn rule_for(tool: &str, input: Option<&str>) -> Option<String> {
     match tool {
         // Edits are better handled by a mode than per-file rules, and
         // answering a question isn't an approval.
@@ -270,8 +270,16 @@ pub struct Thinking {
     pub items: Vec<Thought>,
 }
 
-/// Thinking steps, longest first (`sort = "longest"`) or newest first.
-pub fn thinking(conn: &Connection, f: &Filter, sort: &str, limit: u32) -> Result<Thinking> {
+/// Thinking steps, longest first (`sort = "longest"`) or newest first. With
+/// `model`, the list holds only that session model's; the totals by model
+/// still cover all of them.
+pub fn thinking(
+    conn: &Connection,
+    f: &Filter,
+    sort: &str,
+    model: Option<&str>,
+    limit: u32,
+) -> Result<Thinking> {
     let (cond, args) = conditions(f);
     let mut stmt = conn.prepare(&format!(
         "SELECT s.model, count(*), coalesce(sum(e.duration_ms), 0), count(e.duration_ms)
@@ -293,15 +301,22 @@ pub fn thinking(conn: &Connection, f: &Filter, sort: &str, limit: u32) -> Result
     } else {
         "e.ts DESC"
     };
+    let model_cond = if model.is_some() {
+        " AND s.model = ?"
+    } else {
+        ""
+    };
     let mut stmt = conn.prepare(&format!(
         "SELECT e.session_id, e.seq, e.ts, substr(e.body, 1, 1200), e.duration_ms, s.agent, s.model,
                 coalesce(r.title, r.first_prompt), s.project_root
          FROM events e JOIN sessions s ON s.id = e.session_id
          LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
-         WHERE e.kind = 'thinking' AND {cond} ORDER BY {order} LIMIT {limit}"
+         WHERE e.kind = 'thinking' AND {cond}{model_cond} ORDER BY {order} LIMIT {limit}"
     ))?;
+    let mut item_args = args.clone();
+    item_args.extend(model.map(String::from));
     let items = stmt
-        .query_map(params_from_iter(&args), |r| {
+        .query_map(params_from_iter(&item_args), |r| {
             Ok(Thought {
                 session_id: r.get(0)?,
                 seq: r.get(1)?,

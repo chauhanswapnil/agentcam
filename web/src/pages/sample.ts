@@ -70,3 +70,108 @@ export const SAMPLE_QUOTA: ClaudeQuota = {
   blocks: [block(120, 4_200_000), block(74, 6_000_000), block(50, 9_400_000), block(26, 2_800_000), ACTIVE],
   week: { ...block(0, 25_500_000), calls: 640 },
 }
+
+export const SAMPLE_COSTS: import('../lib/api').Costs = {
+  usd: 41.9,
+  parts: { input: 1.2, output: 14.6, cache_read: 7.3, cache_write: 18.8 },
+  without_cache_usd: 163.4,
+  cache_hit_rate: 0.93,
+  calls: 2140,
+  unpriced_calls: 25,
+  unpriced_models: ['some-new-model'],
+  fast_calls: 12,
+  models: [
+    { model: 'claude-opus-5-5', calls: 1480, input_tokens: 210_000, output_tokens: 540_000, cache_read_tokens: 31_000_000, cache_write_tokens: 1_900_000, usd: 33.1 },
+    { model: 'gpt-6.1-sol', calls: 635, input_tokens: 900_000, output_tokens: 410_000, cache_read_tokens: 9_400_000, cache_write_tokens: 0, usd: 8.8 },
+    { model: 'some-new-model', calls: 25, input_tokens: 40_000, output_tokens: 9_000, cache_read_tokens: 0, cache_write_tokens: 0, usd: null },
+  ],
+  priced_on: '2026-11-11',
+  prices_error: null,
+}
+
+export const SAMPLE_TIME: import('../lib/api').TimeBar = {
+  total_ms: 26 * 3_600_000,
+  model_ms: 11.2 * 3_600_000,
+  tools_ms: 4.1 * 3_600_000,
+  approval_ms: 0.9 * 3_600_000,
+  you_ms: 8.6 * 3_600_000,
+  redo_ms: 1.2 * 3_600_000,
+  orienting_ms: 2.3 * 3_600_000,
+  approved_by_hand: 64,
+  sessions: 31,
+  start_tokens: 58_000,
+  start_skills_tokens: 4_200,
+  start_mcp_tokens: 1_100,
+}
+
+export const SAMPLE_CACHE: import('../lib/api').Cache = {
+  hit_rate: 0.96,
+  calls: 2140,
+  rebuilds: 9,
+  rebuild_tokens: 1_840_000,
+  rebuild_usd: 14.2,
+  by_cause: [
+    { cause: 'break', count: 5, tokens: 1_210_000, usd: 9.4 },
+    { cause: 'model_switch', count: 2, tokens: 390_000, usd: 3.0 },
+    { cause: 'unknown', count: 2, tokens: 240_000, usd: 1.8 },
+  ],
+  compactions: 3,
+  latest: [
+    { session_id: 'demo', seq: 41, ts: '2026-11-06T09:10:00Z', cause: 'break', tokens: 212_000, usd: 1.65, gap_ms: 94 * 60_000, model: 'claude-opus-5-5', from_model: null, from_effort: null, effort: null, title: 'Migrate checkout to server actions' },
+    { session_id: 'demo', seq: 12, ts: '2026-11-05T15:02:00Z', cause: 'model_switch', tokens: 180_000, usd: 1.4, gap_ms: 40_000, model: 'claude-sonnet-5-5', from_model: 'claude-opus-5-5', from_effort: null, effort: null, title: 'Fix the cart total rounding bug' },
+  ],
+}
+
+export const SAMPLE_FIXES: import('../lib/api').Fix[] = [
+  {
+    id: 'slow:cargo test', kind: 'slow_command', title: '`cargo test` ran 41 times and took 1h 2m',
+    detail: 'A typical run takes 1 min. It ran again with no file changed since the last run 12 times. A narrower or quieter form for everyday edits would give most of that back.',
+    count: 41, ms_per_week: 50 * 60_000, usd_per_week: null, tokens_per_week: null, share: 0.07, fix: null, fix_where: 'AGENTS.md',
+    prompt: 'Find a faster check for everyday edits and add it to AGENTS.md.', advice: null,
+    examples: [{ session_id: 'demo', seq: 12, title: 'Fix the cart total rounding bug' }, { session_id: 'demo', seq: 40, title: 'Upgrade the Stripe client' }],
+    weekly: [4, 9, 12, 16], weekly_end: Date.parse('2026-11-06T12:00:00Z'),
+  },
+  {
+    id: 'approval:Bash(npm test:*)', kind: 'approval', title: 'You allowed `Bash(npm test:*)` by hand 38 times',
+    detail: 'Each one held the agent until you answered, about 40 s at a time and 25 min in all (an estimate). You allowed every one.',
+    count: 38, ms_per_week: 12 * 60_000, usd_per_week: null, tokens_per_week: null, share: 0.02,
+    fix: JSON.stringify({ permissions: { allow: ['Bash(npm test:*)'] } }, null, 2), fix_where: 'Claude Code settings, under permissions.allow',
+    prompt: 'Add `Bash(npm test:*)` to permissions.allow.', advice: null, examples: [{ session_id: 'demo', seq: 7, title: 'Add partial refunds' }], weekly: [6, 11, 9, 12], weekly_end: Date.parse('2026-11-06T12:00:00Z'),
+  },
+  {
+    id: 'cache:break', kind: 'cache', title: 'The prompt cache was written again after a break 5 times',
+    detail: '1.2M tokens were written to the cache a second time, about $9.40 at API list prices. This is how the cache works, not a fault; the cost is yours to weigh.',
+    count: 5, ms_per_week: null, usd_per_week: 2.3, tokens_per_week: null, share: 0.06, fix: null, fix_where: null, prompt: null,
+    advice: 'At the end of a task, start a fresh session rather than returning to a big one. Compacting before a long break also makes the return cheaper.',
+    examples: [{ session_id: 'demo', seq: 41, title: 'Migrate checkout to server actions' }], weekly: [1, 0, 2, 2], weekly_end: Date.parse('2026-11-06T12:00:00Z'),
+  },
+]
+
+const W = (count: number, ms: number, sessions: number, days: number) => ({ days, count, ms, usd: 0, agent_ms: 40 * 3_600_000, sessions })
+export const SAMPLE_LEDGER: import('../lib/api').Ledger = {
+  applied: [
+    { id: 'slow:cargo test', kind: 'slow_command', title: '`cargo test` ran 41 times and took 1h 2m', state: 'applied', at: '2026-10-20T10:00:00Z',
+      before: W(41, 3_720_000, 22, 28), after: W(9, 800_000, 14, 17), before_rate: 930_000, after_rate: 260_000, change: -0.72, enough: true, days_left: 0 },
+    { id: 'approval:Bash(npm test:*)', kind: 'approval', title: 'You allowed `Bash(npm test:*)` by hand 38 times', state: 'applied', at: '2026-11-03T10:00:00Z',
+      before: W(38, 1_500_000, 20, 28), after: W(0, 0, 3, 3), before_rate: 375_000, after_rate: 0, change: null, enough: false, days_left: 3.6 },
+  ],
+  dismissed: [{ id: 'cache:break', kind: 'cache', title: 'The prompt cache was written again after a break 5 times', state: 'dismissed', at: '2026-11-01T10:00:00Z' }],
+}
+
+export const SAMPLE_BEHIND: import('../lib/api').Behind = {
+  title: 'Tools running',
+  unit: 'ms',
+  total: 214,
+  items: [
+    { session_id: 'sample-1', seq: 41, ts: '2026-11-05T14:20:00.000Z', session_title: 'Fix the login bug', step_title: 'cargo test --all', value: 312_000 },
+    { session_id: 'sample-2', seq: 7, ts: '2026-11-05T11:02:00.000Z', session_title: 'Add dark mode', step_title: 'npm run build', value: 148_000 },
+    { session_id: 'sample-1', seq: 88, ts: '2026-11-04T16:45:00.000Z', session_title: 'Fix the login bug', step_title: 'cargo clippy --all-targets', value: 52_000 },
+  ],
+}
+
+export const SAMPLE_WEEKS: import('../lib/api').LedgerWeek[] = [9, 11, 8, 12, 10, 9, 13, 11, 6, 3, 2, 1].map((n, i) => ({
+  start: new Date(Date.UTC(2026, 8, 10 + i * 7)).toISOString(),
+  count: n * 4,
+  value: n * 4 * 90_000,
+  agent_ms: 40 * 3_600_000,
+}))

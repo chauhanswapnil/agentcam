@@ -182,3 +182,39 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.showRow,
+.cellLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.showRow {
+  display: inline-block;
+  margin-top: var(--s-1);
+  font-size: var(--fs-sm);
+}
+.cellLink {
+  color: var(--text-1);
+  text-decoration: none;
+}
+.cellLink:hover {
+  text-decoration: underline;
+}
+.showRow:hover {
+  color: var(--text-1);
+}
+.showRow:focus-visible,
+.cellLink:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
+/* The row a check pointed at, for a moment. */
+.lit td {
+  background: var(--bg-3);
+}

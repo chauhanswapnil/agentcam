@@ -114,3 +114,17 @@
   background: var(--status-critical);
   pointer-events: none;
 }
+
+/* A cache rebuild: a dot below the bar, in the "you" blue. */
+.rebuild {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: var(--r-full);
+  background: var(--kind-you);
+  box-shadow: 0 0 0 1px var(--bg-1);
+  pointer-events: none;
+}

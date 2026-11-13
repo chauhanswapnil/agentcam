@@ -34,7 +34,12 @@ import {
 } from 'lucide-react'
 import { Fragment, createElement, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { query, useApi, useIndexStatus, type EventRow, type Lasted, type TurnRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { query, getJson, useApi, useIndexStatus, type Behind, type BehindStep, type Cache, type Costs, type EventRow, type TimeBar as TimeBarData, type Lasted, type TurnRow, type FindingRow, type SessionDetail, type Severity } from '../lib/api'
+import { TimeStrip } from '../ui/TimeBar'
+import { Drawer } from '../ui/Drawer'
+import { CostPanel } from '../ui/CostPanel'
+import { describeRebuild } from '../lib/cache'
+import { costSummary } from '../lib/cost'
 import { baseName, formatCompact, formatCost, formatDate, formatDuration, formatHours, formatNumber, formatTime, oneLine } from '../lib/format'
 import { GROUPS, groupOf, kindLabel } from '../lib/kinds'
 import { entrypointLabel } from '../lib/live'
@@ -111,6 +116,10 @@ export function Replay() {
 }
 
 function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onReviewed: () => void }) {
+  // Refetched when the session gains steps, so a live session's split keeps up.
+  const cost = useApi<Costs>(`/api/cost${query({ session: id })}`, data.events.length)
+  const cache = useApi<Cache>(`/api/cache${query({ session: id })}`, data.events.length)
+  const time = useApi<TimeBarData>(`/api/profile${query({ session: id })}`, data.events.length)
   const { session: x, events, files, findings, patterns, commits, subagents, lasted, turns, prs, follow, plan } = data
   const [view, setView] = useState<'transcript' | 'turns' | 'trace'>('transcript')
   const [, navigate] = useLocation()
@@ -177,6 +186,19 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
     },
     [seek],
   )
+  // Cache rebuilds in this session's own steps (subagents have their own replay).
+  const rebuilds = useMemo(
+    () => (cache.data?.latest ?? []).filter((b) => b.session_id === x.id).sort((a, b) => a.seq - b.seq),
+    [cache.data, x.id],
+  )
+  // One dot on the timeline per rebuild.
+  const marks = useMemo(() => new Map(rebuilds.map((b) => [b.seq, describeRebuild(b)])), [rebuilds])
+  const nextRebuild = useCallback(() => {
+    const at = events[stepRef.current]?.seq ?? -1
+    const next = rebuilds.find((b) => b.seq > at) ?? rebuilds[0]
+    const i = next ? events.findIndex((e) => e.seq === next.seq) : -1
+    if (i >= 0) jump(i)
+  }, [rebuilds, events, jump])
 
   const nextWhere = useCallback(
     (pred: (e: EventRow) => boolean, dir: 1 | -1 = 1) => {
@@ -184,6 +206,51 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
     },
     [events, last, seek],
   )
+
+  // The step with the biggest context window.
+  const peakAt = useMemo(() => {
+    let best = -1
+    events.forEach((e, i) => {
+      if (e.context_tokens != null && (best < 0 || e.context_tokens > (events[best].context_tokens ?? 0))) best = i
+    })
+    return best
+  }, [events])
+  const [costOpen, setCostOpen] = useState(false)
+  // Steps of each part of the time strip, fetched once per part.
+  const parts = useRef(new Map<string, BehindStep[]>())
+  const pickPart = useCallback(
+    async (what: string) => {
+      let rows = parts.current.get(what)
+      if (!rows) {
+        const b = await getJson<Behind>(`/api/behind${query({ what, session: id })}`).catch(() => null)
+        if (!b) return
+        rows = b.items.filter((r) => r.session_id === id).sort((a, c) => a.seq - c.seq)
+        parts.current.set(what, rows)
+      }
+      // The first one after the playhead, or the first of all when there is none.
+      const at = events[stepRef.current]?.seq ?? -1
+      const next = rows.find((r) => r.seq > at) ?? rows[0]
+      const i = next ? events.findIndex((e) => e.seq === next.seq) : -1
+      if (i >= 0) jump(i)
+    },
+    [id, events, jump],
+  )
+  // A link from the Overview (?jump=finding|error|retry|subagents) lands on
+  // the first such step, once.
+  const jumpTo = useRef(new URLSearchParams(search).get('jump'))
+  useEffect(() => {
+    const what = jumpTo.current
+    jumpTo.current = null
+    if (!what) return
+    if (what === 'subagents') {
+      document.getElementById('session-subagents')?.scrollIntoView({ block: 'start' })
+      return
+    }
+    const first =
+      what === 'finding' ? events.findIndex((e) => flags.has(e.seq)) : what === 'error' ? events.findIndex((e) => e.is_error) : what === 'retry' ? events.findIndex((e) => e.wasted) : -1
+    if (first >= 0) jump(first)
+  }, [events, flags, jump])
+  const scrollToFiles = useCallback(() => document.getElementById('session-files')?.scrollIntoView({ block: 'start' }), [])
 
   // Keyboard: space, arrows, J/K, Shift for changes, E for errors.
   useEffect(() => {
@@ -273,19 +340,44 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
           <span>
             <b>{formatHours(x.active_ms)}</b>agent time
           </span>
-          <span>
-            <b>{formatNumber(x.file_count)}</b>files changed
-          </span>
-          <span>
-            <b>{formatNumber(x.error_count)}</b>errored
-          </span>
-          <span title={x.cost_unpriced ? 'Some calls use a model with no price; add it to prices.yaml' : 'Estimated from the price table'}>
-            <b>{x.est_cost_usd != null ? formatCost(x.est_cost_usd) + (x.cost_unpriced ? '+' : '') : x.cost_usd != null ? formatCost(x.cost_usd) : '–'}</b>
-            est. cost
-          </span>
-          <span>
-            <b>{x.peak_context ? formatCompact(x.peak_context) : '–'}</b>peak context
-          </span>
+          {files.length > 0 ? (
+            <button type="button" className={s.metaButton} onClick={scrollToFiles} title="Go to the files list">
+              <b>{formatNumber(x.file_count)}</b>files changed
+            </button>
+          ) : (
+            <span>
+              <b>{formatNumber(x.file_count)}</b>files changed
+            </span>
+          )}
+          {x.error_count > 0 ? (
+            <button type="button" className={s.metaButton} onClick={() => nextWhere((e) => e.is_error)} title="Go to the next step that errored">
+              <b>{formatNumber(x.error_count)}</b>errored
+            </button>
+          ) : (
+            <span>
+              <b>{formatNumber(x.error_count)}</b>errored
+            </span>
+          )}
+          {cost.data ? (
+            <button type="button" className={s.metaButton} onClick={() => setCostOpen(true)} title={costSummary(cost.data)}>
+              <b>{x.est_cost_usd != null ? formatCost(x.est_cost_usd) + (x.cost_unpriced ? '+' : '') : x.cost_usd != null ? formatCost(x.cost_usd) : '–'}</b>
+              est. cost
+            </button>
+          ) : (
+            <span title={x.cost_unpriced ? 'Some calls use a model with no price; add it to prices.yaml' : 'Estimated at API list prices'}>
+              <b>{x.est_cost_usd != null ? formatCost(x.est_cost_usd) + (x.cost_unpriced ? '+' : '') : x.cost_usd != null ? formatCost(x.cost_usd) : '–'}</b>
+              est. cost
+            </span>
+          )}
+          {peakAt >= 0 && x.peak_context ? (
+            <button type="button" className={s.metaButton} onClick={() => jump(peakAt)} title="Go to the step with the biggest context window">
+              <b>{formatCompact(x.peak_context)}</b>peak context
+            </button>
+          ) : (
+            <span>
+              <b>{x.peak_context ? formatCompact(x.peak_context) : '–'}</b>peak context
+            </span>
+          )}
           {lasted && (
             <Link
               href="/lasted"
@@ -294,6 +386,16 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
               <b>{Math.round((100 * lasted.kept) / lasted.added)}%</b>still in code
             </Link>
           )}
+          {rebuilds.length > 0 && (
+            <button
+              type="button"
+              className={s.metaButton}
+              onClick={nextRebuild}
+              title={[...rebuilds.slice(0, 8).map((b) => `Step ${b.seq + 1}: ${describeRebuild(b)}`), 'Click to go to the next one'].join('\n')}
+            >
+              <b>{rebuilds.length}</b>cache {rebuilds.length === 1 ? 'rebuild' : 'rebuilds'}
+            </button>
+          )}
           {x.wasted_ms > 0 && (
             <span title="Agent time on retry loops, error streaks and reverts">
               <b>{formatHours(x.wasted_ms)}</b>in retries
@@ -301,6 +403,14 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
           )}
         </div>
       </header>
+      {time.data && <TimeStrip data={time.data} onPick={pickPart} />}
+      {costOpen && cost.data && (
+        <Drawer title="Est. cost" label="Estimated cost of this session" onClose={() => setCostOpen(false)}>
+          <div style={{ padding: 'var(--s-4)' }}>
+            <CostPanel data={cost.data} />
+          </div>
+        </Drawer>
+      )}
 
       {events.length === 0 ? (
         <Panel>
@@ -309,7 +419,7 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
       ) : (
         <>
           <div className={s.player}>
-            <Track events={events} current={step} onSeek={jump} zoom={zoom} flags={flags} />
+            <Track events={events} current={step} onSeek={jump} zoom={zoom} flags={flags} marks={marks} />
             <div className={s.controls}>
               <Tooltip content={<>Previous <Kbd keys={['left']} /></>}>
                 <Button icon variant="ghost" aria-label="Previous step" onClick={() => seek(step - 1)} disabled={step === 0}>
@@ -542,11 +652,15 @@ function Player({ id, data, onReviewed }: { id: string; data: SessionDetail; onR
               )}
               {plan && <PlanPanel plan={plan} step={step} onSeek={jump} />}
               {files.length > 0 && (
-                <Panel title="Files" icon={<FileStack />} actions={<EditorPicker />} flush>
+                <Panel id="session-files" title="Files" icon={<FileStack />} actions={<EditorPicker />} flush>
                   <Files files={files} root={x.project_root} current={step} onSeek={jump} />
                 </Panel>
               )}
-              {subagents.length > 0 && <SubagentTree parent={x} subagents={subagents} onOpen={(sid) => navigate(`/sessions/${sid}`)} />}
+              {subagents.length > 0 && (
+                <div id="session-subagents">
+                  <SubagentTree parent={x} subagents={subagents} onOpen={(sid) => navigate(`/sessions/${sid}`)} />
+                </div>
+              )}
             </div>
           </div>
         </>

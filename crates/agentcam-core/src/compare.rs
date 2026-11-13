@@ -15,6 +15,8 @@ use crate::util::{format_ts_ms, parse_ts_ms};
 #[derive(Debug, Clone, Default)]
 struct TurnFacts {
     session_id: String,
+    seq: i64,
+    title: Option<String>,
     started_at: String,
     duration_ms: Option<i64>,
     agent: String,
@@ -59,7 +61,8 @@ fn load(conn: &Connection, f: &Filter, now_ms: i64) -> Result<Vec<TurnFacts>> {
             (SELECT coalesce(sum(v.kept), 0) FROM survival v
                 WHERE v.session_id = t.session_id AND v.seq BETWEEN t.seq AND t.end_seq AND v.ts < ?1),
             (SELECT group_concat(DISTINCT u.skill) FROM skill_uses u
-                WHERE u.session_id = t.session_id AND u.seq BETWEEN t.seq AND t.end_seq)
+                WHERE u.session_id = t.session_id AND u.seq BETWEEN t.seq AND t.end_seq),
+            t.seq, s.title
          FROM turns t JOIN events e ON e.session_id = t.session_id AND e.seq = t.seq
          JOIN sessions s ON s.id = t.session_id
          WHERE s.parent_id IS NULL AND t.started_at IS NOT NULL AND {cond}"
@@ -71,6 +74,8 @@ fn load(conn: &Connection, f: &Filter, now_ms: i64) -> Result<Vec<TurnFacts>> {
         let skills: Option<String> = r.get(18)?;
         Ok(TurnFacts {
             session_id: r.get(0)?,
+            seq: r.get(19)?,
+            title: r.get(20)?,
             duration_ms: parse_ts_ms(&started_at)
                 .zip(ended.as_deref().and_then(parse_ts_ms))
                 .map(|(a, b)| (b - a).max(0)),
@@ -156,6 +161,19 @@ pub struct Cohort {
     /// Lines added in settled edits, and the share still in the code.
     pub lines_added: i64,
     pub lasted_pct: Option<f64>,
+    /// A few turns near the group's typical length, to open in the replay.
+    pub examples: Vec<TurnExample>,
+}
+
+/// A turn to open in the replay.
+#[derive(Debug, Clone, Serialize)]
+pub struct TurnExample {
+    pub session_id: String,
+    /// The turn's first step.
+    pub seq: i64,
+    pub started_at: String,
+    pub title: Option<String>,
+    pub duration_ms: Option<i64>,
 }
 
 fn median(mut v: Vec<f64>) -> f64 {
@@ -169,6 +187,33 @@ fn median(mut v: Vec<f64>) -> f64 {
     } else {
         v[m]
     }
+}
+
+/// Up to three turns whose length is nearest the group's median.
+fn examples(turns: &[&TurnFacts]) -> Vec<TurnExample> {
+    let mut timed: Vec<&&TurnFacts> = turns.iter().filter(|t| t.duration_ms.is_some()).collect();
+    let mid = median(
+        timed
+            .iter()
+            .map(|t| t.duration_ms.unwrap_or(0) as f64)
+            .collect(),
+    );
+    timed.sort_by(|a, b| {
+        let d = |t: &TurnFacts| (t.duration_ms.unwrap_or(0) as f64 - mid).abs();
+        d(a).total_cmp(&d(b))
+            .then_with(|| (&a.session_id, a.seq).cmp(&(&b.session_id, b.seq)))
+    });
+    timed
+        .into_iter()
+        .take(3)
+        .map(|t| TurnExample {
+            session_id: t.session_id.clone(),
+            seq: t.seq,
+            started_at: t.started_at.clone(),
+            title: t.title.clone(),
+            duration_ms: t.duration_ms,
+        })
+        .collect()
 }
 
 fn cohort(value: &str, turns: &[&TurnFacts]) -> Cohort {
@@ -214,6 +259,7 @@ fn cohort(value: &str, turns: &[&TurnFacts]) -> Cohort {
         },
         lines_added: added,
         lasted_pct: (added > 0).then(|| 100.0 * kept as f64 / added as f64),
+        examples: examples(turns),
     }
 }
 
@@ -477,6 +523,9 @@ mod tests {
         assert_eq!(c.median_steps, 6.0);
         assert!((c.errored_per_100_steps - 10.0).abs() < 1e-9);
         assert_eq!(c.lasted_pct, None);
+        // Examples: the turn at the median first, the long one last.
+        let lens: Vec<_> = c.examples.iter().map(|e| e.duration_ms).collect();
+        assert_eq!(lens, vec![Some(30), Some(10), Some(1000)]);
     }
 
     #[test]

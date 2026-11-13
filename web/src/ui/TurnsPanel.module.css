@@ -29,6 +29,21 @@
   display: flex;
   min-width: 0;
 }
+.colBtn {
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-1);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.colBtn:hover .colBar {
+  filter: brightness(1.35);
+}
+.colBtn:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
 .col {
   display: flex;
   flex: 1;
@@ -118,4 +133,16 @@
   color: var(--text-3);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
+}
+
+.cmp {
+  color: inherit;
+  text-decoration: none;
+}
+.cmp:hover {
+  text-decoration: underline;
+}
+.cmp:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
 }

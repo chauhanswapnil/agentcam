@@ -23,6 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = [
     { href: '/', label: 'Overview' },
     { href: '/live', label: 'Live' },
+    { href: '/profile', label: 'Profile' },
     { href: '/search', label: 'Search' },
     { href: '/lasted', label: 'Lasted' },
     { href: '/compare', label: 'Compare' },

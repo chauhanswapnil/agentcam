@@ -7,6 +7,7 @@ import { FLAG_LABEL, ITEM_KIND, type Inventory } from '../lib/fleet'
 import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
+import { rowKeys } from '../lib/rowKeys'
 import s from './Views.module.css'
 
 /** Mirrors `SessionMeta` in agentcam-core `share.rs`. */
@@ -147,7 +148,7 @@ export function Outbox() {
               <tbody>
                 {data.sessions.map((m) => (
                   <Fragment key={m.session_id}>
-                    <tr className={`${s.rowBtn} ${open === m.session_id ? s.rowOn : ''}`} onClick={() => setOpen(open === m.session_id ? null : m.session_id)}>
+                    <tr className={`${s.rowBtn} ${open === m.session_id ? s.rowOn : ''}`} {...rowKeys(() => setOpen(open === m.session_id ? null : m.session_id))}>
                       <td>
                         <span className={s.name}>
                           {m.project_name ?? '–'}

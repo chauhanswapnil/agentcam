@@ -344,22 +344,48 @@ pub struct SessionPage {
     pub items: Vec<SessionRow>,
 }
 
+/// Narrower picks for the session list, beyond the time, agent and project
+/// a [`Filter`] holds.
+#[derive(Debug, Clone, Default)]
+pub struct SessionOnly {
+    /// Only sessions with a model call on this model.
+    pub model: Option<String>,
+    /// `errors`, `findings` or `retries`; anything else is ignored.
+    pub has: Option<String>,
+}
+
 /// Top-level sessions with at least one step matching `f` (a subagent's
 /// steps count for its parent), most recently active first.
-pub fn sessions(conn: &Connection, f: &Filter, limit: u32, offset: u32) -> Result<SessionPage> {
-    let (cond, args) = conditions(f);
+pub fn sessions(
+    conn: &Connection,
+    f: &Filter,
+    only: &SessionOnly,
+    limit: u32,
+    offset: u32,
+) -> Result<SessionPage> {
+    let (mut cond, mut args) = conditions(f);
+    if let Some(m) = only.model.as_ref().filter(|m| !m.is_empty()) {
+        cond.push_str(" AND e.model = ?");
+        args.push(m.clone());
+    }
+    let has = match only.has.as_deref() {
+        Some("errors") => " WHERE s.error_count > 0",
+        Some("findings") => " WHERE s.finding_count > 0",
+        Some("retries") => " WHERE s.wasted_ms > 0",
+        _ => "",
+    };
     let matching = format!(
         "SELECT coalesce(s.parent_id, s.id) AS root, max(e.ts) AS last
          FROM events e JOIN sessions s ON s.id = e.session_id
          WHERE {cond} GROUP BY root"
     );
     let total = conn.query_row(
-        &format!("SELECT count(*) FROM ({matching}) m JOIN sessions s ON s.id = m.root"),
+        &format!("SELECT count(*) FROM ({matching}) m JOIN sessions s ON s.id = m.root{has}"),
         params_from_iter(&args),
         |r| r.get(0),
     )?;
     let sql = format!(
-        "SELECT {SESSION_COLS} FROM ({matching}) m JOIN sessions s ON s.id = m.root
+        "SELECT {SESSION_COLS} FROM ({matching}) m JOIN sessions s ON s.id = m.root{has}
          ORDER BY m.last DESC LIMIT {limit} OFFSET {offset}"
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -817,7 +843,8 @@ pub fn search(
 
 #[cfg(test)]
 mod tests {
-    use super::fts_query;
+    use super::{Filter, fts_query, tool_calls};
+    use crate::Index;
 
     #[test]
     fn fts_query_is_always_safe() {
@@ -830,6 +857,57 @@ mod tests {
             Some("\"rm\" \"-rf\" \"x\"*")
         );
         assert_eq!(fts_query("   "), None);
+    }
+
+    #[test]
+    fn a_server_name_finds_all_its_calls() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path, title) VALUES ('a', 'claude-code', '/Users/dev/a.jsonl', 'Fix it');
+                 INSERT INTO events (session_id, seq, ts, kind, tool_name, title, body, source_offset) VALUES
+                    ('a', 0, '2026-11-03T10:00:00.000Z', 'tool_call', 'mcp__github__get_issue', 'get issue', '', 0),
+                    ('a', 1, '2026-11-03T10:01:00.000Z', 'tool_call', 'mcp__github__list_prs', 'list prs', '', 0),
+                    ('a', 2, '2026-11-03T10:02:00.000Z', 'tool_call', 'mcp__githubx__other', 'other server', '', 0),
+                    ('a', 3, '2026-11-03T10:03:00.000Z', 'tool_call', 'Bash', 'ls', '', 0);",
+            )
+            .unwrap();
+        let f = Filter::default();
+        let calls = |t: &str| tool_calls(idx.conn(), &f, t, 10).unwrap().len();
+        // The server's own tools, and not another server with a longer name.
+        assert_eq!(calls("mcp__github"), 2);
+        // One tool still matches by its exact name; `_` and `%` aren't wildcards.
+        assert_eq!(calls("mcp__github__get_issue"), 1);
+        assert_eq!(calls("Bash"), 1);
+        assert_eq!(calls("mcp_github"), 0);
+        assert_eq!(calls("%"), 0);
+    }
+
+    #[test]
+    fn steps_behind_a_skill_are_found_by_their_via() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.conn()
+            .execute_batch(
+                "INSERT INTO sessions (id, agent, source_path, title) VALUES ('a', 'claude-code', '/Users/dev/a.jsonl', 'Fix it');
+                 INSERT INTO events (session_id, seq, ts, kind, tool_name, title, body, source_offset, via) VALUES
+                    ('a', 0, '2026-11-03T10:00:00.000Z', 'tool_call', 'Read', 'read', '', 0, 'skill:dataviz'),
+                    ('a', 1, '2026-11-03T10:01:00.000Z', 'tool_call', 'Read', 'read', '', 0, 'skill:pdf'),
+                    ('a', 2, '2026-11-03T10:02:00.000Z', 'tool_call', 'Read', 'read', '', 0, NULL);",
+            )
+            .unwrap();
+        let f = Filter::default();
+        assert_eq!(
+            super::via_calls(idx.conn(), &f, "skill:dataviz", 10)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            super::via_calls(idx.conn(), &f, "dataviz", 10)
+                .unwrap()
+                .len(),
+            0
+        );
     }
 }
 
@@ -1005,15 +1083,38 @@ fn step_ref(r: &Row, action: bool) -> rusqlite::Result<StepRef> {
     })
 }
 
-/// Most recent calls of one tool.
+/// Most recent calls of one tool. A name also matches the tools under it,
+/// so `mcp__github` finds `mcp__github__get_issue` (a server's calls).
 pub fn tool_calls(conn: &Connection, f: &Filter, tool: &str, limit: u32) -> Result<Vec<StepRef>> {
     let (cond, mut args) = conditions(f);
+    let escaped = tool
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    args.insert(0, format!("{escaped}\\_\\_%"));
     args.insert(0, tool.to_string());
     let sql = format!(
         "SELECT {STEP_REF}, NULL, s.agent, coalesce(r.title, r.first_prompt)
          FROM events e JOIN sessions s ON s.id = e.session_id
          LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
-         WHERE e.tool_name = ? AND {cond}
+         WHERE (e.tool_name = ? OR e.tool_name LIKE ? ESCAPE '\\') AND {cond}
+         ORDER BY e.ts DESC LIMIT {limit}"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(&args), |r| step_ref(r, false))?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// Most recent steps behind one skill, plugin or app: `via` is the
+/// `kind:name` the index keeps (`skill:dataviz`).
+pub fn via_calls(conn: &Connection, f: &Filter, via: &str, limit: u32) -> Result<Vec<StepRef>> {
+    let (cond, mut args) = conditions(f);
+    args.insert(0, via.to_string());
+    let sql = format!(
+        "SELECT {STEP_REF}, NULL, s.agent, coalesce(r.title, r.first_prompt)
+         FROM events e JOIN sessions s ON s.id = e.session_id
+         LEFT JOIN sessions r ON r.id = coalesce(s.parent_id, s.id)
+         WHERE e.via = ? AND {cond}
          ORDER BY e.ts DESC LIMIT {limit}"
     );
     let mut stmt = conn.prepare(&sql)?;

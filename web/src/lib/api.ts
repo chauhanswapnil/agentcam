@@ -450,8 +450,11 @@ export type LastedReport = {
   weeks: { week: string; counts: Lasted }[]
   by_agent: { agent: AgentId; model: string | null; sessions: number; counts: Lasted }[]
   by_project: { project: string | null; sessions: number; counts: Lasted }[]
-  files: { path: string; project: string | null; edits: number; counts: Lasted }[]
+  files: LastedFile[]
 }
+
+/** One file in What lasted: agent lines written there and where they are now. */
+export type LastedFile = { path: string; project: string | null; edits: number; counts: Lasted }
 
 /** Mirrors `turns.rs`: one prompt you typed and the work until the next. */
 export type TurnRow = {
@@ -473,6 +476,129 @@ export type TurnRow = {
   mode: string | null
   approval_policy: string | null
   sandbox: string | null
+}
+
+export type TimeBar = {
+  total_ms: number
+  model_ms: number
+  tools_ms: number
+  approval_ms: number
+  you_ms: number
+  redo_ms: number
+  orienting_ms: number
+  approved_by_hand: number
+  sessions: number
+  start_tokens: number | null
+  start_skills_tokens: number | null
+  start_mcp_tokens: number | null
+}
+
+/** One step that holds some of a number (`GET /api/behind`). */
+export type BehindStep = {
+  session_id: string
+  seq: number
+  ts: string | null
+  session_title: string | null
+  step_title: string
+  value: number
+}
+
+/** The steps behind a number, biggest first. `unit` says how to show `value`. */
+export type Behind = {
+  title: string
+  unit: 'ms' | 'usd' | 'tokens' | 'count' | 'percent' | 'none'
+  total: number
+  items: BehindStep[]
+}
+
+export type Fix = {
+  id: string
+  kind: 'approval' | 'slow_command' | 'loud_command' | 'cache'
+  title: string
+  detail: string
+  count: number
+  ms_per_week: number | null
+  usd_per_week: number | null
+  tokens_per_week: number | null
+  share: number
+  fix: string | null
+  fix_where: string | null
+  prompt: string | null
+  advice: string | null
+  examples: { session_id: string; seq: number; title: string | null }[]
+  weekly: number[]
+  /** When the last of `weekly` ends, in ms since the epoch. */
+  weekly_end: number | null
+}
+
+export type Fixes = { fixes: Fix[]; weeks: number; enough_data: boolean }
+
+export type FixWindow = { days: number; count: number; ms: number; usd: number; tokens?: number; agent_ms: number; sessions: number }
+
+export type FixMark = { id: string; kind: string; title: string; state: 'applied' | 'dismissed'; at: string; before?: FixWindow }
+
+export type Measured = FixMark & {
+  after: FixWindow
+  before_rate: number | null
+  after_rate: number | null
+  change: number | null
+  enough: boolean
+  days_left: number
+}
+
+/** One week of a fix's measure (`GET /api/ledger/weeks`). */
+export type LedgerWeek = { start: string; count: number; value: number; agent_ms: number }
+
+export type Ledger = { applied: Measured[]; dismissed: FixMark[]; marks_error?: string }
+
+export type CacheCause = 'break' | 'model_switch' | 'effort_change' | 'unknown'
+
+export type Rebuild = {
+  session_id: string
+  seq: number
+  ts: string | null
+  cause: CacheCause
+  tokens: number
+  usd: number | null
+  gap_ms: number | null
+  model: string | null
+  from_model: string | null
+  from_effort: string | null
+  effort: string | null
+  title: string | null
+}
+
+export type Cache = {
+  hit_rate: number | null
+  calls: number
+  rebuilds: number
+  rebuild_tokens: number
+  rebuild_usd: number
+  by_cause: { cause: CacheCause; count: number; tokens: number; usd: number }[]
+  compactions: number
+  latest: Rebuild[]
+}
+
+export type Costs = {
+  usd: number
+  parts: { input: number; output: number; cache_read: number; cache_write: number }
+  without_cache_usd: number
+  cache_hit_rate: number | null
+  calls: number
+  unpriced_calls: number
+  unpriced_models: string[]
+  fast_calls: number
+  models: {
+    model: string | null
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    cache_write_tokens: number
+    usd: number | null
+  }[]
+  priced_on: string
+  prices_error: string | null
 }
 
 export type TurnGroup = { key: string | null; turns: number; median_ms: number; median_steps: number; avg_cost_usd: number | null }
@@ -595,6 +721,7 @@ export type Cohort = {
   thinking_ms_per_turn: number
   lines_added: number
   lasted_pct: number | null
+  examples: { session_id: string; seq: number; started_at: string; title: string | null; duration_ms: number | null }[]
 }
 export type Comparison = { dim: CompareDim; a: Cohort; b: Cohort }
 export type CompareOptions = {

@@ -316,12 +316,41 @@
 .sessionRow:hover {
   background: var(--bg-2);
 }
-.sessionRow > button {
+.sessionRow > :first-child {
   flex: 1;
   min-width: 0;
   border-bottom: 0;
 }
+/* A badge that opens the step it counts: a hover and a focus ring. */
+.badgeLink {
+  display: inline-flex;
+  border-radius: var(--r-full);
+  color: inherit;
+  text-decoration: none;
+  transition: filter var(--dur-1) var(--ease-out);
+}
+.badgeLink:hover {
+  filter: brightness(1.35);
+}
+.badgeLink:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
 .rowAction {
   flex: none;
   padding-right: var(--s-2);
+}
+
+.topFix {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.topFixMore {
+  align-self: flex-end;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.topFixMore:hover {
+  color: var(--text-1);
 }

@@ -1,7 +1,7 @@
-import { CalendarRange, FileCode2, FolderGit2, Sparkles, Sprout } from 'lucide-react'
+import { CalendarRange, FileCode2, FolderGit2, Sparkles, Sprout, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, useLocation, useSearch } from 'wouter'
-import type { Lasted as Counts, LastedReport } from '../lib/api'
+import type { LastedFile, Lasted as Counts, LastedReport } from '../lib/api'
 import { query, useApi, useIndexStatus } from '../lib/api'
 import { baseName, formatNumber } from '../lib/format'
 import { PARTS, keptPct, pct } from '../lib/lasted'
@@ -31,7 +31,22 @@ const shortPath = (path: string, project: string | null) =>
     : path.replace(/^\/(Users|home)\/[^/]+/, '~')
 
 /** One row: a name, the split bar, and the share still in the code. */
-function Row({ label, sub, c, href }: { label: ReactNode; sub?: ReactNode; c: Counts; href?: string }) {
+function Row({
+  label,
+  sub,
+  c,
+  href,
+  onPick,
+  active,
+}: {
+  label: ReactNode
+  sub?: ReactNode
+  c: Counts
+  href?: string
+  /** Makes the row a button that picks it, to narrow the files table. */
+  onPick?: () => void
+  active?: boolean
+}) {
   const k = keptPct(c)
   const name = (
     <span className={s.rowName}>
@@ -39,8 +54,8 @@ function Row({ label, sub, c, href }: { label: ReactNode; sub?: ReactNode; c: Co
       {sub && <span className={s.rowSub}>{sub}</span>}
     </span>
   )
-  return (
-    <div className={s.row}>
+  const body = (
+    <>
       {href ? (
         <Link href={href} className={s.rowLink}>
           {name}
@@ -51,7 +66,14 @@ function Row({ label, sub, c, href }: { label: ReactNode; sub?: ReactNode; c: Co
       <LastedBar c={c} label={typeof label === 'string' ? label : undefined} />
       <span className={s.rowPct}>{k == null ? '–' : `${Math.round(k)}%`}</span>
       <span className={s.rowLines}>{formatNumber(c.added)} lines</span>
-    </div>
+    </>
+  )
+  return onPick ? (
+    <button type="button" className={`${s.row} ${s.pick} ${active ? s.pickOn : ''}`} aria-pressed={active} onClick={onPick} title="Show the files from this">
+      {body}
+    </button>
+  ) : (
+    <div className={s.row}>{body}</div>
   )
 }
 
@@ -63,8 +85,15 @@ export function Lasted() {
   const p = new URLSearchParams(useSearch())
   const [, navigate] = useLocation()
   const range = p.get('range') ?? '90d'
+  // The files table can be narrowed to one project or one week.
+  const project = p.get('project') ?? ''
+  const week = p.get('week') ?? ''
+  const set = (patch: { project?: string; week?: string }) =>
+    navigate(`/lasted${query({ range: range === '90d' ? undefined : range, project, week, ...patch })}`, { replace: true })
   const gen = useIndexStatus().status?.generation ?? 0
   const { data } = useApi<LastedReport>(`/api/lasted${query({ range })}`, gen)
+  const narrowed = useApi<LastedFile[]>(project || week ? `/api/lasted/files${query({ range, project, week })}` : null, gen)
+  const files = project || week ? narrowed.data : (data?.files ?? null)
 
   return (
     <div className={v.page}>
@@ -128,7 +157,7 @@ export function Lasted() {
           <Panel title="By week written" icon={<CalendarRange />}>
             <div className={s.rows}>
               {data.weeks.map((w) => (
-                <Row key={w.week} label={weekLabel(w.week)} c={w.counts} />
+                <Row key={w.week} label={weekLabel(w.week)} c={w.counts} active={week === w.week} onPick={() => set({ week: week === w.week ? '' : w.week })} />
               ))}
             </div>
           </Panel>
@@ -141,13 +170,36 @@ export function Lasted() {
                   label={x.project ? baseName(x.project) : 'No project'}
                   sub={`${x.sessions} session${x.sessions === 1 ? '' : 's'}`}
                   c={x.counts}
+                  active={!!x.project && project === x.project}
+                  onPick={x.project ? () => set({ project: project === x.project ? '' : x.project! }) : undefined}
                 />
               ))}
             </div>
           </Panel>
 
-          {data.files.length > 0 && (
-            <Panel title="Files whose agent lines changed most" icon={<FileCode2 />} flush>
+          {(files === null || files.length > 0 || project || week) && (
+            <Panel
+              title="Files whose agent lines changed most"
+              icon={<FileCode2 />}
+              flush
+              actions={
+                (project || week) && (
+                  <span className={s.chips}>
+                    {week && (
+                      <button type="button" className={s.chip} onClick={() => set({ week: '' })} aria-label={`Remove week filter: ${weekLabel(week)}`}>
+                        {weekLabel(week)} <X aria-hidden />
+                      </button>
+                    )}
+                    {project && (
+                      <button type="button" className={s.chip} onClick={() => set({ project: '' })} aria-label={`Remove project filter: ${baseName(project)}`}>
+                        {baseName(project)} <X aria-hidden />
+                      </button>
+                    )}
+                  </span>
+                )
+              }
+            >
+              {files && files.length === 0 && <p className={v.note} style={{ padding: 'var(--s-4)' }}>No files with five or more settled agent lines here.</p>}
               <div className={v.tableWrap}>
                 <table className={v.table}>
                   <thead>
@@ -160,7 +212,7 @@ export function Lasted() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.files.map((f) => (
+                    {(files ?? []).map((f) => (
                       <tr key={f.path}>
                         <td className={s.pathCell}>
                           <Link href={`/files${query({ path: f.path, range: 'all' })}`} className={v.path} title={f.path}>

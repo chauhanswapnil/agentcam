@@ -213,8 +213,14 @@ fn call(conn: &Connection, name: &str, a: &Value) -> Result<String, String> {
             Ok(pretty(&rows))
         }
         "recent_sessions" => {
-            let page = query::sessions(conn, &project_filter(a), n(a, "limit", 10, 50) as u32, 0)
-                .map_err(err)?;
+            let page = query::sessions(
+                conn,
+                &project_filter(a),
+                &query::SessionOnly::default(),
+                n(a, "limit", 10, 50) as u32,
+                0,
+            )
+            .map_err(err)?;
             let rows: Vec<Value> = page
                 .items
                 .iter()

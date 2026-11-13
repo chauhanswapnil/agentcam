@@ -79,6 +79,8 @@ pub struct Hook {
     pub event: String,
     pub matcher: Option<String>,
     pub command: String,
+    /// The program the command runs, by file name: how hook steps name it.
+    pub program: String,
     pub scope: String,
     pub defined_in: String,
     /// The command names a file that isn't there.
@@ -1023,6 +1025,10 @@ fn read_hooks(v: &Value, agent: &str, scope: &str, file: &str, out: &mut Vec<Hoo
                     event: event.clone(),
                     matcher: matcher.clone().filter(|m| !m.is_empty()),
                     command: cmd.to_string(),
+                    program: command_program(cmd)
+                        .map(basename)
+                        .unwrap_or_default()
+                        .to_string(),
                     scope: scope.into(),
                     defined_in: file.into(),
                     missing,

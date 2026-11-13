@@ -395,13 +395,44 @@ mod queries {
             until: Some("2026-11-02T00:00:00.000Z".into()),
             ..Default::default()
         };
-        let page = query::sessions(idx.conn(), &f, 50, 0).unwrap();
+        let page = query::sessions(idx.conn(), &f, &query::SessionOnly::default(), 50, 0).unwrap();
         assert_eq!(page.total, 2);
         let ids: Vec<_> = page.items.iter().map(|s| s.id.as_str()).collect();
         // Codex session (12:00) is more recent than Claude (10:00).
         assert_eq!(ids, ["22222222-2222-4222-8222-222222222222", CLAUDE_ID]);
         assert_eq!(page.items[1].subagents, 1);
         assert!(page.items.iter().all(|s| s.parent_id.is_none()));
+    }
+
+    #[test]
+    fn sessions_narrow_by_model_and_by_what_happened() {
+        let idx = index();
+        let f = Filter::default();
+        let list =
+            |only: &query::SessionOnly| query::sessions(idx.conn(), &f, only, 50, 0).unwrap();
+        let all = list(&query::SessionOnly::default());
+        let errors = list(&query::SessionOnly {
+            has: Some("errors".into()),
+            ..Default::default()
+        });
+        assert!(
+            errors.total < all.total,
+            "{} of {}",
+            errors.total,
+            all.total
+        );
+        assert!(errors.items.iter().all(|s| s.error_count > 0));
+        // A value it doesn't know leaves the list as it was.
+        let odd = list(&query::SessionOnly {
+            has: Some("whatever".into()),
+            ..Default::default()
+        });
+        assert_eq!(odd.total, all.total);
+        let none = list(&query::SessionOnly {
+            model: Some("no-such-model".into()),
+            ..Default::default()
+        });
+        assert_eq!((none.total, none.items.len()), (0, 0));
     }
 
     #[test]
@@ -888,6 +919,18 @@ fn survival_checks_agent_lines_against_files() {
     assert_eq!(r.settled.added, 5);
     assert_eq!(r.ages[2].counts.added, 5, "a month old");
     assert_eq!(r.by_agent.len(), 1);
+    // The files table for one week: the week the edits were made in, and a
+    // week with none.
+    let week = r.weeks[0].week.clone();
+    let all = agentcam_core::survival::files(idx.conn(), &Default::default(), now, None).unwrap();
+    assert_eq!(all, r.files);
+    let that =
+        agentcam_core::survival::files(idx.conn(), &Default::default(), now, Some(&week)).unwrap();
+    assert_eq!(that.len(), all.len());
+    let none =
+        agentcam_core::survival::files(idx.conn(), &Default::default(), now, Some("1999-01-04"))
+            .unwrap();
+    assert!(none.is_empty());
 
     // The project is gone: nothing to say, rather than "nothing lasted".
     std::fs::remove_dir_all(dir.join("project")).unwrap();
@@ -1006,8 +1049,14 @@ fn claude_turns_approvals_and_context() {
     );
     let src = agentcam_core::turns::sources(idx.conn(), &f).unwrap();
     assert!(src.iter().any(|x| x.kind == "skill" && x.name == "dataviz"));
-    let th = agentcam_core::approvals::thinking(idx.conn(), &f, "longest", 5).unwrap();
+    let th = agentcam_core::approvals::thinking(idx.conn(), &f, "longest", None, 5).unwrap();
     assert_eq!((th.blocks, th.total_ms), (1, 1500));
+    // One model's list: the totals by model stay whole, the list narrows.
+    let other =
+        agentcam_core::approvals::thinking(idx.conn(), &f, "longest", Some("no-such-model"), 5)
+            .unwrap();
+    assert_eq!((other.items.len(), other.blocks), (0, 1));
+    assert_eq!(th.items.len(), 1);
     drop(idx);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1315,5 +1364,108 @@ fn hooks_plans_prompts_and_mcp() {
             .any(|r| r.rule_id == "secret-anthropic-key" && !r.excerpt.contains("0000000000"))
     );
     drop(idx);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cost_reads_cache_lifetime_and_speed() {
+    use agentcam_core::model::Tier;
+    let p = claude::parse(&fixtures().join("claude-code/cost-tiers.jsonl")).unwrap();
+    let usage: Vec<_> = p.events.iter().filter_map(|e| e.usage.as_ref()).collect();
+    assert_eq!(usage.len(), 3);
+    assert_eq!(
+        (usage[0].cache_write, usage[0].cache_write_1h),
+        (100_000, 80_000)
+    );
+    assert_eq!(usage[0].tier, Tier::Standard);
+    assert_eq!(usage[1].tier, Tier::Fast);
+    // A near miss: a call that says nothing about either.
+    assert_eq!(
+        (usage[2].cache_write_1h, usage[2].tier),
+        (0, Tier::Standard)
+    );
+}
+
+#[test]
+fn cost_breakdown_and_repricing_when_the_log_is_gone() {
+    use agentcam_core::cost;
+    let dir = std::env::temp_dir().join(format!("agentcam-cost-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let logs = dir.join("logs/-demo");
+    std::fs::create_dir_all(&logs).unwrap();
+    let id = "77777777-7777-4777-8777-777777777777";
+    let log = logs.join(format!("{id}.jsonl"));
+    std::fs::copy(fixtures().join("claude-code/cost-tiers.jsonl"), &log).unwrap();
+    let sources = [LogSource {
+        agent: Agent::ClaudeCode,
+        path: dir.join("logs"),
+        exists: true,
+    }];
+    let db = dir.join("index.db");
+    let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-9, "{a} != {b}");
+
+    {
+        let mut idx = Index::open(&db).unwrap();
+        idx.update(&sources, false).unwrap();
+        let c = cost::session_costs(idx.conn(), idx.prices(), id).unwrap();
+        // Call 1: 1k in, 500 out, 20k written for 5 minutes, 80k for an hour.
+        // Call 2, fast (2x): 2k in, 1k out, 100k read.
+        near(c.parts.input, 0.004 + 0.016);
+        near(c.parts.output, 0.01 + 0.04);
+        near(c.parts.cache_read, 0.04);
+        near(c.parts.cache_write, 0.1 + 0.64);
+        near(c.usd, 0.85);
+        near(c.without_cache_usd, 0.414 + 0.856);
+        assert_eq!((c.calls, c.unpriced_calls, c.fast_calls), (3, 1, 1));
+        assert_eq!(c.unpriced_models, vec!["some-new-model"]);
+        assert_eq!(c.models[0].model.as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(c.models.last().unwrap().usd, None);
+        // The breakdown agrees with what the index stored per session.
+        let (est, unpriced): (f64, bool) = idx
+            .conn()
+            .query_row(
+                "SELECT est_cost_usd, cost_unpriced FROM sessions WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        near(est, 0.85);
+        assert!(unpriced);
+        // The same numbers through a filter.
+        let all = cost::costs(idx.conn(), idx.prices(), &Default::default()).unwrap();
+        near(all.usd, 0.85);
+    }
+
+    // The agent prunes the log; the user then adds a price for the new model
+    // and changes one. The session stays and is priced with the new list.
+    std::fs::remove_file(&log).unwrap();
+    std::fs::write(
+        dir.join("prices.yaml"),
+        "- { match: some-new-model, input: 1000000, output: 0 }\n\
+         - { match: claude-opus-5-5, input: 4.0, output: 40.0, cache_read: 0.2 }\n",
+    )
+    .unwrap();
+    let mut idx = Index::open(&db).unwrap();
+    assert!(idx.prices_error().is_none());
+    idx.update(&sources, false).unwrap();
+    let (est, unpriced): (f64, bool) = idx
+        .conn()
+        .query_row(
+            "SELECT est_cost_usd, cost_unpriced FROM sessions WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    // Output doubled (0.05 more) and the new model's 10 tokens cost $10.
+    near(est, 0.85 + 0.05 + 10.0);
+    assert!(!unpriced);
+    let c = cost::session_costs(idx.conn(), idx.prices(), id).unwrap();
+    near(c.usd, est);
+
+    // A price file that doesn't parse is left out, and says so.
+    std::fs::write(dir.join("prices.yaml"), "- { match: [oops").unwrap();
+    let idx = Index::open(&db).unwrap();
+    assert!(idx.prices_error().unwrap().contains("prices.yaml"));
+    assert!(idx.prices().find("claude-opus-5-5").is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }

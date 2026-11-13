@@ -3,7 +3,8 @@
   flex-wrap: wrap;
   gap: var(--s-4) var(--s-8);
 }
-.stats div {
+.stats > div,
+.stats > button {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -151,4 +152,28 @@
   gap: var(--s-2);
   color: var(--text-3);
   font-size: var(--fs-xs);
+}
+
+/* A model tile that narrows the list: same look, a hover and a pressed state. */
+.pick {
+  margin: calc(var(--s-1) * -1) calc(var(--s-2) * -1);
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.pick:hover {
+  background: var(--bg-2);
+}
+.pick:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 0;
+}
+.pickOn,
+.pickOn:hover {
+  background: var(--bg-3);
 }

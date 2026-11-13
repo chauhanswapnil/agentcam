@@ -164,8 +164,10 @@ def claude_session(project, task, start, risky, live=False, tail=None, story=Non
         if skill_now[0]:
             extra["attributionSkill"] = skill_now[0]
         extra.update(kw)
-        rec("assistant", message={"id": f"msg_{sid[:8]}_{n}", "model": model, "role": "assistant", "content": blocks,
-            "usage": {"input_tokens": random.randint(5, 40), "output_tokens": out_tokens, "cache_read_input_tokens": random.randint(20000, 90000), "cache_creation_input_tokens": random.randint(0, 4000)}}, **extra)
+        usage = {"input_tokens": random.randint(5, 40), "output_tokens": out_tokens, "cache_read_input_tokens": random.randint(20000, 90000), "cache_creation_input_tokens": random.randint(0, 4000)}
+        # Claude Code keeps its cache writes for an hour, which costs more.
+        usage["cache_creation"] = {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": usage["cache_creation_input_tokens"]}
+        rec("assistant", message={"id": f"msg_{sid[:8]}_{n}", "model": model, "role": "assistant", "content": blocks, "usage": usage}, **extra)
 
     def approval():
         r = random.random()
@@ -342,6 +344,98 @@ def claude_session(project, task, start, risky, live=False, tail=None, story=Non
             fh.write(json.dumps(d) + "\n")
 
 
+def cache_session(project, task, start, sid, second_model=None):
+    """A long session that loses its prompt cache: once after a break longer
+    than the cache is kept, and (with `second_model`) once on a model switch.
+    No randomness, so adding it leaves every other session as it was."""
+    cwd = str(CODE / project)
+    folder = HOME / ".claude" / "projects" / ("-" + cwd.strip("/").replace("/", "-"))
+    folder.mkdir(parents=True, exist_ok=True)
+    base = {"sessionId": sid, "cwd": cwd, "gitBranch": "main", "version": "2.5.2", "userType": "external", "isSidechain": False, "entrypoint": "cli"}
+    out = []
+    n = [0]
+
+    def rec(kind, at, **kw):
+        n[0] += 1
+        out.append(dict(base, type=kind, timestamp=ts(start + timedelta(minutes=at)), uuid=f"{sid[:8]}-u{n[0]}", **kw))
+
+    def prompt(at, text):
+        rec("user", at, permissionMode="auto", turnOrigin="human", message={"role": "user", "content": text})
+
+    def reply(at, text, read, write, model="claude-opus-5-5"):
+        usage = {"input_tokens": 30, "output_tokens": 400, "cache_read_input_tokens": read, "cache_creation_input_tokens": write,
+                 "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": write}}
+        rec("assistant", at, effort="high", message={"id": f"msg_{sid[:8]}_{n[0]}", "model": model, "role": "assistant",
+                                                    "content": [{"type": "text", "text": text}], "usage": usage})
+
+    rec("ai-title", 0, aiTitle=task)
+    prompt(0, f"{task}. Start by reading the code and tell me the plan.")
+    reply(1, "Here is the plan: three steps, smallest first.", 0, 148_000)
+    prompt(3, "Good. Do step one.")
+    reply(5, "Step one is in. Tests pass.", 148_000, 6_000)
+    prompt(8, "Now step two.")
+    reply(11, "Step two is in.", 154_000, 9_000)
+    # Lunch: back after 95 minutes, past the hour the cache is kept.
+    prompt(106, "Back. Do step three.")
+    reply(108, "Step three is in. All three steps are done.", 0, 171_000)
+    prompt(110, "Summarize what changed.")
+    reply(111, "Three changes, each with a test.", 171_000, 2_000)
+    if second_model:
+        prompt(113, "Write the release note for this.")
+        reply(114, "Release note drafted.", 0, 176_000, model=second_model)
+    (folder / f"{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in out))
+
+
+def habits_session(project, task, start, sid, e2e=False):
+    """A session with a slow test command run again and again and a command
+    allowed by hand each time, for the Profile page's fix cards. No
+    randomness, so adding it leaves every other session as it was."""
+    cwd = str(CODE / project)
+    folder = HOME / ".claude" / "projects" / ("-" + cwd.strip("/").replace("/", "-"))
+    folder.mkdir(parents=True, exist_ok=True)
+    base = {"sessionId": sid, "cwd": cwd, "gitBranch": "main", "version": "2.5.2", "userType": "external", "isSidechain": False, "entrypoint": "cli"}
+    out = []
+    n = [0]
+    t = [start]
+
+    def rec(kind, **kw):
+        n[0] += 1
+        out.append(dict(base, type=kind, timestamp=ts(t[0]), uuid=f"{sid[:8]}-u{n[0]}", **kw))
+
+    def wait(sec):
+        t[0] += timedelta(seconds=sec)
+
+    def call(name, inp, result, took, by_hand=False):
+        tid = f"toolu_{sid[:8]}_{n[0]}"
+        usage = {"input_tokens": 20, "output_tokens": 120, "cache_read_input_tokens": 60_000, "cache_creation_input_tokens": 800,
+                 "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 800}}
+        rec("assistant", effort="high", message={"id": f"msg_{sid[:8]}_{n[0]}", "model": "claude-opus-5-5", "role": "assistant",
+                                                "content": [{"type": "tool_use", "id": tid, "name": name, "input": inp}], "usage": usage})
+        wait(took)
+        decision = {"decision": "accept", "source": "user_temporary"} if by_hand else {"decision": "accept", "source": "config", "reasonType": "rule", "ruleSource": "userSettings"}
+        rec("user", permissionDecision=decision, message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": tid, "content": result}]})
+        wait(4)
+
+    rec("ai-title", aiTitle=task)
+    rec("user", permissionMode="default", turnOrigin="human", message={"role": "user", "content": f"{task}. Run the tests after each change."})
+    wait(5)
+    for i in range(6):
+        call("Edit", {"file_path": f"{cwd}/src/step{i}.ts", "old_string": "a", "new_string": "b"}, "ok", 1)
+        call("Bash", {"command": "pnpm test"}, "ok: 212 passed", 85)
+        if i % 2:
+            # Ran again with nothing changed in between.
+            call("Bash", {"command": "pnpm test"}, "ok: 212 passed", 85)
+        # A linter that prints every file it looked at: a lot for the model to read.
+        call("Bash", {"command": "pnpm lint"}, "".join(f"src/components/part{j % 97}.tsx: ok (0 problems)\n" for j in range(3200)), 6)
+        if e2e and i < 3:
+            # The whole end-to-end suite after a small change: the habit the
+            # demo's ledger shows as fixed.
+            call("Bash", {"command": "pnpm e2e"}, "ok: 48 passed", 240)
+        call("Bash", {"command": "docker compose ps"}, "db  running", 48, by_hand=True)
+        call("Bash", {"command": "docker compose logs api"}, "listening on :3000", 52, by_hand=True)
+    (folder / f"{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in out))
+
+
 def codex_session(project, task, start, risky, used):
     tid = str(uuid.UUID(int=random.getrandbits(128)))
     cwd = str(CODE / project)
@@ -390,8 +484,13 @@ def codex_session(project, task, start, risky, used):
     item({"type": "AgentMessage", "id": "a1", "content": [{"type": "Text", "text": f"{task}: done. Tests pass."}], "phase": "final"})
     reset = int((start + timedelta(hours=5)).timestamp())
     week_reset = int((NOW + timedelta(days=3)).timestamp())
+    # One reading for the whole session, and the last call's own, so the
+    # session has a per-step cost.
+    tokens = {"input_tokens": random.randint(200000, 900000), "cached_input_tokens": 150000, "output_tokens": random.randint(4000, 30000), "reasoning_output_tokens": random.randint(1000, 9000)}
+    last = {"input_tokens": tokens["input_tokens"] // 5, "cached_input_tokens": tokens["input_tokens"] // 5 * 85 // 100,
+            "output_tokens": tokens["output_tokens"] // 4, "reasoning_output_tokens": tokens["reasoning_output_tokens"] // 4}
     ev("event_msg", {"type": "token_count",
-        "info": {"total_token_usage": {"input_tokens": random.randint(200000, 900000), "cached_input_tokens": 150000, "output_tokens": random.randint(4000, 30000), "reasoning_output_tokens": random.randint(1000, 9000)}},
+        "info": {"total_token_usage": tokens, "last_token_usage": last},
         "rate_limits": {"limit_id": "codex", "plan_type": "plus", "rate_limit_reached_type": None,
             "primary": {"used_percent": float(used), "window_minutes": 300, "resets_at": reset},
             "secondary": {"used_percent": float(min(99, used // 3 + 20)), "window_minutes": 10080, "resets_at": week_reset}}})
@@ -457,6 +556,25 @@ def main():
     claude_session("acme-web", "Fix the Safari login layout", NOW - timedelta(days=6, hours=5), None, story="hidden")
     claude_session("infra", "Ship the CI config change", NOW - timedelta(days=9, hours=2), None, story="workaround")
     count += 4
+    # Sessions that lost their prompt cache, for the Prompt cache panel and
+    # the replay's rebuild marks.
+    cache_session("acme-web", "Split the checkout form into steps", NOW - timedelta(days=1, hours=6), "cace0001-0000-4000-8000-000000000001", second_model="claude-sonnet-5-5")
+    cache_session("payments-api", "Add idempotency keys to refunds", NOW - timedelta(days=3, hours=4), "cace0002-0000-4000-8000-000000000002")
+    cache_session("infra", "Pin the base images", NOW - timedelta(days=8, hours=7), "cace0003-0000-4000-8000-000000000003")
+    count += 3
+    # Sessions with a slow command and calls allowed by hand, so the
+    # Profile page has a fix card of each kind.
+    for i, (project, task, days) in enumerate([("acme-web", "Rework the cart drawer", 2), ("acme-web", "Add address autocomplete", 5),
+                                               ("mobile-app", "Fix the sync retry loop", 9), ("acme-web", "Clean up the checkout tests", 13),
+                                               ("mobile-app", "Speed up the feed query", 18)]):
+        habits_session(project, task, NOW - timedelta(days=days, hours=5), f"fa6e{i:04d}-0000-4000-8000-000000000001", e2e=days > 12)
+    count += 5
+    # A fix marked done 11 days ago, so the Profile page's ledger has a
+    # measured row: the end-to-end suite stopped running after small changes.
+    (HOME / "profile.json").write_text(json.dumps({"fixes": [{
+        "id": "slow:pnpm e2e", "kind": "slow_command", "title": "`pnpm e2e` ran 6 times and took 24 min", "state": "applied",
+        "at": ts(NOW - timedelta(days=11)),
+        "before": {"days": 28, "count": 6, "ms": 1_440_000, "usd": 0.0, "agent_ms": 7 * 3_600_000, "sessions": 40}}]}, indent=2))
     # A guard rule and hook configs, so the Audit page shows the guard
     # working (the configs only need to mention `agentcam guard`).
     hook = {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "agentcam guard"}]}]}}

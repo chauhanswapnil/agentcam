@@ -108,23 +108,31 @@ The server (`crates/agentcam-server`) serves JSON under `/api`. Queries live in 
 | `POST /api/index` | Start indexing new and changed logs (202, or 409 if already running) |
 | `GET /api/overview` | Stats, the previous period's stats, and projects with weekly sparklines |
 | `GET /api/activity` | Agent time per local day for the last 371 days |
-| `GET /api/sessions` | Top-level sessions, most recently active first, paged |
+| `GET /api/sessions` | Top-level sessions, most recently active first, paged; takes `model` (a call on that model) and `has` (`errors`, `findings` or `retries`) |
 | `GET /api/sessions/{id}` | One session: steps (titles, plus the start of transcript text), files touched, subagents |
 | `GET /api/sessions/{id}/export?format=md\|json` | One session as a download (Markdown or JSON), secrets masked |
 | `GET /api/step?session=&seq=` | One step in full: output, input, file changes with diffs |
 | `GET /api/audit` | Rules that fired and the latest findings; takes `rule`, `severity` (lowest to show), `status` (`open` hides findings marked looked at or muted, `all`) |
 | `GET/POST /api/reviews` | Findings marked "looks fine" and rules muted per project or everywhere (`reviews.rs`, kept in `reviews.json`) |
 | `POST /api/rules/preview` | What draft rules would find in recent sessions, before saving (`preview.rs`) |
-| `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool |
+| `GET /api/tools`, `GET /api/tool-calls?tool=` | Tool use across sessions, and the latest calls of one tool (a name also matches the tools under it: `mcp__github`); `via=skill:name` gives the steps behind a skill, plugin or app |
 | `GET /api/files`, `GET /api/file?path=` | Files touched, most changed first, and one file's history |
 | `GET/POST /api/guard`, `DELETE /api/guard/{id}` | Guard rules and hook setup; `GET /api/guard/test` counts past matches, `GET /api/guard/suggest` proposes a pattern |
 | `GET /api/commits` | Commits made by agent sessions, newest first |
 | `GET /api/live?minutes=` | Top-level sessions with a step in the last 15 minutes: state, latest steps, context, error streak, cost |
 | `GET /api/limits` | Usage windows (latest reading, last 7 days), limits reached, and `claude`: Claude Code's 5-hour blocks estimated from tokens |
 | `GET /api/lasted` | Which agent-written lines are still in the code: by age, week, agent and model, project, file |
+| `GET /api/lasted/files` | The files table alone, narrowed by `project` and `week` (the Monday a week starts on) |
+| `GET /api/cost` | Estimated cost by kind of token and by model, what the prompt cache saved, models with no price; takes `session` for one session and its subagents (`cost.rs`) |
+| `GET /api/profile` | Where agent time went: model, tools, waiting on approval (estimate), ready for you, redoing, and how big sessions are when they start; takes `session` (`profile.rs`) |
+| `GET /api/cache` | Share of prompt tokens read from the prompt cache, and cache rebuilds with their cause and cost; takes `session` (`cache.rs`) |
+| `GET/POST /api/fixes` | The few changes most likely to give time or money back: slow commands, calls allowed by hand, cache rebuilds; each with examples and text to copy (`fixes.rs`). `POST {id, state}` marks one `applied` or `dismissed`, or clears the mark with `null` |
+| `GET /api/ledger` | Fixes marked done with the four weeks before and the time since, per 10 hours of agent time, and fixes set aside (`ledger.rs`, kept in `profile.json`) |
+| `GET /api/ledger/weeks?id=` | One fix's measure (count, time or tokens or dollars) for each of the last 12 weeks, oldest first, with agent time per week (`ledger::weeks`) |
+| `GET /api/behind?what=` | The steps behind a number, biggest first, at most 100 with `total`: `time:model\|tools\|approval\|you\|redo\|orienting`, `cost:input\|output\|cache_read\|cache_write`, `model:<id>`, `cache:break\|model_switch\|effort_change\|unknown`, `cache:hit` (sessions by share read from the cache, lowest first), `turns:0..4` (turns by length bucket), `hook:<event>:<program>`, `fix:<fix id>`; takes the list filters, `since`, `until` and `session` (`behind.rs`) |
 | `GET /api/turns` | Turn lengths, waits between turns, turns by model, effort and mode, longest turns |
 | `GET /api/approvals` | How tool calls were allowed or stopped, stopped calls, allow rules to suggest |
-| `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model |
+| `GET /api/thinking?sort=` | Thinking steps (`longest` or newest) and thinking time by model; `model` narrows the steps to one session model, not the totals |
 | `GET /api/prs` | Pull requests sessions linked |
 | `GET /api/sources` | Skills, plugins, MCP servers and apps behind steps |
 | `GET /api/skills` | Skills installed, listed and used, with sizes and latest runs |
@@ -252,10 +260,40 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Views describe, never rank people. Machines show as `Machine abc123` unless an admin turns on `show_people` (logged). Cost is at API list prices; seats compare a monthly seat price with that.
 - Demo: `agentcam team serve --data /tmp/agentcam-team-demo`, then `python3 scripts/team-demo.py http://127.0.0.1:4850 <admin token>` makes 24 fake machines in 4 teams over 90 days. Team screenshots come from it.
 
+### Where the time went (profiler)
+
+- `profile.rs` splits agent time (the capped `gap_ms` sums) into parts that always add up to it. A gap before a step holds the tool call that was still running (read from its `duration_ms`; calls in flight together count once) and the model working out the step.
+- Parts: `model_ms`, `tools_ms`, `approval_ms`, `you_ms` (gaps before a prompt: the agent had replied), `redo_ms` (steps with `events.wasted`). `orienting_ms` is a slice of model and tool time, not a part: reading and searching before the first edit of a turn that went on to edit.
+- Approval wait is an estimate. Claude Code times a call from request to result, wait included. For calls with approval `you`, the usual run of that tool (median over calls nobody had to allow) is taken off; a `rejected` call is all wait. Always label it "est." in the UI.
+- `start_tokens` is the prompt size on the first model call of a typical top-level session (exact, the median). `start_skills_tokens` and `start_mcp_tokens` are the parts the logs let us size, estimated; on real logs they explain about a tenth, so this is shown as a note, not a fix. Find first calls with one grouped pass and a join: a per-row lookup took seconds on a real index.
+- The approval estimate leans low: a command only ever run by hand has no usual run of its own, so the tool's median stands in and the wait can come out as zero.
+- The replay header shows one session's bar as a strip (`TimeStrip`, `GET /api/profile?session=`).
+- Wording: "ready for you", "redoing". Never "wasted" or anything that grades the person or the agent.
+
+### Fixes (profiler)
+
+- `fixes.rs` finds, sizes and ranks changes worth making, at most five, ranked by `share` (of agent time for time fixes, of estimated cost for cost fixes). The Profile page (`/profile`) shows them as `FixCard`s; the Overview shows the top one.
+- Floors, checked against real logs: a time fix needs 10 minutes a week (approvals: or 10 asks a week); a cost fix needs 5% of estimated cost; a command is slow only if a typical run takes 20 s. Below the floor nothing is shown. Recheck on real logs before adding a kind or lowering a floor.
+- Kinds: `approval` (calls with approval `you`, grouped by `approvals::rule_for`, so broad commands are never suggested; the fix is the allow rule), `slow_command` (commands keyed by `command_key`, which looks past `export`, `cd` and `VAR=x` setup and leaves out commands that only wait, such as `sleep` or `gh run watch`; counts reruns with no file change since the last run), `cache` (rebuilds by cause; advice, no file).
+- agentcam does not invent commands: a slow command gets a prompt to hand the agent, never a made-up narrower form. `fix` is text for a file, `prompt` is a request for the agent, `advice` is a habit.
+- Titles and details are written in Rust so tests pin the wording. Describe the repo and the setup, never the agent or the person.
+- **Ledger** (`ledger.rs`): a fix marked "I did this" or "Not for me" drops out of `/api/fixes`. Marks live in `profile.json` next to the index, not in it, so they survive a rebuild. Marking one done measures the four weeks before, once, and stores it; the time since is measured on demand with `fixes::find` (floors off, so a fix is still measured when little is left of it). Both are rates per 10 hours of agent time. A change is stated only after 7 days and 5 sessions, and "no change yet" or "more" are said as plainly as "less".
+- A `profile.json` that can't be read is reported on the ledger (`Ledger::marks_error`), never treated as empty in silence; the next save keeps it as `profile.json.bad`.
+- The person marks a fix done. agentcam does not watch settings or AGENTS.md to notice one by itself; that was considered and dropped.
+- `loud_command`: commands by the size of what they print (`events.out_chars`, the output before the 32 KB cut, at four bytes a token). Floors: 200k tokens a week and 5k on a typical run. `share` is of the tokens that entered a prompt fresh. The prompt names a quiet form only for the well-known tools in `QUIET`. The ledger measures these in tokens.
+
+### Prompt cache (profiler)
+
+- `cache.rs`. A **rebuild** is a model call that writes at least half its prompt to the cache (and 10k tokens or more), in a session where an earlier call had read at least half its prompt from it, with no "Context compacted" step in between. A subagent's first call has no cache to lose. Compactions are counted apart.
+- Cause, first match: the model differs from the call before (`model_switch`); the real time since that call (from `ts`, not the capped `gap_ms`) is longer than the cache is kept (`break`; 1 hour when the session's latest writes were mostly 1-hour ones, else 5 minutes); the turn's effort differs (`effort_change`, from `turns.effort`); else `unknown`. The log doesn't hold the prompt, so never guess past that. On real logs about a third stay unknown; tool changes did not explain any.
+- Cost is the write price minus the read price for the tokens written. A log copied on resume or fork repeats its calls: rebuilds are counted once by time and size.
+- Wording: a rebuild after a break is how the cache works, not a fault. State the cost, give one thing the person can do, and leave the choice to them.
+
 ### Cost, context, waste and commits
 
 - **Tokens per step:** each model call's usage sits on the first step it produced (`TokenUsage` in `model.rs`); context size = fresh input + cache reads + cache writes.
-- **Prices:** `rules/prices.yaml` (built in, Anthropic list prices) plus the user's `prices.yaml` next to the index. Longest `match` prefix wins. Missing cache prices are estimated (10% / 125% of input), and a model without a price leaves the cost unknown, never guessed. Changing prices re-checks every session (fingerprint in `meta`).
+- **Prices:** `rules/prices.yaml` (built in: Anthropic and OpenAI API list prices, with the day they were checked in `prices::PRICED_ON`) plus the user's `prices.yaml` next to the index, loaded when the index opens (a file that doesn't parse is left out and `/api/cost` says so). Longest `match` prefix wins. A call's cost has four parts (`prices::Parts`): fresh input, output, cache reads, cache writes. Cache writes kept an hour (`TokenUsage::cache_write_1h`, from Claude Code's `usage.cache_creation`) cost 200% of input, 5-minute ones 125%, reads 10%, unless the row names a price. `long` moves a call whose prompt is over a size to higher prices; `fast` and `flex` are multiples for `Tier::Fast` (Claude `speed: fast`, Codex `priority`) and `Tier::Flex`. A model without a price leaves the cost unknown, never guessed. Changing prices re-checks every session (fingerprint in `meta`; bump `ENGINE` in `prices.rs` when the maths changes), and sessions whose logs are gone are priced again from their stored tokens (`index::reprice_kept`).
+- **Cost breakdown (`cost.rs`):** by kind of token and by model, what the same calls would cost with no cache, and the share of prompt tokens read from cache. Worked out from stored tokens with the current prices, so it agrees with `events.cost_usd`. Always say "est." and "at API list prices" in the UI: on a subscription the user pays the plan price.
 - **Waste (`patterns.rs`):** retry loops (same call failing 3+ times), error streaks (4+ failed tool calls in a row), reverts (an Edit that undoes an earlier one) and edit churn (6+ edits to one file, a signal only). `events.wasted` marks steps counted as wasted, each once.
 - **Commits (`commits.rs`):** only real `git commit` command segments count (via `shell::command_words`, heredoc bodies skipped); hash and branch from git's `[branch hash] message` output when present.
 - **OTel (`otel.rs`):** `agentcam export otlp` writes OTLP/JSON; it only sends data when `--endpoint` is given.

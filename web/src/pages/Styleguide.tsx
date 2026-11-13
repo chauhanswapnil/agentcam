@@ -13,6 +13,13 @@ import { Segmented } from '../ui/Segmented'
 import { Stat } from '../ui/Stat'
 import { Tooltip } from '../ui/Tooltip'
 import { UsageMeter } from '../ui/UsageMeter'
+import { CachePanel } from '../ui/CachePanel'
+import { CostPanel } from '../ui/CostPanel'
+import { FixCard } from '../ui/FixCard'
+import { LedgerPanel, WeeksChart } from '../ui/LedgerPanel'
+import { TimeBar } from '../ui/TimeBar'
+import { Drawer } from '../ui/Drawer'
+import { StepsList } from '../ui/StepsDrawer'
 import { QuotaMeter } from '../ui/QuotaMeter'
 import { CsvButton } from '../ui/CsvButton'
 import { CopyButton } from '../ui/CopyButton'
@@ -20,7 +27,7 @@ import { FindingReview } from '../ui/FindingReview'
 import { SortTh } from '../ui/SortTh'
 import { Welcome } from '../ui/Welcome'
 import { EditorPicker, ExportLinks, OpenInEditor, ResumeButton } from '../ui/SessionActions'
-import { SAMPLE_EVENTS, SAMPLE_NOW, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
+import { SAMPLE_BEHIND, SAMPLE_CACHE, SAMPLE_COSTS, SAMPLE_EVENTS, SAMPLE_FIXES, SAMPLE_LEDGER, SAMPLE_NOW, SAMPLE_WEEKS, SAMPLE_TIME, SAMPLE_QUOTA, SAMPLE_SESSIONS, SAMPLE_USAGE, SAMPLE_WINDOWS } from './sample'
 import s from './Styleguide.module.css'
 
 const SECTIONS = ['Color', 'Event kinds', 'Type', 'Space', 'Components', 'Timeline', 'Motion'] as const
@@ -61,6 +68,7 @@ export function Styleguide() {
   const [selected, setSelected] = useState(0)
   const [sort, setSort] = useState('calls')
   const [step, setStep] = useState<number | undefined>(8)
+  const [drawer, setDrawer] = useState(false)
   const current = step != null ? SAMPLE_EVENTS[step] : null
 
   return (
@@ -222,6 +230,11 @@ export function Styleguide() {
 
         <section id="components" className={s.section}>
           <h2>Components</h2>
+          <p className={s.rule}>
+            If it sums up steps, it opens them. A number, bar, row or badge that adds up steps opens those steps, and a click
+            never dead-ends: it lands on a filtered list or on a replay step. Hover and pointer only on things you can click,
+            and every one of those is a real button or link with text or an <code>aria-label</code>.
+          </p>
 
           <span className={s.sub}>Buttons</span>
           <div className={s.row}>
@@ -418,6 +431,83 @@ export function Styleguide() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
             <QuotaMeter q={SAMPLE_QUOTA} now={SAMPLE_NOW} />
           </div>
+        </section>
+
+        <section id="time-bar" className={s.section}>
+          <h2>Time bar</h2>
+          <p className={s.rule}>
+            Agent time split by what it went on. The parts always add up to the whole. Colors are the event groups, with no new
+            hue: the two blue parts are told apart by strength, order and label. Estimates say "est.". Say "redoing" and "ready
+            for you", never "wasted" or "you were slow".
+          </p>
+          <TimeBar data={SAMPLE_TIME} />
+          <p className={s.rule}>
+            With <code>onPick</code>, each part, the reading note and the start note open what is behind them. Without it
+            (above) nothing is a button and nothing has a hover.
+          </p>
+          <TimeBar data={SAMPLE_TIME} title="Where the time went (clickable)" onPick={() => setDrawer(true)} />
+        </section>
+
+        <section id="drawer" className={s.section}>
+          <h2>Steps drawer</h2>
+          <p className={s.rule}>
+            If it sums up steps, it opens them. A number, bar, row or badge that adds up steps opens a drawer listing those
+            steps, biggest first, and each row opens the replay at that step. Hover and pointer only on things you can click.
+            The open number is kept in <code>?behind=</code>, so the drawer can be linked and Back closes it.
+          </p>
+          <div style={{ maxWidth: 440, border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)' }}>
+            <StepsList data={SAMPLE_BEHIND} />
+          </div>
+          <div className={s.row}>
+            <Button onClick={() => setDrawer(true)}>Open as a drawer</Button>
+          </div>
+          {drawer && (
+            <Drawer title={SAMPLE_BEHIND.title} label="Sample drawer" onClose={() => setDrawer(false)}>
+              <StepsList data={SAMPLE_BEHIND} />
+            </Drawer>
+          )}
+        </section>
+
+        <section id="fix-card" className={s.section}>
+          <h2>Fix card</h2>
+          <p className={s.rule}>
+            One change worth making: what the logs show, an estimated size, the steps behind it, and something to copy (a
+            setting, or a prompt for the agent). When the fix is a habit, it gives advice and no code. Describe the repo and
+            the setup, never the agent or the person; agentcam never edits files.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 12 }}>
+            {SAMPLE_FIXES.map((x) => (
+              <FixCard key={x.id} fix={x} onMark={() => {}} onSeeAll={() => {}} onWeek={() => {}} />
+            ))}
+          </div>
+          <p className={s.rule}>
+            The ledger shows what became of a fix: the four weeks before against the time since, per 10 hours of agent time.
+            It states a change only after a full week, in plain words ("72% less", "no change yet"), never as a score.
+          </p>
+          <LedgerPanel data={SAMPLE_LEDGER} onClear={() => {}} />
+          <p className={s.rule}>
+            A row in the ledger opens to its weeks, per 10 hours of agent time, with a line where the fix was marked done, and a
+            list of the runs since.
+          </p>
+          <div style={{ maxWidth: 520 }}>
+            <WeeksChart weeks={SAMPLE_WEEKS} kind="slow_command" markedAt="2026-11-05T10:00:00Z" />
+          </div>
+        </section>
+
+        <section id="cost" className={s.section}>
+          <h2>Cost</h2>
+          <p className={s.rule}>
+            Cost is always an estimate at API list prices, and says so. Show where it comes from (kinds of token, models) and
+            what the cache saved. A model with no price reads "no price", never a guess.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 420px))', gap: 12 }}>
+            <CostPanel data={SAMPLE_COSTS} />
+            <CachePanel data={SAMPLE_CACHE} />
+          </div>
+          <p className={s.rule}>
+            A cache rebuild is described, never blamed: after a break it is how the cache works. Each cause comes with one thing
+            the person can do, and a cause the log doesn't show is called that.
+          </p>
         </section>
 
         <section id="timeline" className={s.section}>

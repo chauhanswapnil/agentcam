@@ -321,7 +321,7 @@ pub struct ProjectRow {
     pub counts: Counts,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FileRow {
     pub path: String,
     pub project: Option<String>,
@@ -341,6 +341,49 @@ pub struct Report {
     pub by_project: Vec<ProjectRow>,
     /// Files whose agent lines were rewritten or changed the most.
     pub files: Vec<FileRow>,
+}
+
+/// Files whose agent lines were rewritten or changed the most, for edits
+/// that match `f`. With `week` (the Monday a week starts on, as in
+/// `WeekRow::week`), only edits made in that week.
+pub fn files(
+    conn: &Connection,
+    f: &crate::query::Filter,
+    now_ms: i64,
+    week: Option<&str>,
+) -> Result<Vec<FileRow>> {
+    let (cond, mut args) = crate::query::conditions(f);
+    let mut cond = format!(
+        "FROM survival v JOIN events e ON e.session_id = v.session_id AND e.seq = v.seq
+         JOIN sessions s ON s.id = v.session_id WHERE {cond}"
+    );
+    args.push(crate::util::format_ts_ms(now_ms - 86_400_000));
+    cond.push_str(" AND v.ts < ?");
+    if let Some(w) = week {
+        cond.push_str(" AND date(v.ts, 'localtime', '-6 days', 'weekday 1') = ?");
+        args.push(w.to_string());
+    }
+    let mut stmt = conn.prepare(&format!(
+        "SELECT v.path, max(s.project_root), count(*), {SUMS} {cond}
+         GROUP BY v.path HAVING sum(v.added) >= 5
+         ORDER BY sum(v.reworked) + sum(v.changed) DESC, sum(v.added) DESC LIMIT 15"
+    ))?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(&args), |r| {
+            Ok(FileRow {
+                path: r.get(0)?,
+                project: r.get(1)?,
+                edits: r.get(2)?,
+                counts: Counts {
+                    added: r.get(3)?,
+                    kept: r.get(4)?,
+                    reworked: r.get(5)?,
+                    changed: r.get(6)?,
+                },
+            })
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    Ok(rows)
 }
 
 /// What lasted, for edits that match `f`.
@@ -447,29 +490,7 @@ pub fn report(conn: &Connection, f: &crate::query::Filter, now_ms: i64) -> Resul
         })?
         .collect::<std::result::Result<_, _>>()?;
 
-    let (sql, a) = with(
-        "AND v.ts < ? GROUP BY v.path HAVING sum(v.added) >= 5
-         ORDER BY sum(v.reworked) + sum(v.changed) DESC, sum(v.added) DESC LIMIT 15",
-        &[&day],
-    );
-    let mut stmt = conn.prepare(&format!(
-        "SELECT v.path, max(s.project_root), count(*), {SUMS} {sql}"
-    ))?;
-    let files = stmt
-        .query_map(rusqlite::params_from_iter(&a), |r| {
-            Ok(FileRow {
-                path: r.get(0)?,
-                project: r.get(1)?,
-                edits: r.get(2)?,
-                counts: Counts {
-                    added: r.get(3)?,
-                    kept: r.get(4)?,
-                    reworked: r.get(5)?,
-                    changed: r.get(6)?,
-                },
-            })
-        })?
-        .collect::<std::result::Result<_, _>>()?;
+    let files = files(conn, f, now_ms, None)?;
 
     Ok(Report {
         settled,

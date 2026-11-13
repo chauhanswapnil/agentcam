@@ -89,6 +89,8 @@ export function Live() {
   )
 }
 
+const showHits = () => document.getElementById('limits-reached')?.scrollIntoView({ block: 'start' })
+
 function Usage({ data, now }: { data: Limits | null; now: number }) {
   if (!data) return <Skeleton height={120} />
   const claudeHits = data.hits.filter((h) => h.agent === 'claude-code')
@@ -101,6 +103,7 @@ function Usage({ data, now }: { data: Limits | null; now: number }) {
           w={w}
           now={now}
           points={data.series.find((x) => x.agent === w.agent && x.window === w.window)?.points}
+          onOpenHits={data.hits.some((h) => h.agent === w.agent) ? showHits : undefined}
         />
       ))}
       {data.claude && <QuotaMeter q={data.claude} now={now} />}
@@ -114,6 +117,9 @@ function Usage({ data, now }: { data: Limits | null; now: number }) {
             {claudeHits.filter((h) => now - new Date(h.ts).getTime() < 30 * 86_400_000).length}
             <span className={s.noteUnit}> limits reached in 30 days</span>
           </span>
+          <button type="button" className={s.hitsLink} onClick={showHits}>
+            See when
+          </button>
           <span className={s.noteText}>
             Last: {windowLabel(claudeHits[0].window).toLowerCase()}, {formatAgo(claudeHits[0].ts)}
             {claudeHits[0].resets_text && `, reset ${claudeHits[0].resets_text}`}. Claude Code logs when a limit is
@@ -200,7 +206,7 @@ const LiveCard = memo(function LiveCard({ x, now }: { x: LiveSession; now: numbe
 
 function Hits({ hits, total }: { hits: LimitHit[]; total: number }) {
   return (
-    <Panel title={`Limits reached · ${total} in 30 days`} icon={<OctagonAlert />} flush>
+    <Panel id="limits-reached" title={`Limits reached · ${total} in 30 days`} icon={<OctagonAlert />} flush>
       <div className={v.tableWrap}>
         <table className={v.table}>
           <thead>

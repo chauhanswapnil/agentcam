@@ -14,6 +14,8 @@ type Props = {
   zoom: number
   /** Worst risk finding per step seq, drawn as a flag above the mark. */
   flags?: Map<number, Severity>
+  /** A short label per step seq, drawn as a dot below the bar (cache rebuilds). */
+  marks?: Map<number, string>
 }
 
 const weight = (e: EventRow) => 1 + Math.log10(1 + (e.duration_ms ?? 0) / 250)
@@ -22,7 +24,7 @@ const weight = (e: EventRow) => 1 + Math.log10(1 + (e.duration_ms ?? 0) / 250)
  * The replay timeline: one mark per step, wider for steps that took longer.
  * Steps before the playhead are brighter than steps after it.
  */
-export function Track({ events, current, onSeek, zoom, flags }: Props) {
+export function Track({ events, current, onSeek, zoom, flags, marks }: Props) {
   const outer = useRef<HTMLDivElement>(null)
   const viewport = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<{ i: number; x: number } | null>(null)
@@ -63,6 +65,7 @@ export function Track({ events, current, onSeek, zoom, flags }: Props) {
               onHover={show}
               onLeave={hide}
               flag={flags?.get(e.seq)}
+              mark={marks?.get(e.seq)}
             />
           ))}
         </div>
@@ -92,6 +95,7 @@ const Mark = memo(function Mark({
   onHover,
   onLeave,
   flag,
+  mark,
 }: {
   e: EventRow
   i: number
@@ -100,6 +104,8 @@ const Mark = memo(function Mark({
   onHover: (i: number, el: HTMLElement) => void
   onLeave: () => void
   flag?: Severity
+  /** A string or undefined, so memo holds. */
+  mark?: string
 }) {
   return (
     <button
@@ -117,6 +123,7 @@ const Mark = memo(function Mark({
     >
       {state === 'on' && <span className={s.playhead} aria-hidden />}
       {e.wasted && <span className={s.waste} aria-label="retry" />}
+      {mark && <span className={s.rebuild} title={mark} aria-label={`Cache written again: ${mark}`} />}
       {flag && <span className={s.flag} style={{ background: SEVERITY_COLOR[flag] }} aria-label={`${flag} risk`} />}
     </button>
   )

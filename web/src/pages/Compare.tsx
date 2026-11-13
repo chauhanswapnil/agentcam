@@ -1,5 +1,6 @@
 import { GitCompareArrows, Lightbulb, TriangleAlert } from 'lucide-react'
-import { useLocation, useSearch } from 'wouter'
+import { Fragment } from 'react'
+import { Link, useLocation, useSearch } from 'wouter'
 import type { Cohort, CompareDim, CompareOptions, Comparison } from '../lib/api'
 import { query, useApi, useIndexStatus } from '../lib/api'
 import { baseName, formatCost, formatDate, formatDuration, formatNumber } from '../lib/format'
@@ -193,6 +194,19 @@ function Result({ c }: { c: Comparison }) {
               {formatNumber(x.turns)} turns in {formatNumber(x.sessions)} sessions
               {x.first && x.last ? ` · ${formatDate(x.first)} – ${formatDate(x.last)}` : ''}
             </span>
+            {x.examples.length > 0 && (
+              <span className={s.cohortMeta}>
+                Turns of a typical length:{' '}
+                {x.examples.map((e, k) => (
+                  <Fragment key={e.session_id + e.seq}>
+                    {k > 0 && ', '}
+                    <Link href={`/sessions/${e.session_id}?step=${e.seq}`} className={s.exampleLink} title={e.title ?? 'Untitled session'}>
+                      {e.title ? (e.title.length > 26 ? e.title.slice(0, 25) + '…' : e.title) : `turn ${k + 1}`}
+                    </Link>
+                  </Fragment>
+                ))}
+              </span>
+            )}
           </div>
         ))}
       </div>

@@ -24,6 +24,8 @@ pub struct AppState {
     rules_path: Option<std::path::PathBuf>,
     /// Where `reviews.json` (findings looked at, rules muted) lives.
     reviews_path: Option<std::path::PathBuf>,
+    /// Where `profile.json` (fixes marked done or set aside) lives.
+    profile_path: Option<std::path::PathBuf>,
     db_path: Option<std::path::PathBuf>,
     writer: Arc<Mutex<Index>>,
     reader: Arc<Mutex<Index>>,
@@ -73,6 +75,7 @@ impl AppState {
             guard_path: Some(agentcam_core::guard::guard_path(db)),
             rules_path: Some(agentcam_core::index::user_rules_path(db)),
             reviews_path: Some(agentcam_core::reviews::path(db)),
+            profile_path: Some(agentcam_core::ledger::path(db)),
             db_path: Some(db.to_path_buf()),
             writer: Arc::new(Mutex::new(writer)),
             reader: Arc::new(Mutex::new(reader)),
@@ -93,6 +96,9 @@ impl AppState {
             reviews_path: guard_path
                 .as_ref()
                 .map(|g| g.with_file_name("reviews.json")),
+            profile_path: guard_path
+                .as_ref()
+                .map(|g| g.with_file_name("profile.json")),
             guard_path,
             db_path: None,
             writer: index.clone(),
@@ -100,6 +106,14 @@ impl AppState {
             sources,
             status: Mutex::default(),
         })
+    }
+
+    /// Fixes marked done or set aside; none when there's no file yet.
+    pub fn fix_marks(&self) -> agentcam_core::ledger::Store {
+        self.profile_path
+            .as_deref()
+            .map(agentcam_core::ledger::load)
+            .unwrap_or_default()
     }
 
     /// Findings marked and rules muted; none when there's no file yet.
@@ -238,6 +252,22 @@ pub struct Params {
     format: Option<String>,
     /// Audit: `open` (default, what's left to review) or `all`.
     status: Option<String>,
+    /// Behind: the number to list steps for, like `time:tools`.
+    what: Option<String>,
+    /// Ledger weeks: one fix id.
+    id: Option<String>,
+    /// What lasted: the Monday a week starts on, `YYYY-MM-DD`.
+    week: Option<String>,
+    /// Tool calls: the skill, plugin or app behind the steps, `kind:name`.
+    via: Option<String>,
+    /// Up to this time, instead of no end.
+    until: Option<String>,
+    /// Sessions: only those with a call on this model.
+    model: Option<String>,
+    /// Sessions: only those with `errors`, `findings` or `retries`.
+    has: Option<String>,
+    /// From this time on, instead of what `range` gives.
+    since: Option<String>,
 }
 
 const DAY_MS: i64 = 86_400_000;
@@ -248,10 +278,13 @@ fn range_days(range: Option<&str>) -> Option<i64> {
 
 impl Params {
     fn filter(&self, now: i64) -> Filter {
-        let since = range_days(self.range.as_deref()).map(|d| format_ts_ms(now - d * DAY_MS));
+        let since =
+            self.since.clone().filter(|s| !s.is_empty()).or_else(|| {
+                range_days(self.range.as_deref()).map(|d| format_ts_ms(now - d * DAY_MS))
+            });
         Filter {
             since,
-            until: None,
+            until: self.until.clone().filter(|s| !s.is_empty()),
             agent: self.agent.clone(),
             project: self.project.clone(),
             day: self.day.clone(),
@@ -336,7 +369,11 @@ pub async fn sessions(
     let f = p.filter(now_ms());
     let limit = p.limit.unwrap_or(50).min(200);
     let offset = p.offset.unwrap_or(0);
-    st.read(move |idx| query::sessions(idx.conn(), &f, limit, offset))
+    let only = query::SessionOnly {
+        model: p.model.clone(),
+        has: p.has.clone(),
+    };
+    st.read(move |idx| query::sessions(idx.conn(), &f, &only, limit, offset))
         .await
         .map(Json)
 }
@@ -673,10 +710,14 @@ pub async fn tool_calls(
 ) -> Result<Json<Vec<query::StepRef>>, ApiError> {
     let f = p.filter(now_ms());
     let tool = p.tool.clone().unwrap_or_default();
+    let via = p.via.clone().filter(|v| !v.is_empty());
     let limit = p.limit.unwrap_or(100).min(500);
-    st.read(move |idx| query::tool_calls(idx.conn(), &f, &tool, limit))
-        .await
-        .map(Json)
+    st.read(move |idx| match &via {
+        Some(v) => query::via_calls(idx.conn(), &f, v, limit),
+        None => query::tool_calls(idx.conn(), &f, &tool, limit),
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn files(
@@ -1119,6 +1160,171 @@ pub async fn lasted(
         .map(Json)
 }
 
+/// `GET /api/lasted/files`: the files table of What lasted, for one project
+/// (`project`) and one week (`week`, the Monday it starts on).
+pub async fn lasted_files(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<agentcam_core::survival::FileRow>>, ApiError> {
+    let now = now_ms();
+    let f = p.filter(now);
+    let week = p.week.clone().filter(|w| !w.is_empty());
+    st.read(move |idx| agentcam_core::survival::files(idx.conn(), &f, now, week.as_deref()))
+        .await
+        .map(Json)
+}
+
+/// `GET /api/fixes`: the few changes most likely to give time or money
+/// back, each with something to copy. Fixes marked done or set aside are
+/// left out; the ledger has those.
+pub async fn fixes(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::fixes::Fixes>, ApiError> {
+    let f = p.filter(now_ms());
+    let marks = st.fix_marks();
+    st.read(move |idx| {
+        let mut found = agentcam_core::fixes::fixes(idx.conn(), idx.prices(), &f)?;
+        found.fixes.retain(|x| marks.state(&x.id).is_none());
+        Ok(found)
+    })
+    .await
+    .map(Json)
+}
+
+#[derive(Deserialize)]
+pub struct FixMark {
+    id: String,
+    /// `applied`, `dismissed`, or nothing to clear the mark.
+    state: Option<agentcam_core::ledger::State>,
+}
+
+/// `POST /api/fixes`: mark a fix done or not for me, or clear the mark.
+/// Returns the ledger.
+pub async fn fixes_mark(State(st): Shared, Json(m): Json<FixMark>) -> Response {
+    let Some(path) = st.profile_path.clone() else {
+        return bad("fix marks are off for this index");
+    };
+    if m.id.is_empty() || m.id.len() > 300 {
+        return bad("a fix id is needed");
+    }
+    let now = now_ms();
+    let done = st
+        .read(move |idx| {
+            // `read` holds the reader lock, so marks land one at a time.
+            let mut store = agentcam_core::ledger::load(&path);
+            agentcam_core::ledger::mark(idx.conn(), idx.prices(), &mut store, &m.id, m.state, now)?;
+            agentcam_core::ledger::save(&path, &store)?;
+            agentcam_core::ledger::ledger(idx.conn(), idx.prices(), &store, now)
+        })
+        .await;
+    match done {
+        Ok(l) => Json(l).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `GET /api/ledger`: fixes marked done, with the weeks before and the time
+/// since side by side, and fixes set aside.
+pub async fn ledger(State(st): Shared) -> Result<Json<agentcam_core::ledger::Ledger>, ApiError> {
+    let (marks, marks_error) = match st.profile_path.as_deref() {
+        Some(p) => agentcam_core::ledger::read(p),
+        None => Default::default(),
+    };
+    let now = now_ms();
+    st.read(move |idx| {
+        let mut l = agentcam_core::ledger::ledger(idx.conn(), idx.prices(), &marks, now)?;
+        l.marks_error = marks_error;
+        Ok(l)
+    })
+    .await
+    .map(Json)
+}
+
+/// `GET /api/ledger/weeks?id=<fix id>`: the fix's measure for each of the
+/// last 12 weeks, with agent time per week.
+pub async fn ledger_weeks(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<Vec<agentcam_core::ledger::Week>>, ApiError> {
+    let id = p.id.clone().unwrap_or_default();
+    let now = now_ms();
+    st.read(move |idx| agentcam_core::ledger::weeks(idx.conn(), idx.prices(), &id, now))
+        .await
+        .map(Json)
+}
+
+/// `GET /api/cache` or `?session=<id>`: how much of each prompt came from
+/// the prompt cache, and the calls where it was written again.
+pub async fn cache(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::cache::Cache>, ApiError> {
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    st.read(move |idx| match &session {
+        Some(id) => agentcam_core::cache::session_cache(idx.conn(), idx.prices(), id),
+        None => agentcam_core::cache::cache(idx.conn(), idx.prices(), &f),
+    })
+    .await
+    .map(Json)
+}
+
+/// `GET /api/profile` or `?session=<id>`: where agent time went.
+pub async fn profile(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::profile::TimeBar>, ApiError> {
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    st.read(move |idx| match &session {
+        Some(id) => agentcam_core::profile::session_time_bar(idx.conn(), id),
+        None => agentcam_core::profile::time_bar(idx.conn(), &f),
+    })
+    .await
+    .map(Json)
+}
+
+/// `GET /api/cost` or `?session=<id>`: the estimated cost by kind of token
+/// and by model, at list prices, and what the prompt cache saved.
+pub async fn cost(
+    State(st): Shared,
+    Query(p): Query<Params>,
+) -> Result<Json<agentcam_core::cost::Costs>, ApiError> {
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    st.read(move |idx| {
+        let mut c = match &session {
+            Some(id) => agentcam_core::cost::session_costs(idx.conn(), idx.prices(), id),
+            None => agentcam_core::cost::costs(idx.conn(), idx.prices(), &f),
+        }?;
+        c.prices_error = idx.prices_error().map(String::from);
+        Ok(c)
+    })
+    .await
+    .map(Json)
+}
+
+/// `GET /api/behind?what=<key>`: the steps behind a number. Takes the list
+/// filters and `session`.
+pub async fn behind(State(st): Shared, Query(p): Query<Params>) -> Response {
+    let Some(what) = p.what.clone().filter(|w| !w.is_empty()) else {
+        return bad("what= is needed");
+    };
+    let f = p.filter(now_ms());
+    let session = p.session.clone().filter(|s| !s.is_empty());
+    let found = st
+        .read(move |idx| {
+            agentcam_core::behind::behind(idx.conn(), idx.prices(), &f, session.as_deref(), &what)
+        })
+        .await;
+    match found {
+        Ok(Some(b)) => Json(b).into_response(),
+        Ok(None) => bad("unknown key"),
+        Err(e) => e.into_response(),
+    }
+}
+
 /// Turn lengths, waits between turns, and turns by model, effort and mode.
 pub async fn turns(
     State(st): Shared,
@@ -1150,9 +1356,12 @@ pub async fn thinking(
     let f = p.filter(now_ms());
     let sort = p.sort.clone().unwrap_or_default();
     let limit = p.limit.unwrap_or(50).min(200);
-    st.read(move |idx| agentcam_core::approvals::thinking(idx.conn(), &f, &sort, limit))
-        .await
-        .map(Json)
+    let model = p.model.clone().filter(|m| !m.is_empty());
+    st.read(move |idx| {
+        agentcam_core::approvals::thinking(idx.conn(), &f, &sort, model.as_deref(), limit)
+    })
+    .await
+    .map(Json)
 }
 
 /// Pull requests sessions linked, newest first.

@@ -18,6 +18,8 @@ struct Usage {
     output: u64,
     cache_read: u64,
     cache_write: u64,
+    cache_write_1h: u64,
+    fast: bool,
 }
 
 #[derive(Default)]
@@ -78,7 +80,9 @@ pub fn parse(path: &Path) -> io::Result<ParsedSession> {
                 output: u.output,
                 cache_read: u.cache_read,
                 cache_write: u.cache_write,
+                cache_write_1h: u.cache_write_1h.min(u.cache_write),
                 reasoning: 0,
+                tier: if u.fast { Tier::Fast } else { Tier::Standard },
             });
         }
     }
@@ -253,6 +257,7 @@ impl State {
         if body.is_empty() && content.to_string().contains(r#""type":"image""#) {
             body = "[image]".to_string();
         }
+        ev.out_chars = Some(body.len() as u64);
         ev.body = truncate(&body, MAX_TEXT);
         ev.is_error = block.get("is_error").and_then(Value::as_bool) == Some(true);
         ev.duration_ms = duration_ms(ev.timestamp.as_deref(), ts);
@@ -302,6 +307,12 @@ impl State {
                     output: n("output_tokens"),
                     cache_read: n("cache_read_input_tokens"),
                     cache_write: n("cache_creation_input_tokens"),
+                    cache_write_1h: u
+                        .get("cache_creation")
+                        .and_then(|c| c.get("ephemeral_1h_input_tokens"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0),
+                    fast: str_of(u, "speed") == Some("fast"),
                 },
             );
         }

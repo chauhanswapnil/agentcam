@@ -17,10 +17,12 @@ type Props = {
   w: LimitWindow
   points?: { ts: string; used_percent: number }[]
   now: number
+  /** Jumps to the list of limits reached, when there is one for this agent. */
+  onOpenHits?: () => void
 }
 
 /** How full one usage window is, from the agent's latest reading. */
-export function UsageMeter({ w, points, now }: Props) {
+export function UsageMeter({ w, points, now, onOpenHits }: Props) {
   const pct = w.expired ? 0 : Math.min(100, w.used_percent)
   const level = w.expired ? null : LEVEL[usageLevel(w.used_percent)]
   const resetMs = w.resets_at ? new Date(w.resets_at).getTime() - now : null
@@ -65,6 +67,11 @@ export function UsageMeter({ w, points, now }: Props) {
             ? `Resets in ${untilLabel(resetMs)} · ${resetMs > 86_400_000 ? formatDate(w.resets_at!) : formatTime(w.resets_at!)}`
             : `Read ${formatAgo(w.at)}`}
         {w.plan && <span>{w.plan.charAt(0).toUpperCase() + w.plan.slice(1)} plan</span>}
+        {onOpenHits && (
+          <button type="button" className={s.hitsLink} onClick={onOpenHits}>
+            Limits reached
+          </button>
+        )}
       </div>
       {points && points.length > 1 && (
         <UsageChart

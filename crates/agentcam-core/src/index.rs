@@ -31,7 +31,22 @@ pub struct Migration {
 }
 
 /// Upgrade steps, oldest first. Append only; never edit a released step.
-const MIGRATIONS: &[Migration] = &[];
+const MIGRATIONS: &[Migration] = &[
+    // 15: what a cost needs beyond token counts. Cache writes kept for an
+    // hour cost more than 5-minute ones, and a fast or flex call is a
+    // multiple of a standard one. Both come only from the logs.
+    Migration {
+        sql: "ALTER TABLE events ADD COLUMN tok_cache_write_1h INTEGER NOT NULL DEFAULT 0;
+              ALTER TABLE events ADD COLUMN tier TEXT;",
+        reparse: true,
+    },
+    // 16: how much a tool printed, before the 32 KB cut. Loud commands are
+    // found from it.
+    Migration {
+        sql: "ALTER TABLE events ADD COLUMN out_chars INTEGER;",
+        reparse: true,
+    },
+];
 
 /// The schema this build reads and writes.
 pub const SCHEMA_VERSION: i64 = BASE_VERSION + MIGRATIONS.len() as i64;
@@ -310,11 +325,17 @@ pub struct Index {
     conn: Connection,
     rules: crate::audit::Rules,
     prices: crate::prices::Prices,
+    /// Why the user's `prices.yaml` was left out, if it couldn't be read.
+    prices_error: Option<String>,
     machine_id: String,
     os_user: Option<String>,
 }
 
 /// The user's own rules: `rules.yaml` next to the index.
+pub fn user_prices_path(db: &Path) -> PathBuf {
+    db.with_file_name("prices.yaml")
+}
+
 pub fn user_rules_path(db: &Path) -> PathBuf {
     db.with_file_name("rules.yaml")
 }
@@ -437,11 +458,23 @@ impl Index {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = OFF;",
         )?;
-        upgrade(&conn, path_of(&conn).as_deref(), MIGRATIONS)?;
+        let db = path_of(&conn);
+        upgrade(&conn, db.as_deref(), MIGRATIONS)?;
+        // The user's own prices sit next to the index. A file that doesn't
+        // parse must not stop agentcam: fall back to the built-in list.
+        let mut prices_error = None;
+        let prices = match db.as_deref().map(user_prices_path) {
+            Some(path) => crate::prices::Prices::with_user_file(&path).unwrap_or_else(|e| {
+                prices_error = Some(format!("{}: {e}", path.display()));
+                crate::prices::Prices::builtin()
+            }),
+            None => crate::prices::Prices::builtin(),
+        };
         Ok(Index {
             conn,
             rules: crate::audit::Rules::builtin(),
-            prices: crate::prices::Prices::builtin(),
+            prices,
+            prices_error,
             machine_id,
             os_user: crate::identity::os_user(),
         })
@@ -457,6 +490,15 @@ impl Index {
     /// every session.
     pub fn set_rules(&mut self, rules: crate::audit::Rules) {
         self.rules = rules;
+    }
+
+    pub fn prices(&self) -> &crate::prices::Prices {
+        &self.prices
+    }
+
+    /// Why the user's `prices.yaml` was left out, if it couldn't be read.
+    pub fn prices_error(&self) -> Option<&str> {
+        self.prices_error.as_deref()
     }
 
     /// Use these prices from the next `update` on (changes re-check all).
@@ -592,6 +634,11 @@ impl Index {
                 }
             }
         }
+        if full {
+            // Sessions whose logs are gone can't be read again, but their
+            // token counts are stored: price those with today's list too.
+            reprice_kept(&tx, &self.prices, &seen)?;
+        }
         tx.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('rules', ?)",
             [&fingerprint],
@@ -668,6 +715,74 @@ fn remove_source(tx: &rusqlite::Transaction, key: &str) -> Result<()> {
     tx.execute("DELETE FROM sessions WHERE source_path = ?1", [key])?;
     tx.execute("DELETE FROM sources WHERE path = ?1", [key])?;
     Ok(())
+}
+
+/// Price again the steps of sessions whose log file is gone, from the token
+/// counts in the index, and bring each session's total in line.
+fn reprice_kept(
+    tx: &rusqlite::Transaction,
+    prices: &crate::prices::Prices,
+    seen: &std::collections::HashSet<String>,
+) -> Result<()> {
+    let kept: Vec<String> = {
+        let mut stmt = tx.prepare("SELECT id, source_path FROM sessions")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        rows.filter_map(std::result::Result::ok)
+            .filter(|(_, path)| !seen.contains(path))
+            .map(|(id, _)| id)
+            .collect()
+    };
+    let mut read = tx.prepare(
+        "SELECT id, model, tok_in, tok_out, tok_cache_read, tok_cache_write, tok_cache_write_1h, tier
+         FROM events WHERE session_id = ?1
+           AND tok_in + tok_out + tok_cache_read + tok_cache_write > 0",
+    )?;
+    let mut write = tx.prepare("UPDATE events SET cost_usd = ?2 WHERE id = ?1")?;
+    let mut total =
+        tx.prepare("UPDATE sessions SET est_cost_usd = ?2, cost_unpriced = ?3 WHERE id = ?1")?;
+    for id in kept {
+        let rows: Vec<(i64, crate::model::TokenUsage)> = read
+            .query_map([&id], |r| Ok((r.get(0)?, usage_from_row(r, 1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        if rows.is_empty() {
+            continue;
+        }
+        let mut sum = None;
+        let mut unpriced = false;
+        for (event, u) in rows {
+            let cost = prices.cost(&u);
+            match cost {
+                Some(c) => sum = Some(sum.unwrap_or(0.0) + c),
+                None => unpriced = true,
+            }
+            write.execute(params![event, cost])?;
+        }
+        total.execute(params![id, sum, unpriced])?;
+    }
+    Ok(())
+}
+
+/// One call's tokens from columns `model, tok_in, tok_out, tok_cache_read,
+/// tok_cache_write, tok_cache_write_1h, tier`, starting at column `at`.
+pub(crate) fn usage_from_row(
+    r: &rusqlite::Row,
+    at: usize,
+) -> rusqlite::Result<crate::model::TokenUsage> {
+    let n = |i: usize| r.get::<_, i64>(at + i).map(|v| v.max(0) as u64);
+    Ok(crate::model::TokenUsage {
+        model: r.get(at)?,
+        input: n(1)?,
+        output: n(2)?,
+        cache_read: n(3)?,
+        cache_write: n(4)?,
+        cache_write_1h: n(5)?,
+        reasoning: 0,
+        tier: r
+            .get::<_, Option<String>>(at + 6)?
+            .as_deref()
+            .map(crate::model::Tier::parse)
+            .unwrap_or_default(),
+    })
 }
 
 /// Facts about where and when a session was indexed.
@@ -807,9 +922,10 @@ fn write_session(
     let mut ev = tx.prepare_cached(
         "INSERT INTO events (session_id, seq, ts, kind, tool_name, category, title, body, input,
             is_error, duration_ms, source_offset, gap_ms, model, tok_in, tok_out, tok_cache_read,
-            tok_cache_write, context_tokens, cost_usd, wasted, tok_reasoning, approval, via)
+            tok_cache_write, context_tokens, cost_usd, wasted, tok_reasoning, approval, via,
+            tok_cache_write_1h, tier, out_chars)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-                 ?22, ?23, ?24)",
+                 ?22, ?23, ?24, ?25, ?26, ?27)",
     )?;
     let mut fts =
         tx.prepare_cached("INSERT INTO events_fts (rowid, title, body) VALUES (?, ?, ?)")?;
@@ -843,6 +959,12 @@ fn write_session(
             e.usage.as_ref().map_or(0, |u| u.reasoning as i64),
             e.approval,
             e.via,
+            e.usage.as_ref().map_or(0, |u| u.cache_write_1h as i64),
+            e.usage
+                .as_ref()
+                .filter(|u| u.tier != crate::model::Tier::Standard)
+                .map(|u| u.tier.as_str()),
+            e.out_chars.map(|n| n as i64),
         ])?;
         fts.execute(params![tx.last_insert_rowid(), e.title, e.body])?;
     }
@@ -1024,11 +1146,14 @@ mod tests {
         dir.join("index.db")
     }
 
-    /// A released index with one session whose log is gone.
+    /// An index as 0.1.0 made it (before any step in `MIGRATIONS`), with
+    /// one session whose log is gone.
     fn released_index(db: &Path) {
-        let idx = Index::open(db).unwrap();
-        idx.conn()
-            .execute_batch(
+        let conn = Connection::open(db).unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {BASE_VERSION}"))
+            .unwrap();
+        conn.execute_batch(
                 "INSERT INTO sessions (id, agent, source_path) VALUES ('kept', 'claude-code', '/Users/dev/gone.jsonl');
                  INSERT INTO meta (key, value) VALUES ('rules', 'old');",
             )
@@ -1072,6 +1197,37 @@ mod tests {
         assert_eq!(v, BASE_VERSION);
         // Running again does nothing.
         upgrade(&conn, Some(&db), &steps).unwrap();
+        let _ = std::fs::remove_dir_all(db.parent().unwrap());
+    }
+
+    #[test]
+    fn a_released_index_gains_the_cost_columns_and_keeps_its_sessions() {
+        let db = temp_db("real");
+        released_index(&db);
+        let idx = Index::open(&db).unwrap();
+        let v: i64 = idx
+            .conn()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+        let cols: i64 = idx
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('events')
+                 WHERE name IN ('tok_cache_write_1h', 'tier', 'out_chars')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cols, 3);
+        let kept: i64 = idx
+            .conn()
+            .query_row("SELECT count(*) FROM sessions WHERE id = 'kept'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, 1);
+        drop(idx);
         let _ = std::fs::remove_dir_all(db.parent().unwrap());
     }
 

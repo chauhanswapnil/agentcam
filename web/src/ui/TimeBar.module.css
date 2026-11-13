@@ -1,0 +1,129 @@
+.bar {
+  display: flex;
+  gap: 2px;
+  overflow: hidden;
+  height: var(--s-3);
+  border-radius: var(--r-1);
+}
+.bar span,
+.bar button {
+  flex-basis: 0;
+  min-width: 2px;
+}
+.soft {
+  opacity: 0.55;
+}
+.legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s-2) var(--s-6);
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.legend li {
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  width: 100%;
+}
+/* A legend row you can click: same layout, a hover and a focus ring. */
+.pick {
+  margin: calc(var(--s-1) * -1) calc(var(--s-1-5) * -1);
+  padding: var(--s-1) var(--s-1-5);
+  width: calc(100% + var(--s-3));
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.pick:hover {
+  background: var(--bg-2);
+}
+.pick:focus-visible,
+.seg:focus-visible,
+.textBtn:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}
+.seg {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  transition: filter var(--dur-1) var(--ease-out);
+}
+.seg:hover {
+  filter: brightness(1.25);
+}
+.textBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.textBtn:hover {
+  color: var(--text-1);
+}
+.legend b {
+  color: var(--text-1);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+.legend i {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-style: normal;
+}
+.name {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dot {
+  flex: none;
+  align-self: center;
+  width: var(--s-2);
+  height: var(--s-2);
+  border-radius: 2px;
+}
+.share {
+  width: 32px;
+  color: var(--text-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.none b,
+.none .name {
+  color: var(--text-3);
+}
+.note {
+  margin: var(--s-4) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.note b {
+  color: var(--text-2);
+  font-weight: var(--fw-medium);
+}
+.strip {
+  height: var(--s-1-5);
+}
+.note + .note {
+  margin-top: var(--s-1);
+}

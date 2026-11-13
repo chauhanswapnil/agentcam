@@ -167,8 +167,24 @@ fn group(rows: &[&TurnRow], key: impl Fn(&TurnRow) -> Option<String>) -> Vec<Tur
     out
 }
 
-/// Turns of top-level sessions whose prompt matches `f`.
-pub fn turn_stats(conn: &Connection, f: &Filter) -> Result<TurnStats> {
+/// A turn with its session id, agent and session title.
+type LoadedTurn = (String, String, Option<String>, TurnRow);
+
+/// The bucket a turn's length falls in, for `TurnStats::lengths`: under 30 s,
+/// 30 s to 2 min, 2 to 10 min, 10 to 30 min, over 30 min.
+pub(crate) fn length_bucket(ms: i64) -> usize {
+    match ms {
+        m if m < 30_000 => 0,
+        m if m < 120_000 => 1,
+        m if m < 600_000 => 2,
+        m if m < 1_800_000 => 3,
+        _ => 4,
+    }
+}
+
+/// Turns of top-level sessions whose prompt matches `f`, with waits filled
+/// in: (session id, agent, session title, turn), by session then turn.
+fn load_turns(conn: &Connection, f: &Filter) -> Result<Vec<LoadedTurn>> {
     let (cond, args) = conditions(f);
     let mut stmt = conn.prepare(&format!(
         "SELECT {TURN_COLS}, t.session_id, s.agent, s.title
@@ -177,7 +193,7 @@ pub fn turn_stats(conn: &Connection, f: &Filter) -> Result<TurnStats> {
          WHERE s.parent_id IS NULL AND {cond}
          ORDER BY t.session_id, t.n"
     ))?;
-    let mut all: Vec<(String, String, Option<String>, TurnRow)> = Vec::new();
+    let mut all: Vec<LoadedTurn> = Vec::new();
     let mut rows = stmt.query(params_from_iter(&args))?;
     while let Some(r) = rows.next()? {
         all.push((r.get(16)?, r.get(17)?, r.get(18)?, turn_row(r)?));
@@ -195,7 +211,28 @@ pub fn turn_stats(conn: &Connection, f: &Filter) -> Result<TurnStats> {
         }
         i = j;
     }
+    Ok(all)
+}
 
+/// The turns in one length bucket (0 to 4, see `length_bucket`), longest
+/// first: (session id, session title, turn).
+pub fn turns_in_bucket(
+    conn: &Connection,
+    f: &Filter,
+    bucket: usize,
+) -> Result<Vec<(String, Option<String>, TurnRow)>> {
+    let mut rows: Vec<_> = load_turns(conn, f)?
+        .into_iter()
+        .filter(|x| x.3.duration_ms.is_some_and(|d| length_bucket(d) == bucket))
+        .map(|x| (x.0, x.2, x.3))
+        .collect();
+    rows.sort_by_key(|x| std::cmp::Reverse(x.2.duration_ms.unwrap_or(0)));
+    Ok(rows)
+}
+
+/// Turns of top-level sessions whose prompt matches `f`.
+pub fn turn_stats(conn: &Connection, f: &Filter) -> Result<TurnStats> {
+    let all = load_turns(conn, f)?;
     let turns: Vec<&TurnRow> = all.iter().map(|x| &x.3).collect();
     let mut d: Vec<i64> = turns.iter().filter_map(|t| t.duration_ms).collect();
     d.sort_unstable();
@@ -210,14 +247,7 @@ pub fn turn_stats(conn: &Connection, f: &Filter) -> Result<TurnStats> {
     waits.sort_unstable();
     let mut lengths = [0i64; 5];
     for ms in &d {
-        let b = match *ms {
-            m if m < 30_000 => 0,
-            m if m < 120_000 => 1,
-            m if m < 600_000 => 2,
-            m if m < 1_800_000 => 3,
-            _ => 4,
-        };
-        lengths[b] += 1;
+        lengths[length_bucket(*ms)] += 1;
     }
     let mut longest: Vec<&(String, String, Option<String>, TurnRow)> = all.iter().collect();
     longest.sort_by_key(|x| std::cmp::Reverse(x.3.duration_ms.unwrap_or(0)));
