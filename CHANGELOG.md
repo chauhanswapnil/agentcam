@@ -2,37 +2,36 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.0 - 2026-11-12
 
-### Clickable numbers
+Where your agents' time and money went, what to change, and every number opens the steps behind it. Cost estimates are also more accurate, so totals you saw in 0.1.0 will move.
 
-- Every number that sums up steps now opens them. A drawer on the right lists the steps behind a part of the time bar, a kind of token, a model, a cause of cache rebuilds or a fix, biggest first, and each row opens the replay at that step. The open number is kept in the address (`?behind=`), so the drawer can be linked and Back closes it. The route is `GET /api/behind`.
-- The fix card names the sessions it shows and has "See all N". A row in the ledger opens to its twelve weeks, with a line where the fix was marked done, and the runs since.
-- The replay header's numbers act: est. cost opens its split, peak context and errored jump to those steps, files changed goes to the list, the time strip jumps to the next step of its kind, and a dot on the timeline marks each cache rebuild.
-- The Overview's stats open Profile, Tools and Files, "steps errored" and "on retries and reverts" filter the session list (`?has=errors|findings|retries`, also `?model=`), session badges open the first finding, retry, error or the subagents, and the turns rows open Compare.
-- Setup: MCP servers open their calls and each check can show the row it is about. Tools: MCP server rows set the tool filter. What lasted: week and project rows narrow the files table. Thinking: model tiles narrow the list. Live: usage meters jump to the limits reached.
-- Also: Setup hook run counts open the hook's steps, "Read from cache" opens sessions lowest first, turn length bars open their turns, fix card week bars open that week's runs, Compare lists turns of a typical length for each side, and skill, plugin and app rows on Tools show the steps behind them. Table rows on Tools, Files, Skills and Outbox open with Enter or Space.
-- Session rows on the Overview are a title button stretched over the row, so badges inside them are real links.
+### Upgrading
 
-### Profiler
-
-- Loud commands are a fix kind: a command whose output fills the context run after run, with a prompt that asks your agent for a quieter form. The index now keeps each tool output's full size (schema 16; the first run reads the logs again).
-- The time bar says how big a session is before any work starts, and the replay header shows where one session's time went.
-- A ledger on the Profile page: mark a fix "I did this" and agentcam sets the four weeks before against the time since, per 10 hours of agent time. It states the change only after a full week, and says so when a fix made no difference. "Not for me" sets a fix aside; both can be undone. Marks are kept in `profile.json` next to the index.
-- A Profile page with fix cards: the few changes most likely to give time or money back (a slow command run often, a call you allow by hand every time, a prompt cache lost after a break), each with the steps behind it and a setting or a prompt to copy. The Overview shows the top one.
-- "Where the time went" on the Overview: agent time split into the model working, tools running, waiting on approval (an estimate), ready for you, and redoing. It also says how much went on reading and searching before the first change of a turn.
-- A Prompt cache panel on the Overview: the share of prompt tokens read from the cache, and each time the cache was lost and written again, with what it cost and why (after a break, a model switch, an effort change, or "cause not in the log"). The replay header counts a session's rebuilds; click it to go to the next one.
+- The index gains three columns (schema 16). The first run after updating copies it to `index.db.bak-v14` and reads your logs again; on a few hundred sessions that takes seconds. Sessions whose logs are gone keep what they had and are priced again from their stored tokens.
 
 ### Cost
 
 - **Fixed:** Claude Code keeps most cache writes for an hour, which costs 200% of the input price. They were priced as 5-minute writes (125%), so estimates ran low.
 - **Fixed:** `prices.yaml` next to the index was never read. It is now, and a file that can't be read is reported instead of ignored.
 - **Fixed:** Claude Fable 5.2 and Mythos 5.2 had no price of their own and were charged at the Fable 5 rate; cache reads on Sonnet 5.5 were priced too high.
-- Codex sessions now have a cost: the built-in list holds OpenAI's prices too, including the higher price for prompts over 272,000 tokens and for fast (priority) calls.
-- Long prompts on Claude Haiku 5.5 and fast-mode calls are priced at their own rates.
-- A Cost panel on the Overview shows where the estimate comes from (output, cache writes, cache reads, fresh input), what the cache saved, and cost by model. The replay header's cost shows the same split on hover.
-- When prices change, sessions whose logs are gone are priced again from their stored token counts.
-- The index gains two columns (schema 15). The first run after updating copies the index to `index.db.bak-v14` and reads the logs again.
+- Codex sessions now have a cost: the built-in list holds OpenAI's prices too, including the higher price for prompts over 272,000 tokens and for fast (priority) calls. Long prompts on Claude Haiku 5.5 and fast-mode calls are priced at their own rates.
+- A Cost panel on the Overview shows where the estimate comes from (output, cache writes, cache reads, fresh input), what the cache saved, and cost by model.
+
+### Profile
+
+- **Where the time went:** agent time split into the model working, tools running, waiting on approval (an estimate), ready for you, and redoing, on the Overview, the new Profile page and each replay. It also says how much went on reading and searching before the first change of a turn, and how big a session is before any work starts.
+- **Fixes:** the few changes most likely to give time or money back: a slow command run again and again, a command whose output fills the context, a call you allow by hand every time, a prompt cache lost after a break. Each comes with the steps behind it and a setting or a prompt to copy. agentcam never edits your files.
+- **Ledger:** mark a fix "I did this" and agentcam sets the four weeks before against the time since, per 10 hours of agent time. It states the change only after a full week, and says so when a fix made no difference. "Not for me" sets a fix aside; both can be undone. Marks are kept in `profile.json` next to the index; a file that can't be read is reported and kept as `profile.json.bad`.
+- **Prompt cache:** the share of prompt tokens read from the cache, and each time the cache was lost and written again, with what it cost and why (after a break, a model switch, an effort change, or "cause not in the log").
+
+### Every number opens what is behind it
+
+- A drawer lists the steps behind a part of the time bar, a kind of token, a model, a cause of cache rebuilds or a fix, biggest first; each row opens the replay at that step. The open number is kept in the address (`?behind=`), so it can be linked and Back closes it.
+- Replay: est. cost opens its split, peak context and errored jump to those steps, the time strip jumps to the next step of its kind, and a dot on the timeline marks each cache rebuild.
+- Overview: the stats open Profile, Tools and Files; "steps errored" and "on retries and reverts" filter the session list; session badges open the first finding, retry or error; turn bars open their turns.
+- Setup, Tools, What lasted, Thinking, Live and Compare: rows, tiles and meters narrow the page or open the steps they count. Table rows open with Enter or Space.
+- New routes: `GET /api/cost`, `/api/profile`, `/api/cache`, `/api/fixes`, `/api/ledger`, `/api/behind`; `/api/sessions` takes `model` and `has`.
 
 ## 0.1.0 - 2026-11-09
 

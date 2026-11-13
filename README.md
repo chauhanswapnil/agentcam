@@ -6,7 +6,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Overview: agent time, a year of activity, sessions and projects](docs/screenshots/overview.png)
 
-> **Status:** 0.1.0, the first release. Used every day, still young: expect rough edges and say so in [issues](https://github.com/chauhanswapnil/agentcam/issues). The team server is a preview. Screenshots use made-up demo data.
+> **Status:** 0.2.0. Used every day, still young: expect rough edges and say so in [issues](https://github.com/chauhanswapnil/agentcam/issues). The team server is a preview. Screenshots use made-up demo data.
 
 ## What it does
 
@@ -14,7 +14,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Overview.** Agent time, sessions, prompts, tool calls and files changed, compared with the previous period. A year-long activity heatmap, projects with weekly sparklines, every session grouped by day, and how long turns take. Agent worktrees count toward their repo, and subagents toward their parent session.
 
-**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, split into turns: each prompt with how long it ran, its steps, cost, model, effort and mode. Each step shows its command and output, or a line-numbered diff, how it was approved, and the skill behind it. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next error, `R` for the next risk. Every step has its own link. Side panels show the agent's own task list as it stood at that step, plans it proposed, hooks that ran, and each subagent's share of the cost. Copy the command that resumes the session in its folder (`claude --resume` or `codex resume`), and open any changed file at its line in VS Code, Cursor or Zed.
+**Replay.** Scrub through a session on a zoomable timeline, or play it at 1×, 4× or 16×. The transcript follows along, split into turns: each prompt with how long it ran, its steps, cost, model, effort and mode. Each step shows its command and output, or a line-numbered diff, how it was approved, and the skill behind it. Keyboard: space, ←/→, `J`/`K`, `Shift+J` for the next file change, `E` for the next error, `R` for the next risk. Every step has its own link. The header's numbers act too: est. cost opens its split, errored and peak context jump to those steps, and a strip shows where the session's time went. Side panels show the agent's own task list as it stood at that step, plans it proposed, hooks that ran, and each subagent's share of the cost. Copy the command that resumes the session in its folder (`claude --resume` or `codex resume`), and open any changed file at its line in VS Code, Cursor or Zed.
 
 ![Replay: timeline, transcript, and a diff for the current step](docs/screenshots/replay.png)
 
@@ -54,7 +54,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ### Cost and limits
 
-**Profile.** Where agent time went (the model working, tools running, waiting on approval, ready for you, redoing) and the few changes most likely to give some back: a slow command run again and again, a command that fills the context with its output, a call you allow by hand every time, a prompt cache lost after a break. Each fix comes with the steps behind it and something to copy, a setting or a prompt for your agent. agentcam never edits your files. Mark a fix done and a ledger sets the weeks before against the time since, and says so when it made no difference.
+**Profile.** Where agent time went (the model working, tools running, waiting on approval, ready for you, redoing) and the few changes most likely to give some back: a slow command run again and again, a command that fills the context with its output, a call you allow by hand every time, a prompt cache lost after a break. Each fix comes with the steps behind it and something to copy, a setting or a prompt for your agent. agentcam never edits your files. Mark a fix done and a ledger sets the weeks before against the time since, and says so when it made no difference. Every number opens the steps behind it: click a part of the time bar, a kind of token or a cause of cache rebuilds to list them, biggest first, and open any one in the replay.
 
 ![Profile: where the time went, fix cards and the ledger](docs/screenshots/profile.png)
 
@@ -194,7 +194,7 @@ It indexes your logs, starts a server on `http://127.0.0.1:4747` and opens your 
 | `agentcam team viewers` / `team revoke <id>` | List viewer tokens, or revoke one |
 | `agentcam team join <server> <invite>` | Join a team; then `team sync`, `status`, `pause`, `resume`, `leave` |
 
-All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By default the index lives in your data folder (`~/Library/Application Support/agentcam/` on macOS), next to `rules.yaml` (your rules), `guard.yaml` (your guard rules) and `reviews.json` (findings you marked and rules you muted).
+All of them take `--db <file>` (or `AGENTCAM_DB`) to use another index. By default the index lives in your data folder (`~/Library/Application Support/agentcam/` on macOS), next to `rules.yaml` (your rules), `guard.yaml` (your guard rules) `reviews.json` (findings you marked and rules you muted), `profile.json` (fixes you marked done or set aside) and, if you add one, `prices.yaml` (your own prices).
 
 ## Supported agents
 
