@@ -2,6 +2,8 @@ import { Blocks, CircleAlert, FileText, Info, Plug, Settings2, Webhook, Wrench }
 import { useCallback, useRef, useState } from 'react'
 import { Link } from 'wouter'
 import { query, useApi, useIndexStatus } from '../lib/api'
+import { useBehind } from '../lib/behind'
+import { StepsDrawer } from '../ui/StepsDrawer'
 import { formatNumber } from '../lib/format'
 import { formatAgo } from '../lib/format'
 import { Badge } from '../ui/Badge'
@@ -50,6 +52,7 @@ type SetupData = {
     event: string
     matcher: string | null
     command: string
+    program: string
     scope: string
     defined_in: string
     missing: boolean
@@ -111,6 +114,7 @@ function targetOf(data: SetupData, c: SetupData['checks'][number]): string | nul
 export function Setup() {
   const gen = useIndexStatus().status?.generation ?? 0
   const { data } = useApi<SetupData>('/api/setup', gen)
+  const [behind, openBehind, closeBehind] = useBehind()
   // The row a check pointed at, lit for a moment.
   const [lit, setLit] = useState<string | null>(null)
   const timer = useRef<number | undefined>(undefined)
@@ -358,7 +362,20 @@ export function Setup() {
                           {h.missing && <span className={s.err}>File not found</span>}
                         </td>
                         <td>{base(h.defined_in)}</td>
-                        <td className={v.num}>{h.runs_30d}</td>
+                        <td className={v.num}>
+                          {h.runs_30d > 0 && h.program ? (
+                            <button
+                              type="button"
+                              className={s.cellLink}
+                              onClick={() => openBehind(`hook:${h.event}:${h.program}`)}
+                              title="Show the steps where this hook ran"
+                            >
+                              {h.runs_30d}
+                            </button>
+                          ) : (
+                            h.runs_30d
+                          )}
+                        </td>
                         <td className={v.num}>{h.errors_30d}</td>
                       </tr>
                     ))}
@@ -421,6 +438,7 @@ export function Setup() {
           </p>
         </>
       )}
+      {behind && <StepsDrawer what={behind} filter={{ range: '30d' }} onClose={closeBehind} />}
     </div>
   )
 }

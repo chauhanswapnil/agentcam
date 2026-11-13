@@ -81,6 +81,7 @@ export function Profile() {
                   fix={x}
                   onMark={(state) => mark(x.id, state)}
                   onSeeAll={() => openBehind(x.kind === 'cache' ? `cache:${x.id.split(':')[1]}` : `fix:${x.id}`)}
+                  onWeek={(since, until) => openBehind(x.kind === 'cache' ? `cache:${x.id.split(':')[1]}` : `fix:${x.id}`, since, until)}
                 />
               ))}
             </div>
@@ -104,7 +105,7 @@ export function Profile() {
         {cache.data && cache.data.calls > 0 && <CachePanel data={cache.data} onPick={openBehind} />}
         {cost.data && cost.data.calls > 0 && <CostPanel data={cost.data} onPick={openBehind} cacheLink={!!cache.data && cache.data.calls > 0} />}
       </div>
-      {behind && <StepsDrawer what={behind} filter={{ ...f, since: p.get('since') ?? undefined }} onClose={closeBehind} />}
+      {behind && <StepsDrawer what={behind} filter={{ ...f, since: p.get('since') ?? undefined, until: p.get('until') ?? undefined }} onClose={closeBehind} />}
     </div>
   )
 }

@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - The replay header's numbers act: est. cost opens its split, peak context and errored jump to those steps, files changed goes to the list, the time strip jumps to the next step of its kind, and a dot on the timeline marks each cache rebuild.
 - The Overview's stats open Profile, Tools and Files, "steps errored" and "on retries and reverts" filter the session list (`?has=errors|findings|retries`, also `?model=`), session badges open the first finding, retry, error or the subagents, and the turns rows open Compare.
 - Setup: MCP servers open their calls and each check can show the row it is about. Tools: MCP server rows set the tool filter. What lasted: week and project rows narrow the files table. Thinking: model tiles narrow the list. Live: usage meters jump to the limits reached.
+- Also: Setup hook run counts open the hook's steps, "Read from cache" opens sessions lowest first, turn length bars open their turns, fix card week bars open that week's runs, Compare lists turns of a typical length for each side, and skill, plugin and app rows on Tools show the steps behind them. Table rows on Tools, Files, Skills and Outbox open with Enter or Space.
 - Session rows on the Overview are a title button stretched over the row, so badges inside them are real links.
 
 ### Profiler

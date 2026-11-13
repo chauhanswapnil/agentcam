@@ -23,8 +23,17 @@ export function CachePanel({
       <div className={s.top}>
         {data.hit_rate != null && (
           <div className={s.stat} title="Share of prompt tokens read from the cache, at a fraction of the input price">
-            <span>Read from cache</span>
-            <b>{Math.round(data.hit_rate * 100)}%</b>
+            {onPick ? (
+              <button type="button" className={s.statBtn} onClick={() => onPick('cache:hit')} title="Show the sessions, lowest first">
+                <span>Read from cache</span>
+                <b>{Math.round(data.hit_rate * 100)}%</b>
+              </button>
+            ) : (
+              <>
+                <span>Read from cache</span>
+                <b>{Math.round(data.hit_rate * 100)}%</b>
+              </>
+            )}
           </div>
         )}
         <div className={s.stat} title="Calls that wrote most of the prompt to the cache again, after it had been reading from it">

@@ -129,21 +129,21 @@ export const SAMPLE_FIXES: import('../lib/api').Fix[] = [
     count: 41, ms_per_week: 50 * 60_000, usd_per_week: null, tokens_per_week: null, share: 0.07, fix: null, fix_where: 'AGENTS.md',
     prompt: 'Find a faster check for everyday edits and add it to AGENTS.md.', advice: null,
     examples: [{ session_id: 'demo', seq: 12, title: 'Fix the cart total rounding bug' }, { session_id: 'demo', seq: 40, title: 'Upgrade the Stripe client' }],
-    weekly: [4, 9, 12, 16],
+    weekly: [4, 9, 12, 16], weekly_end: Date.parse('2026-11-06T12:00:00Z'),
   },
   {
     id: 'approval:Bash(npm test:*)', kind: 'approval', title: 'You allowed `Bash(npm test:*)` by hand 38 times',
     detail: 'Each one held the agent until you answered, about 40 s at a time and 25 min in all (an estimate). You allowed every one.',
     count: 38, ms_per_week: 12 * 60_000, usd_per_week: null, tokens_per_week: null, share: 0.02,
     fix: JSON.stringify({ permissions: { allow: ['Bash(npm test:*)'] } }, null, 2), fix_where: 'Claude Code settings, under permissions.allow',
-    prompt: 'Add `Bash(npm test:*)` to permissions.allow.', advice: null, examples: [{ session_id: 'demo', seq: 7, title: 'Add partial refunds' }], weekly: [6, 11, 9, 12],
+    prompt: 'Add `Bash(npm test:*)` to permissions.allow.', advice: null, examples: [{ session_id: 'demo', seq: 7, title: 'Add partial refunds' }], weekly: [6, 11, 9, 12], weekly_end: Date.parse('2026-11-06T12:00:00Z'),
   },
   {
     id: 'cache:break', kind: 'cache', title: 'The prompt cache was written again after a break 5 times',
     detail: '1.2M tokens were written to the cache a second time, about $9.40 at API list prices. This is how the cache works, not a fault; the cost is yours to weigh.',
     count: 5, ms_per_week: null, usd_per_week: 2.3, tokens_per_week: null, share: 0.06, fix: null, fix_where: null, prompt: null,
     advice: 'At the end of a task, start a fresh session rather than returning to a big one. Compacting before a long break also makes the return cheaper.',
-    examples: [{ session_id: 'demo', seq: 41, title: 'Migrate checkout to server actions' }], weekly: [1, 0, 2, 2],
+    examples: [{ session_id: 'demo', seq: 41, title: 'Migrate checkout to server actions' }], weekly: [1, 0, 2, 2], weekly_end: Date.parse('2026-11-06T12:00:00Z'),
   },
 ]
 

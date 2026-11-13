@@ -506,7 +506,7 @@ export type BehindStep = {
 /** The steps behind a number, biggest first. `unit` says how to show `value`. */
 export type Behind = {
   title: string
-  unit: 'ms' | 'usd' | 'tokens' | 'count'
+  unit: 'ms' | 'usd' | 'tokens' | 'count' | 'percent' | 'none'
   total: number
   items: BehindStep[]
 }
@@ -527,6 +527,8 @@ export type Fix = {
   advice: string | null
   examples: { session_id: string; seq: number; title: string | null }[]
   weekly: number[]
+  /** When the last of `weekly` ends, in ms since the epoch. */
+  weekly_end: number | null
 }
 
 export type Fixes = { fixes: Fix[]; weeks: number; enough_data: boolean }
@@ -719,6 +721,7 @@ export type Cohort = {
   thinking_ms_per_turn: number
   lines_added: number
   lasted_pct: number | null
+  examples: { session_id: string; seq: number; started_at: string; title: string | null; duration_ms: number | null }[]
 }
 export type Comparison = { dim: CompareDim; a: Cohort; b: Cohort }
 export type CompareOptions = {

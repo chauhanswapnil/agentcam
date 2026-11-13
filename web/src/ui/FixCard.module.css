@@ -135,3 +135,39 @@
   padding-top: var(--s-3);
   border-top: 1px solid var(--line-1);
 }
+
+/* Week bars you can open: a button per week with runs, a flat tick without. */
+.weekBars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+.weekBar {
+  display: flex;
+  align-items: flex-end;
+  width: 6px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.weekBar span {
+  display: block;
+  width: 100%;
+  border-radius: 1px;
+  background: var(--heat-3);
+}
+.weekBar:hover span {
+  background: var(--text-2);
+}
+.weekBar:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 1px;
+}
+.weekNone {
+  width: 6px;
+  height: 1px;
+  background: var(--line-2);
+}

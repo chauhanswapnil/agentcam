@@ -57,8 +57,17 @@ export function CostPanel({
         )}
         {data.cache_hit_rate != null && (
           <div className={s.stat} title="Share of prompt tokens read from the cache">
-            <span>Read from cache</span>
-            <b>{Math.round(data.cache_hit_rate * 100)}%</b>
+            {onPick ? (
+              <button type="button" className={s.statBtn} onClick={() => onPick('cache:hit')} title="Show the sessions, lowest first">
+                <span>Read from cache</span>
+                <b>{Math.round(data.cache_hit_rate * 100)}%</b>
+              </button>
+            ) : (
+              <>
+                <span>Read from cache</span>
+                <b>{Math.round(data.cache_hit_rate * 100)}%</b>
+              </>
+            )}
           </div>
         )}
       </div>

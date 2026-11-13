@@ -6,6 +6,7 @@ import { formatAgo, formatDuration, formatHours, formatNumber, oneLine } from '.
 import { EmptyState, KindIcon, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
+import { rowKeys } from '../lib/rowKeys'
 import s from './Views.module.css'
 import { CsvButton } from '../ui/CsvButton'
 import { sortRows } from '../lib/sort'
@@ -37,13 +38,13 @@ const AGENT_OPTIONS = [
 export function Tools() {
   const p = new URLSearchParams(useSearch())
   const [, navigate] = useLocation()
-  const f = { range: p.get('range') ?? '30d', agent: p.get('agent') ?? '', tool: p.get('tool') ?? '', sort: p.get('sort') ?? 'calls' }
+  const f = { range: p.get('range') ?? '30d', agent: p.get('agent') ?? '', tool: p.get('tool') ?? '', via: p.get('via') ?? '', sort: p.get('sort') ?? 'calls' }
   const sort = f.sort
   const set = (patch: Partial<typeof f>) => navigate(`/tools${query({ ...f, ...patch })}`, { replace: true })
   const gen = useIndexStatus().status?.generation ?? 0
   const { data } = useApi<ToolStat[]>(`/api/tools${query({ range: f.range, agent: f.agent })}`, gen)
   const sources = useApi<Source[]>(`/api/sources${query({ range: f.range, agent: f.agent })}`, gen)
-  const calls = useApi<StepRef[]>(f.tool ? `/api/tool-calls${query({ tool: f.tool, range: f.range, agent: f.agent, limit: 100 })}` : null, gen)
+  const calls = useApi<StepRef[]>(f.tool || f.via ? `/api/tool-calls${query({ tool: f.tool, via: f.via, range: f.range, agent: f.agent, limit: 100 })}` : null, gen)
   const max = Math.max(1, ...(data ?? []).map((t) => t.calls))
 
   return (
@@ -95,7 +96,7 @@ export function Tools() {
                     <tr
                       key={t.tool_name}
                       className={`${s.rowBtn} ${f.tool === t.tool_name ? s.rowOn : ''}`}
-                      onClick={() => set({ tool: f.tool === t.tool_name ? '' : t.tool_name })}
+                      {...rowKeys(() => set({ tool: f.tool === t.tool_name ? '' : t.tool_name, via: '' }))}
                     >
                       <td>
                         <span className={s.name}>
@@ -122,8 +123,8 @@ export function Tools() {
             </div>
           </Panel>
           <div className={s.sticky}>
-            <Panel title={f.tool ? `Latest · ${f.tool}` : 'Latest calls'} flush>
-              {!f.tool ? (
+            <Panel title={f.via ? `Latest · ${f.via.replace(':', ' ')}` : f.tool ? `Latest · ${f.tool}` : 'Latest calls'} flush>
+              {!f.tool && !f.via ? (
                 <EmptyState title="Pick a tool">Its latest calls show here; click one to open the replay.</EmptyState>
               ) : (
                 <div className={s.list}>
@@ -161,24 +162,20 @@ export function Tools() {
               </thead>
               <tbody>
                 {sources.data.map((x) => (
-                  <tr key={`${x.kind}:${x.name}`} className={x.kind === 'mcp' && f.tool === `mcp__${x.name}` ? s.rowOn : undefined}>
+                  <tr key={`${x.kind}:${x.name}`} className={(x.kind === 'mcp' ? f.tool === `mcp__${x.name}` : f.via === `${x.kind}:${x.name}`) ? s.rowOn : undefined}>
                     <td className={s.mono}>
-                      {x.kind === 'mcp' ? (
-                        // An MCP server's calls are its tools: the same filter a tool row sets.
-                        <button
-                          type="button"
-                          className={s.linkBtn}
-                          title="Show this server's latest calls"
-                          onClick={() => {
-                            set({ tool: `mcp__${x.name}` })
-                            window.scrollTo({ top: 0 })
-                          }}
-                        >
-                          {x.name}
-                        </button>
-                      ) : (
-                        x.name
-                      )}
+                      <button
+                        type="button"
+                        className={s.linkBtn}
+                        title="Show the latest steps behind this"
+                        onClick={() => {
+                          // An MCP server's calls are its tools; the rest are steps that name them as their source.
+                          set(x.kind === 'mcp' ? { tool: `mcp__${x.name}`, via: '' } : { tool: '', via: `${x.kind}:${x.name}` })
+                          window.scrollTo({ top: 0 })
+                        }}
+                      >
+                        {x.name}
+                      </button>
                     </td>
                     <td>{SOURCE_KIND[x.kind] ?? x.kind}</td>
                     <td className={s.num}>{formatNumber(x.steps)}</td>

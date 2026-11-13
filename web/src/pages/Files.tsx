@@ -7,6 +7,7 @@ import { baseName, formatAgo, formatNumber, oneLine } from '../lib/format'
 import { EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
+import { rowKeys } from '../lib/rowKeys'
 import s from './Views.module.css'
 import { CsvButton } from '../ui/CsvButton'
 import type { Column } from '../lib/csv'
@@ -110,7 +111,7 @@ export function Files() {
                   </thead>
                   <tbody>
                     {rows.slice(0, 500).map((x) => (
-                      <tr key={x.path} className={`${s.rowBtn} ${f.path === x.path ? s.rowOn : ''}`} onClick={() => set({ path: f.path === x.path ? '' : x.path })}>
+                      <tr key={x.path} className={`${s.rowBtn} ${f.path === x.path ? s.rowOn : ''}`} {...rowKeys(() => set({ path: f.path === x.path ? '' : x.path }))}>
                         <td>
                           <div className={s.path} title={x.path}>
                             <bdi>{rel(x.path)}</bdi>

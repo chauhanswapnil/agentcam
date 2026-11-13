@@ -345,3 +345,8 @@
   outline: 2px solid var(--text-2);
   outline-offset: 2px;
 }
+
+.rowBtn:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: -2px;
+}

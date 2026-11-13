@@ -14,7 +14,14 @@ const LENGTHS = ['Under 30 s', '30 s – 2 min', '2 – 10 min', '10 – 30 min'
 const short = (ms: number) => formatDuration(ms).replace(/ \d+s$/, '')
 
 /** How long turns take: a prompt you typed and the work until the next. */
-export function TurnsPanel({ data }: { data: TurnStats }) {
+export function TurnsPanel({
+  data,
+  onPick,
+}: {
+  data: TurnStats
+  /** Called with a key for `/api/behind`, like `turns:2`. */
+  onPick?: (what: string) => void
+}) {
   const [by, setBy] = useState<'model' | 'effort' | 'mode'>('model')
   const groups: TurnGroup[] = by === 'model' ? data.by_model : by === 'effort' ? data.by_effort : data.by_mode
   const maxLen = Math.max(1, ...data.lengths)
@@ -46,15 +53,29 @@ export function TurnsPanel({ data }: { data: TurnStats }) {
         )}
       </div>
 
-      <div className={s.lengths} role="img" aria-label={LENGTHS.map((l, i) => `${l}: ${data.lengths[i]}`).join(', ')}>
-        {data.lengths.map((n, i) => (
-          <Tooltip key={i} delay={80} content={`${LENGTHS[i]}: ${formatNumber(n)} turns`}>
-            <span className={s.col}>
+      <div
+        className={s.lengths}
+        {...(onPick ? { role: 'group', 'aria-label': 'Turns by length' } : { role: 'img', 'aria-label': LENGTHS.map((l, i) => `${l}: ${data.lengths[i]}`).join(', ') })}
+      >
+        {data.lengths.map((n, i) => {
+          const inner = (
+            <>
               <span className={s.colBar} style={{ height: `${Math.max(2, (n / maxLen) * 100)}%` }} />
               <span className={s.colLabel}>{LENGTHS[i]}</span>
-            </span>
-          </Tooltip>
-        ))}
+            </>
+          )
+          return (
+            <Tooltip key={i} delay={80} content={`${LENGTHS[i]}: ${formatNumber(n)} ${n === 1 ? 'turn' : 'turns'}${onPick && n > 0 ? '. Show them.' : ''}`}>
+              {onPick && n > 0 ? (
+                <button type="button" className={`${s.col} ${s.colBtn}`} onClick={() => onPick(`turns:${i}`)} aria-label={`${LENGTHS[i]}: ${formatNumber(n)} ${n === 1 ? 'turn' : 'turns'}, show ${n === 1 ? 'it' : 'them'}`}>
+                  {inner}
+                </button>
+              ) : (
+                <span className={s.col}>{inner}</span>
+              )}
+            </Tooltip>
+          )
+        })}
       </div>
 
       <div className={s.groupHead}>

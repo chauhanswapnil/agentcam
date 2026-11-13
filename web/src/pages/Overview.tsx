@@ -536,7 +536,7 @@ export function Overview() {
             />
           )}
           {cache.data && cache.data.calls > 0 && cache.data.hit_rate != null && cache.data.hit_rate > 0 && <CachePanel data={cache.data} onPick={openBehind} />}
-          {turns.data && turns.data.turns > 0 && <TurnsPanel data={turns.data} />}
+          {turns.data && turns.data.turns > 0 && <TurnsPanel data={turns.data} onPick={openBehind} />}
         </div>
       </div>
       {behind && (

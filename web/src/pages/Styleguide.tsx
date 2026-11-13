@@ -477,7 +477,7 @@ export function Styleguide() {
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 12 }}>
             {SAMPLE_FIXES.map((x) => (
-              <FixCard key={x.id} fix={x} onMark={() => {}} onSeeAll={() => {}} />
+              <FixCard key={x.id} fix={x} onMark={() => {}} onSeeAll={() => {}} onWeek={() => {}} />
             ))}
           </div>
           <p className={s.rule}>

@@ -10,7 +10,7 @@ import s from './StepsDrawer.module.css'
 type Props = {
   /** The number to list steps for: `time:tools`, `cost:output`, `fix:<id>`… */
   what: string
-  filter: { range?: string; agent?: string; project?: string; day?: string; since?: string }
+  filter: { range?: string; agent?: string; project?: string; day?: string; since?: string; until?: string }
   /** Narrow to one session and its subagents. */
   session?: string
   onClose: () => void
@@ -34,7 +34,7 @@ export function StepsList({ data }: { data: Behind }) {
                 <span className={s.step}>{x.step_title || `Step ${x.seq}`}</span>
                 <span className={s.where}>{[x.session_title, x.ts ? formatAgo(x.ts) : null].filter(Boolean).join(' · ')}</span>
               </span>
-              <span className={s.value}>{formatBehind(x.value, data.unit)}</span>
+              {data.unit !== 'none' && <span className={s.value}>{formatBehind(x.value, data.unit)}</span>}
             </Link>
           </li>
         ))}

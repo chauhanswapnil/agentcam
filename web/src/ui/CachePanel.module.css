@@ -122,3 +122,22 @@
   font-size: var(--fs-xs);
   line-height: 1.5;
 }
+
+.statBtn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.statBtn:hover b {
+  text-decoration: underline;
+}
+.statBtn:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}

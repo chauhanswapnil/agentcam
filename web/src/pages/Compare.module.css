@@ -151,3 +151,16 @@
     grid-template-columns: 1fr;
   }
 }
+
+.exampleLink {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.exampleLink:hover {
+  color: var(--text-1);
+}
+.exampleLink:focus-visible {
+  outline: 2px solid var(--text-2);
+  outline-offset: 2px;
+}

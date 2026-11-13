@@ -8,6 +8,7 @@ import { AgentLabel, EmptyState, Skeleton } from '../ui/Misc'
 import { Panel } from '../ui/Panel'
 import { Segmented } from '../ui/Segmented'
 import v from './Views.module.css'
+import { rowKeys } from '../lib/rowKeys'
 import s from './Skills.module.css'
 
 const RANGES = [
@@ -122,7 +123,7 @@ export function Skills() {
                 </thead>
                 <tbody>
                   {rows.map((k) => (
-                    <tr key={k.name} className={v.rowBtn} onClick={() => setOpen(open === k.name ? null : k.name)}>
+                    <tr key={k.name} className={v.rowBtn} {...rowKeys(() => setOpen(open === k.name ? null : k.name))}>
                       <td className={s.nameCell}>
                         <span className={s.name}>{k.name}</span>
                         <span className={s.sub}>

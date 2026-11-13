@@ -1,12 +1,14 @@
 import { Check, Lightbulb } from 'lucide-react'
 import { Link } from 'wouter'
 import type { Fix } from '../lib/api'
-import { formatCompact, formatCost, formatHours, formatNumber, oneLine } from '../lib/format'
+import { formatCompact, formatCost, formatDate, formatHours, formatNumber, oneLine } from '../lib/format'
 import { Button } from './Button'
 import { CodeText } from './Code'
 import { CopyButton } from './CopyButton'
 import { Sparkline } from './Sparkline'
 import s from './FixCard.module.css'
+
+const WEEK_MS = 7 * 86_400_000
 
 /** "about 23m a week" or "about $36 a week". Always an estimate. */
 function fixSize(f: Fix): string | null {
@@ -24,12 +26,15 @@ export function FixCard({
   fix,
   onMark,
   onSeeAll,
+  onWeek,
   href,
 }: {
   fix: Fix
   onMark?: (state: 'applied' | 'dismissed') => void
   /** Opens every occurrence, not only the few shown. */
   onSeeAll?: () => void
+  /** Opens the runs of one week, as an ISO time range. */
+  onWeek?: (since: string, until: string) => void
   /** Makes the title a link, for a card that sums up a page elsewhere. */
   href?: string
 }) {
@@ -67,12 +72,34 @@ export function FixCard({
         </div>
       )}
       <footer className={s.foot}>
-        {fix.weekly.length > 1 && (
-          <span className={s.weeks} title={`Times a week, oldest first: ${fix.weekly.join(', ')}`}>
-            <Sparkline values={fix.weekly} width={Math.min(72, fix.weekly.length * 8)} height={16} />
-            by week
-          </span>
-        )}
+        {fix.weekly.length > 1 &&
+          (onWeek && fix.weekly_end != null ? (
+            <span className={s.weeks}>
+              <span className={s.weekBars} role="group" aria-label="Runs by week, oldest first">
+                {fix.weekly.map((n, i) => {
+                  const end = fix.weekly_end! - (fix.weekly.length - 1 - i) * WEEK_MS
+                  // Weeks are counted back from the latest run; the last one includes it.
+                  const until = new Date(end + 1000).toISOString()
+                  const since = new Date(end - WEEK_MS).toISOString()
+                  const label = `${n} ${n === 1 ? 'time' : 'times'} in the week ending ${formatDate(until)}`
+                  const h = Math.max(2, (n / Math.max(1, ...fix.weekly)) * 16)
+                  return n > 0 ? (
+                    <button key={i} type="button" className={s.weekBar} title={`${label}: show them`} aria-label={`${label}: show them`} onClick={() => onWeek(since, until)}>
+                      <span style={{ height: h }} />
+                    </button>
+                  ) : (
+                    <span key={i} className={s.weekNone} title={label} />
+                  )
+                })}
+              </span>
+              by week
+            </span>
+          ) : (
+            <span className={s.weeks} title={`Times a week, oldest first: ${fix.weekly.join(', ')}`}>
+              <Sparkline values={fix.weekly} width={Math.min(72, fix.weekly.length * 8)} height={16} />
+              by week
+            </span>
+          ))}
         {fix.examples.length > 0 && (
           <span className={s.examples}>
             See it:
