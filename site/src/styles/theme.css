@@ -1,0 +1,59 @@
+/*
+ * agentcam colors and fonts for Starlight. Values come from
+ * web/src/styles/tokens.css, so the docs look like the app.
+ * Dark (the app's only theme) is the default; light is for readers who
+ * pick it.
+ */
+:root {
+  --sl-font: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --sl-font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --sl-color-accent-low: #12305a;
+  --sl-color-accent: #3987e5;
+  --sl-color-accent-high: #9ec5f4;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #ededef;
+  --sl-color-gray-2: #a1a1aa;
+  --sl-color-gray-3: #8b8b95;
+  --sl-color-gray-4: #3a3a43;
+  --sl-color-gray-5: #2a2a31;
+  --sl-color-gray-6: #18181c;
+  --sl-color-black: #0a0a0c;
+
+  --sl-color-bg-nav: #0a0a0c;
+  --sl-color-bg-sidebar: #0a0a0c;
+  --sl-color-hairline: #1f1f24;
+  --sl-color-hairline-light: #2a2a31;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #dbe8fa;
+  --sl-color-accent: #256abf;
+  --sl-color-accent-high: #184f95;
+  --sl-color-white: #0a0a0c;
+  --sl-color-gray-1: #18181c;
+  --sl-color-gray-2: #3a3a43;
+  --sl-color-gray-3: #5c5c66;
+  --sl-color-gray-4: #8b8b95;
+  --sl-color-gray-5: #d4d4da;
+  --sl-color-gray-6: #ededef;
+  --sl-color-gray-7: #f6f6f8;
+  --sl-color-black: #ffffff;
+
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #ffffff;
+  --sl-color-hairline: #ededef;
+  --sl-color-hairline-light: #e4e4e8;
+}
+
+/* Screenshots: a thin frame so dark shots sit apart from a dark page. */
+.sl-markdown-content img {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 8px;
+}
+
+.site-title {
+  color: var(--sl-color-white);
+  font-weight: 620;
+  letter-spacing: -0.011em;
+}

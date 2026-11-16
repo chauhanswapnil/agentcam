@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Docs
+
+- A docs site at https://chauhanswapnil.github.io/agentcam/: install, a tour of every page, guides for audit rules, the guard, MCP, evidence and the team server, and a command reference. The guides in `docs/` moved there.
+
 ## 0.2.0 - 2026-11-12
 
 Where your agents' time and money went, what to change, and every number opens the steps behind it. Cost estimates are also more accurate, so totals you saw in 0.1.0 will move.

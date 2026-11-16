@@ -41,7 +41,9 @@ web/                 React + Vite + TypeScript UI; builds into crates/agentcam-s
   src/lib/           event kinds, agents, formatting
   src/team/          the team server's pages, under /team (same build)
 fixtures/            synthetic agent logs for tests (never real ones, see below)
-docs/                user guides (team server, MCP) and README screenshots
+site/                docs site (Astro Starlight), published to GitHub Pages
+  src/content/docs/  the user docs, one Markdown page each
+docs/screenshots/    README and docs site screenshots
 ```
 
 Dependencies flow one way: `agentcam` → `agentcam-team` → `agentcam-server` → `agentcam-core`. Core must not depend on the server, the team crate or the CLI. Team code stays in `agentcam-team` so it can be licensed apart later.
@@ -81,11 +83,29 @@ UI dev loop: run `cargo run -- serve --no-open` in one terminal and `npm run dev
 
 `build.rs` in `agentcam-server` writes a placeholder `ui-dist/index.html` if the UI hasn't been built, so `cargo build` always works. Run `npm run build` before a release build or the binary ships the placeholder.
 
+## Docs site
+
+User docs live in `site/` (Astro Starlight) and publish to https://chauhanswapnil.github.io/agentcam/ from `.github/workflows/docs.yml` on each push to `main`. They are for people who use agentcam; how the code works stays in this file.
+
+```sh
+# From site/
+npm ci
+npm run dev        # http://localhost:4321/agentcam/
+npm run build      # writes site/dist; fails on bad frontmatter
+```
+
+- The sidebar is set in `site/astro.config.mjs`; add new pages there.
+- Links between pages are relative (`../../guides/mcp/`): Starlight doesn't add the `/agentcam` base to Markdown links.
+- Screenshots come from `docs/screenshots/` by relative path, so the README and the site share one set.
+- Colors and fonts follow `web/src/styles/tokens.css` (`site/src/styles/theme.css`).
+- When a feature changes what a user sees or types, update its page in the same change. Keep the voice rules above.
+- Set `ASTRO_TELEMETRY_DISABLED=1` when building (CI does).
+
 ## Before you finish a change
 
 1. `cargo fmt --all` and `cargo clippy --all-targets -- -D warnings` are clean.
 2. `cargo test` passes.
-3. If you touched `web/`: `npm run lint` and `npm run build` pass.
+3. If you touched `web/`: `npm run lint` and `npm run build` pass. If you touched `site/`: `npm run build` passes there.
 4. New behavior has a test. Parser changes have a fixture that shows the case.
 5. UI changes: open the app and look at them. Screenshots in the PR help.
 6. Install-path changes: `scripts/smoke.sh target/debug/agentcam` runs a built binary against the fixtures (index, search, guard, serve). CI runs it on macOS, Linux and Windows after `cargo install`, and checks `cargo package --workspace`.
@@ -239,7 +259,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 - Claude Code `hook_*` attachments become `System` steps with `tool_name = hook` (title like "PostToolUse hook (prettier) ran"; `_error` kinds are errored). The UI gives them their own icon.
 - `prompts.rs`: prompts on top-level sessions; repeats are grouped by a normalized text (case, spacing, punctuation) and need two or more sessions.
 - `setup.rs` reads the agents' config locally: settings files (user, local, managed, each recent project's), `~/.claude.json` and `.mcp.json` MCP servers, Codex `config.toml`, hooks, memory and instruction files, skills. Environment variables are listed by name only. Checks say "worth a look", never "violation". `ConfigDirs` in `lib.rs` honors `CLAUDE_CONFIG_DIR` and `CODEX_HOME` everywhere (log folders, skills, fleet).
-- `mcp.rs` answers JSON-RPC for `agentcam mcp`: `initialize`, `tools/list`, `tools/call` (search_sessions, recent_sessions, get_session, get_step, file_history, blame, project_rules, what_lasted). Read only; stdout carries only protocol messages, so log to stderr. Every tool answer goes through `Rules::mask_secrets`. The binary indexes at start and again before a `tools/call` when 30 s have passed. User docs: `docs/mcp.md`; keep its tool table in step with `tools()`.
+- `mcp.rs` answers JSON-RPC for `agentcam mcp`: `initialize`, `tools/list`, `tools/call` (search_sessions, recent_sessions, get_session, get_step, file_history, blame, project_rules, what_lasted). Read only; stdout carries only protocol messages, so log to stderr. Every tool answer goes through `Rules::mask_secrets`. The binary indexes at start and again before a `tools/call` when 30 s have passed. User docs: `site/src/content/docs/guides/mcp.md`; keep its tool table in step with `tools()`.
 
 ### Identity and the share contract (team prep)
 
@@ -253,7 +273,7 @@ List routes take `range` (`7d`, `30d`, `90d`, `all`), `agent`, `project` (a proj
 
 - `crates/agentcam-team`: `store.rs` (SQLite, numbered `MIGRATIONS`, plain SQL that Postgres also runs: `ON CONFLICT ... DO UPDATE`, no SQLite-only functions in queries), `server.rs` (axum), `views.rs` (Insights, Value, Governance, Fleet), `client.rs` (laptop side).
 - `agentcam team serve --data <dir> --bind 127.0.0.1:4850` prints the first admin token once. It serves the same embedded UI; `web/src/main.tsx` renders the team app for paths under `/team`.
-- Auth is by token, not Host: laptops use device tokens (`ac_dev_`), the UI uses viewer tokens (`ac_view_`, roles `admin` and `viewer`, kept in the browser's localStorage and sent as `Authorization: Bearer`). Invites (`ac_inv_`) are traded for a device token. Only SHA-256 hashes of tokens are stored. Admin changes go to `audit_log`. On the server machine, `agentcam team machines|remove|viewers|revoke` manage machines and viewer tokens; the last admin can't be revoked. Operator docs: `docs/team-server.md`.
+- Auth is by token, not Host: laptops use device tokens (`ac_dev_`), the UI uses viewer tokens (`ac_view_`, roles `admin` and `viewer`, kept in the browser's localStorage and sent as `Authorization: Bearer`). Invites (`ac_inv_`) are traded for a device token. Only SHA-256 hashes of tokens are stored. Admin changes go to `audit_log`. On the server machine, `agentcam team machines|remove|viewers|revoke` manage machines and viewer tokens; the last admin can't be revoked. Operator docs: `site/src/content/docs/guides/team-server.md`.
 - `POST /api/team/join` and `POST /api/team/sync` (device token; at most 1000 sessions per request, unchanged versions skipped, a laptop may only send its own machine id). UI routes: `GET /api/team/me|insights|value|governance|fleet|settings|baseline|findings/export` (`range`, `team`), `GET/POST /api/team/siem` and `POST /api/team/settings|invites|viewers|baseline` (admin).
 - The laptop keeps `team.json` (link and token, mode 600) and `team-sync.json` (versions sent, last sync, last error) next to the index. `agentcam serve` syncs every 5 minutes when linked; `agentcam team sync|status|pause|resume|leave` do the rest. `https://` is required unless the server is on loopback or `--allow-http` is passed.
 - Baseline (`baseline.rs`): an admin sets flags every machine should have or none should, tags no MCP server or skill should carry, an MCP allowlist and oldest agent versions (`GET/POST /api/team/baseline`). Each sync stores the machine's setup as fact strings in `machine_facts` (with `first_seen`) and logs added and removed facts in `fact_changes`, so each difference says since when. It never changes a machine.

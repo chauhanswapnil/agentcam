@@ -6,6 +6,8 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Overview: agent time, a year of activity, sessions and projects](https://raw.githubusercontent.com/chauhanswapnil/agentcam/v0.2.0/docs/screenshots/overview.png)
 
+**[Read the docs](https://chauhanswapnil.github.io/agentcam/)** for install, a tour of every page, guides and the command reference.
+
 > **Status:** 0.2.0. Used every day, still young: expect rough edges and say so in [issues](https://github.com/chauhanswapnil/agentcam/issues). The team server is a preview. Screenshots use made-up demo data.
 
 ## What it does
@@ -64,7 +66,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ### Safety
 
-**Risk audit.** 73 built-in rules flag secrets in transcripts (masked before they're stored), sensitive files, dangerous commands, privilege and persistence changes (sudoers, shell startup files, cron, `authorized_keys`), data sent out, and writes outside the project. Findings show on the replay timeline and the Audit page. Mark a finding "looks fine" or mute a rule for one project, and the To review list keeps only what you haven't seen. Add your own rules in YAML from the Audit page and preview what they'd find before saving; [the rules guide](docs/audit-rules.md) covers every field.
+**Risk audit.** 73 built-in rules flag secrets in transcripts (masked before they're stored), sensitive files, dangerous commands, privilege and persistence changes (sudoers, shell startup files, cron, `authorized_keys`), data sent out, and writes outside the project. Findings show on the replay timeline and the Audit page. Mark a finding "looks fine" or mute a rule for one project, and the To review list keeps only what you haven't seen. Add your own rules in YAML from the Audit page and preview what they'd find before saving; [the rules guide](https://chauhanswapnil.github.io/agentcam/guides/audit-rules/) covers every field.
 
 **Chains and outside content.** Some risks only show across steps: a secret read and then an upload, a stopped call followed by another way around it, a command run right after a web page or MCP result held instructions. agentcam also notices when a command runs a package or sends data to an address that came from a tool result, such as a fake Sentry error telling the agent to run a package, and decodes hidden characters in tool output. Each finding links back to the step the chain started from.
 
@@ -90,7 +92,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 ![Setup: settings worth a look, settings files, MCP servers and hooks](https://raw.githubusercontent.com/chauhanswapnil/agentcam/v0.2.0/docs/screenshots/setup.png)
 
-**Ask your history (MCP).** `agentcam mcp` is a read-only MCP server, so your agents can look up past work: how a bug was fixed before, what a repo's AGENTS.md asks and what tends to get missed, which edits to a file lasted, who wrote a line. Add it with `claude mcp add agentcam -- agentcam mcp`, or in Codex's `config.toml` as `[mcp_servers.agentcam]` with `command = "agentcam"` and `args = ["mcp"]`. Answers have secrets masked. [Every tool](docs/mcp.md).
+**Ask your history (MCP).** `agentcam mcp` is a read-only MCP server, so your agents can look up past work: how a bug was fixed before, what a repo's AGENTS.md asks and what tends to get missed, which edits to a file lasted, who wrote a line. Add it with `claude mcp add agentcam -- agentcam mcp`, or in Codex's `config.toml` as `[mcp_servers.agentcam]` with `command = "agentcam"` and `args = ["mcp"]`. Answers have secrets masked. [Every tool](https://chauhanswapnil.github.io/agentcam/guides/mcp/).
 
 **Tools and files.** Use, errors and time per tool; skills, plugins and MCP servers behind steps; the most changed files and each file's history.
 
@@ -98,7 +100,7 @@ agentcam reads the session logs that Claude Code and Codex already write on your
 
 **Session export.** Download a session as Markdown (prompts, replies, commands with the start of their output, diffs) or JSON, with secrets masked. Every table (sessions, tools, files, commits, findings) downloads as CSV.
 
-**Evidence bundles.** A session or a date range as one JSON file for an auditor or an incident review: who ran it and when, prompts, every step and how it was allowed, file changes, findings, commits. Secrets are masked, and a SHA-256 checksum shows whether the file changed later (`agentcam evidence verify`). Findings also export for a SIEM as NDJSON or OCSF. [Evidence and SIEM](docs/evidence-and-siem.md).
+**Evidence bundles.** A session or a date range as one JSON file for an auditor or an incident review: who ran it and when, prompts, every step and how it was allowed, file changes, findings, commits. Secrets are masked, and a SHA-256 checksum shows whether the file changed later (`agentcam evidence verify`). Findings also export for a SIEM as NDJSON or OCSF. [Evidence and SIEM](https://chauhanswapnil.github.io/agentcam/guides/evidence-and-siem/).
 
 **Report cards.** PNG cards for a session or your week, with titles, projects and file names hidden by default.
 
@@ -136,7 +138,7 @@ agentcam team invite Platform               # or make invites on the Settings pa
 agentcam team join https://agentcam.example.com ac_inv_...
 ```
 
-[Running a team server](docs/team-server.md) covers the proxy, tokens, removing a machine, backups and upgrades.
+[Running a team server](https://chauhanswapnil.github.io/agentcam/guides/team-server/) covers the proxy, tokens, removing a machine, backups and upgrades.
 
 ## Install
 

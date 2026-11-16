@@ -1,4 +1,7 @@
-# agentcam as an MCP server
+---
+title: agentcam as an MCP server
+description: Let your agents look up past sessions, rules and blame through MCP.
+---
 
 `agentcam mcp` lets your agents look up past work on this machine: how a bug was fixed before, what a repo's AGENTS.md or CLAUDE.md asks and what tends to get missed, which edits to a file lasted, and which session wrote a line. It reads the same local index as the UI and never writes to it.
 

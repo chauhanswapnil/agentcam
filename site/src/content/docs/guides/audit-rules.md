@@ -1,4 +1,7 @@
-# Audit rules
+---
+title: Audit rules
+description: The built-in risk rules, and how to write, preview and review your own.
+---
 
 agentcam checks every step of every session against a set of rules when it indexes your logs. A match is a finding: it shows on the replay timeline, on the step, and on the Audit page. Findings are things worth a second look, not verdicts; agents do risky-looking things for good reasons all the time.
 
