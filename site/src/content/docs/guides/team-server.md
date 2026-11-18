@@ -1,10 +1,28 @@
-# Running a team server
+---
+title: Running a team server
+description: "Run a self-hosted team server: proxy, tokens, machines, baseline, backups."
+---
 
 A team server collects metadata from the laptops that join it and shows it to the people you give tokens to. It is the same `agentcam` binary, run with `agentcam team serve`. Your company runs it; nothing goes to us.
 
 ## What laptops send
 
 Counts, times, tokens, cost, findings (with secrets masked on the laptop), commits, pull request links, file paths relative to the project, and agent setup by name (versions, MCP servers, plugins, skills, hooks, a few setting flags). Never prompts, replies, thinking, commands, output, tool inputs or diffs. On a laptop, the Outbox page (`/outbox`) shows exactly what would be sent.
+
+## What it shows
+
+- **Insights:** agent time, cost, lines still there and rules followed, by week, team, repo and model.
+- **Value:** cost per commit and per pull request, lines kept per dollar, seats against use at API prices, and models and agent versions side by side.
+- **Governance:** what the risk rules found across the team.
+- **Fleet:** agent versions, MCP servers, plugins, skills and hooks on each machine, and settings worth a look.
+
+![Team insights: time, cost and what lasted by week, team and repo](../../../../../docs/screenshots/team-insights.png)
+
+![Value: cost per commit and PR, lines kept per dollar, seats, and models side by side](../../../../../docs/screenshots/team-value.png)
+
+![Governance: findings across the team by severity and rule](../../../../../docs/screenshots/team-governance.png)
+
+![Fleet: settings worth a look, agent versions and what's installed across machines](../../../../../docs/screenshots/team-fleet.png)
 
 ## Start it
 
@@ -84,7 +102,7 @@ Fleet then lists the machines that differ, each difference with since when, and 
 
 ## SIEM
 
-Findings from every machine go to your SIEM by pull or push. See [evidence and SIEM](evidence-and-siem.md#from-the-team-server).
+Findings from every machine go to your SIEM by pull or push. See [evidence and SIEM](../evidence-and-siem/#from-the-team-server).
 
 ## People and privacy
 

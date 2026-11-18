@@ -24,3 +24,7 @@ node_modules/
 
 # Local agent settings
 .claude/settings.local.json
+
+# Docs site
+/site/dist
+/site/.astro
